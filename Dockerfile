@@ -9,7 +9,7 @@ FROM ${BASE_IMAGE}
 
 ENV AGENT_ID=meetly \
     AGENT_NAME=Meetly \
-    AGENT_BLURB="Books meetings for you: sees who wants to meet, offers your free times in a group text, and puts it on your calendar." \
+    AGENT_BLURB="Your scheduling assistant. It reads your iMessages, spots who wants to meet, and opens a group to book it on your calendar. Or ask it to reach out to anyone for you. Works both ways." \
     AGENT_RUNTIME="OpenClaw 2.0"
 
 COPY prompt/AGENTS.md /opt/plow/prompt/AGENTS.md
