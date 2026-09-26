@@ -187,6 +187,8 @@ message is skipped.
 - `skills/meetly/scripts/` — the TypeScript CLIs behind them.
 - `tests/` — `node --test` suites; `tests/fixtures/base-AGENTS.md` pins the
   base prompt to catch drift.
+- `index/logo.png` — the Agent Index logo (uploaded to the listing, not
+  served from here).
 - `checks/` — `manual-scenarios.md` (end-to-end checklist) and `spike.md`
   (findings from the base code and the owner's Mac).
 - `Dockerfile`, `compose.yml`, `dev/Caddyfile` — the image and local stack;
