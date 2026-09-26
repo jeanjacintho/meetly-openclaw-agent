@@ -99,8 +99,21 @@ plow-agents revoke           # retire the line in plow-credentials
 
 `plow-credentials` is gitignored. Do not commit it.
 
-The base image is published for `linux/amd64` only; on Apple Silicon, Docker
-runs it emulated (`compose.yml` pins the platform).
+**Apple Silicon.** The base image is published for `linux/amd64` only, and
+Docker's emulation on Apple Silicon lacks the `openat2` syscall OpenClaw
+2026.9.6 needs: the gateway exits with code 78 ("the Gateway or another SQLite
+maintenance command owns this state directory"). Build the base natively from
+source once, then add the arm64 override:
+
+```sh
+./dev/build-base.sh                                          # tags plow-openclaw-base:1e73c82-local
+docker compose -f compose.yml -f compose.arm64.yml up --build -d
+```
+
+Images you deploy are unaffected: the Dockerfile's default `BASE_IMAGE` is the
+published base, pinned by digest. On a native arm64 build the Agent Index usage
+reporter cannot run (the base ships `agentsview` for amd64 only); the agent
+itself works.
 
 ## Deploy (cloud)
 
@@ -115,7 +128,7 @@ plow-agents deploy REGISTRY/REPOSITORY@sha256:DIGEST --line LINE_UID
 
 A cloud host injects the credentials; there is no `plow-credentials` file.
 The image lists itself on the [Agent Index](https://aiworthusing.com/agent-index)
-as `meetly` (`AGENT_ID`, `AGENT_NAME`, `AGENT_BLURB` in the Dockerfile) and
+as `meetly` (`AGENT_ID`, `AGENT_NAME`, `AGENT_BLURB`, `AGENT_RUNTIME` in the Dockerfile) and
 reports its token usage through the base's pinned reporter.
 
 ## Your Mac: Latch, Messages and Calendar
@@ -176,7 +189,8 @@ message is skipped.
   base prompt to catch drift.
 - `checks/` — `manual-scenarios.md` (end-to-end checklist) and `spike.md`
   (findings from the base code and the owner's Mac).
-- `Dockerfile`, `compose.yml`, `dev/Caddyfile` — the image and local stack.
+- `Dockerfile`, `compose.yml`, `dev/Caddyfile` — the image and local stack;
+  `compose.arm64.yml` and `dev/build-base.sh` for Apple Silicon.
 
 ## Development
 
@@ -197,7 +211,9 @@ Pick a newer `base-<sha>` tag and its digest from the
 [gallery](https://gallery.ecr.aws/e1h7x4a2/plow-cloud-agents) and update the
 `FROM` line in `Dockerfile`. Then:
 
-1. Copy that commit's `prompt/AGENTS.md` over `tests/fixtures/base-AGENTS.md`.
+1. Copy that commit's `prompt/AGENTS.md` over `tests/fixtures/base-AGENTS.md`,
+   and update `REV`/`TAG` in `dev/build-base.sh` and the tag in
+   `compose.arm64.yml`.
 2. Re-apply the `## Meetly` section at the end of `prompt/AGENTS.md`.
 3. Re-check `compose.yml` and `dev/Caddyfile` against the base.
 4. Re-read the base's `plugin/index.ts` for `plow_start_thread`:

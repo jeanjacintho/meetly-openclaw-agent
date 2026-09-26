@@ -1,0 +1,10 @@
+# Apple Silicon: run on a base built natively from source (dev/build-base.sh),
+# because the published base is amd64-only and emulation lacks openat2.
+#   ./dev/build-base.sh
+#   docker compose -f compose.yml -f compose.arm64.yml up --build
+services:
+  agent:
+    platform: linux/arm64
+    build:
+      args:
+        BASE_IMAGE: plow-openclaw-base:1e73c82-local
