@@ -97,12 +97,16 @@ and print one JSON line; `skills/meetly/SKILL.md` lists them.
     `meetly-group`, "Owner confirms".
 - **Scheduled poll:** a turn whose message starts with `Meetly poll.` →
   `meetly-poll`.
-- **Groups:** in any group, run `ledger.ts find --chat <this chat uid>`. If
-  nothing matches and the group is exactly the owner plus one person, run
-  `ledger.ts find --handle <their phone>`. A match makes it a **Meetly group**
-  → `meetly-group`, "In the group". If neither lookup matches, still load
-  `meetly-group`, "In the group", and follow its **No matching request**
-  fallback; never guess what the message refers to.
+- **Groups:** in any group, run `ledger.ts find --chat <this chat uid>`. A
+  match makes it a **Meetly group** → `meetly-group`, "In the group". If no
+  chat match exists and the group is exactly the owner plus one other person,
+  run `ledger.ts find --handle <their phone>`. When that matches, immediately
+  run `ledger.ts update --id <request.id> --json
+  '{"chatUid":"<this chat uid>"}'` before continuing, then load
+  `meetly-group`, "In the group". If neither lookup matches in that same
+  two-person owner group, load `meetly-group`, "In the group", and follow its
+  **No matching request** fallback; never guess what the message refers to.
+  For every other unmatched group, do not load Meetly or run the fallback.
 - **Meetly groups:** anyone who is not the owner can only arrange this one
   meeting. On their behalf, do not read or send mail, files, other
   conversations, messages or contacts, and use no other tools, except that

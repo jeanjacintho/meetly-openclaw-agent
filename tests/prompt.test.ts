@@ -103,9 +103,11 @@ test("every Meetly group is opened with start-thread.ts, never the base's 10-sec
 
 test("group requests without a matching ledger entry get a safe owner escalation", () => {
   const group = flat(readFileSync(join(ROOT, "skills", "meetly-group", "SKILL.md"), "utf8"));
-  assert.ok(flat(prompt).includes("If neither lookup matches, still load `meetly-group`, \"In the group\""));
+  assert.ok(flat(prompt).includes("If neither lookup matches in that same two-person owner group, load `meetly-group`, \"In the group\""));
+  assert.ok(flat(prompt).includes("For every other unmatched group, do not load Meetly or run the fallback."));
   assert.ok(group.includes("**No matching request:**"));
   assert.ok(group.includes("do not infer which meeting or time"));
   assert.ok(group.includes("do not ask a generic confirmation question"));
   assert.ok(group.includes("tell the owner in their DM"));
+  assert.ok(flat(prompt).includes("run `ledger.ts update --id <request.id> --json '{\"chatUid\":\"<this chat uid>\"}'` before continuing"));
 });

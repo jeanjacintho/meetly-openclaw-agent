@@ -116,11 +116,18 @@ export function saveRequest(ledger: Ledger, input: NewRequest, now: number, id: 
   // Reuse addRequest's validation and timestamp behavior, then apply its new
   // offer to the existing record. An absent chatUid must not erase the link.
   const validated = addRequest(EMPTY, input, now, id).requests[0]!;
+  const newHolds = new Set(validated.offered.flatMap((offer) => offer.holdId ? [`${offer.account}\0${offer.holdId}`] : []));
+  const replacedHolds = existing.offered.flatMap((offer) => offer.holdId && !newHolds.has(`${offer.account}\0${offer.holdId}`)
+    ? [{ holdId: offer.holdId, account: offer.account }]
+    : []);
+  const holdCleanup = [...(existing.holdCleanup ?? []), ...replacedHolds]
+    .filter((hold, index, holds) => holds.findIndex((item) => item.holdId === hold.holdId && item.account === hold.account) === index);
   const replacement: Request = {
     ...existing,
     ...validated,
     id: existing.id,
     chatUid: input.chatUid ?? existing.chatUid,
+    holdCleanup,
     createdAt: existing.createdAt,
     updatedAt: new Date(now).toISOString(),
   };

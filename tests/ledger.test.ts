@@ -66,6 +66,7 @@ test("save replaces a duplicate open offer by normalized handle and preserves it
   assert.equal(saved.requests[0]!.id, "r_1");
   assert.equal(saved.requests[0]!.chatUid, "chat_1");
   assert.deepEqual(saved.requests[0]!.offered, [updatedOffer]);
+  assert.deepEqual(saved.requests[0]!.holdCleanup, [{ holdId: "h1", account: offer.account }]);
   assert.equal(saved.requests[0]!.offeredAt, new Date(T0 + HOUR).toISOString());
   assert.equal(findOpenByHandle(saved, "+15551234567")!.id, "r_1");
 });
@@ -148,6 +149,10 @@ test("CLI add, find, update, expired and cleanup round-trip", () => {
   assert.equal(saved.json.request.id, id);
   assert.equal(saved.json.request.chatUid, "chat_1");
   assert.equal(saved.json.request.offered[0].holdId, "h2");
+  assert.deepEqual(saved.json.request.holdCleanup, [
+    { holdId: "h1", account: "a" },
+    { holdId: "h1", account: offer.account },
+  ]);
 });
 
 test("a corrupt ledger.json fails loudly", () => {

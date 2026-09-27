@@ -59,7 +59,9 @@ their chat uid from `owner-chat.ts`.
    `constraints`, `allowOverlap`, and `offered[]` with each
    `start`/`end`/`holdId`/`account`. `save` creates a request or updates the
    existing open request for that person, preserving its id and existing
-   `chatUid` when the new value is absent. If it fails, delete each hold just
+   `chatUid` when the new value is absent. Holds from the replaced offer are
+   moved to `holdCleanup` automatically so the cleanup poll can delete them.
+   If it fails, delete each hold just
    created, stop and report the ledger error to the owner; do not send an
    offer. If any deletion fails, report those hold ids too.
 6. Deliver the times:
@@ -141,9 +143,11 @@ or in the group):
 
 ## In the group
 
-- **No matching request:** If `ledger.ts find --chat <this chat uid>` returns
-  `request:null` and the one-person fallback lookup also finds no open
-  request, do not infer which meeting or time the message refers to, and do
+- **No matching request:** Use this fallback only in a group that is exactly
+  the owner plus one other person, after both the chat lookup and the person's
+  handle lookup found no request. In all other unmatched groups, do not take
+  Meetly action. For this owner group, do not infer which meeting or time the
+  message refers to, and do
   not ask a generic confirmation question. Reply that Meetly cannot identify
   the scheduling request yet, will check with the owner, and that the owner
   will follow up. Then tell the owner in their DM that this chat has no linked
