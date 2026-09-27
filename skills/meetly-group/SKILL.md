@@ -52,7 +52,17 @@ their chat uid from `owner-chat.ts`.
    - **`unknownAfter` is set:** offer only what came back.
 4. Hold each slot ("Holds"). Drop a slot whose hold is refused for a
    conflict. If none are left, tell the owner and stop.
-5. Deliver the times:
+5. Persist the offer immediately after the holds exist, before sending or
+   opening a group. Run `ledger.ts save --json '<request>'` with every field:
+   `origin`, `handle` (the intended contact handle), `name`, `sourceRowid`,
+   `chatUid` if already known, `topic`, `location`, `durationMin`,
+   `constraints`, `allowOverlap`, and `offered[]` with each
+   `start`/`end`/`holdId`/`account`. `save` creates a request or updates the
+   existing open request for that person, preserving its id and existing
+   `chatUid` when the new value is absent. If it fails, delete each hold just
+   created, stop and report the ledger error to the owner; do not send an
+   offer. If any deletion fails, report those hold ids too.
+6. Deliver the times:
    - An open request that already has a `chatUid`: post the new times there.
    - Otherwise open a group with the person's handle and the opener: run
      `start-thread.ts --member <handle> --body <opener> --key <key>`, with key
@@ -64,15 +74,15 @@ their chat uid from `owner-chat.ts`.
    - The opener: third person, in their language. Say who Meetly is and whose
      assistant, the topic, and the slot labels, then ask which works. For
      inbound requests, never claim the owner asked.
-   - If starting the group fails, delete the new holds and stop. Do not
-     write the ledger.
+   - If starting the group fails, delete the new holds and mark the saved
+     request `dropped`; if a hold cannot be deleted, record its id and account
+     in `holdCleanup` so cleanup can retry. Tell the owner what failed.
    - If delivery is unknown (`deliveryUnknown`), continue without `chatUid`
      and tell the owner. Never resend.
-6. Run `ledger.ts add --json '<request>'`, or `update --id` for an existing
-   request, with every field: `origin`, `handle` (the one the group was opened with),
-   `name`, `sourceRowid`, `chatUid`, `topic`, `location`, `durationMin`,
-   `constraints`, `allowOverlap`, and `offered[]` with each
-   `start`/`end`/`holdId`/`account`.
+   - After a group opens, run `ledger.ts update --id <saved request id>
+     --json '{"chatUid":"<chat uid>"}'` immediately. If that update fails,
+     report the error and the chat uid to the owner; do not claim the group is
+     linked.
 7. Inbound requests: tell the owner in one line who, the topic and the held
    times.
 
@@ -131,6 +141,14 @@ or in the group):
 
 ## In the group
 
+- **No matching request:** If `ledger.ts find --chat <this chat uid>` returns
+  `request:null` and the one-person fallback lookup also finds no open
+  request, do not infer which meeting or time the message refers to, and do
+  not ask a generic confirmation question. Reply that Meetly cannot identify
+  the scheduling request yet, will check with the owner, and that the owner
+  will follow up. Then tell the owner in their DM that this chat has no linked
+  ledger request and include the chat uid; do not access calendar details or
+  create, change, or delete holds until the request is identified.
 - **Pick** (a time, or "the first one works"):
   1. Run `plow-gog calendar update primary <holdId> --account <account>` with
      the final title (the topic and the person's name, without "Hold:"), the

@@ -106,6 +106,27 @@ export function addRequest(ledger: Ledger, input: NewRequest, now: number, id: s
   return { requests: [...ledger.requests, request] };
 }
 
+// Save the latest offer for a person without creating a second open request.
+// This makes a retry after holds were created safe: the existing request id
+// (and its chat link, when one exists) remains stable.
+export function saveRequest(ledger: Ledger, input: NewRequest, now: number, id: string): Ledger {
+  const existing = findOpenByHandle(ledger, input.handle);
+  if (!existing) return addRequest(ledger, input, now, id);
+
+  // Reuse addRequest's validation and timestamp behavior, then apply its new
+  // offer to the existing record. An absent chatUid must not erase the link.
+  const validated = addRequest(EMPTY, input, now, id).requests[0]!;
+  const replacement: Request = {
+    ...existing,
+    ...validated,
+    id: existing.id,
+    chatUid: input.chatUid ?? existing.chatUid,
+    createdAt: existing.createdAt,
+    updatedAt: new Date(now).toISOString(),
+  };
+  return { requests: ledger.requests.map((r) => r.id === existing.id ? replacement : r) };
+}
+
 export function updateRequest(ledger: Ledger, id: string, patch: Patch, now: number): Ledger {
   for (const key of Object.keys(patch)) {
     if (!PATCH_KEYS.includes(key)) throw new Error(`unknown key: ${key} (allowed: ${PATCH_KEYS.join(", ")})`);
@@ -182,6 +203,12 @@ if (isMain(import.meta.url)) {
         const id = `r_${randomBytes(4).toString("hex")}`;
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => addRequest(l, input, now, id));
         return { request: ledger.requests.find((r) => r.id === id) };
+      }
+      case "save": {
+        const input = jsonArg(values);
+        const id = `r_${randomBytes(4).toString("hex")}`;
+        const ledger = updateJson<Ledger>(path, EMPTY, (l) => saveRequest(l, input, now, id));
+        return { request: ledger.requests.find((r) => sameHandle(r.handle, input.handle) && r.status === "offered") };
       }
       case "update": {
         if (!values.id) throw new Error("usage: ledger.ts update --id X --json '<patch>'");

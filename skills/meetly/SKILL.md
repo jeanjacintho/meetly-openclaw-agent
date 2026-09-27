@@ -17,6 +17,7 @@ exits non-zero: report that line; never guess a result. State lives in
 | `cursor.ts` | `get` \| `set <rowid>` \| `fail` \| `ok` | the cursor `{rowid, …}`; `fail` → `{failingSince, warn}` |
 | `ledger.ts` | `find --handle H` \| `find --chat U` | `{request}` or `{request:null}` |
 | | `add --json '<obj>'` \| `--json-file F` | `{request}` (refused if the person already has an open request) |
+| | `save --json '<obj>'` \| `--json-file F` | `{request}` (creates, or replaces the current open offer for that handle while preserving its id and chat link) |
 | | `update --id X --json '<patch>'` | `{request}`; patch keys: `status, chatUid, eventId, offered, holdCleanup, name, location, allowOverlap, constraints, topic, pendingOwner` (`null` clears it) |
 | | `expired [--hours N]` \| `pending` \| `cleanup` | `{requests}` |
 | `busy.ts` | `--in F [--in F2…] [--max 100]` | `{busy:[{start,end,id,account}], unknownAfter?, degraded}` |

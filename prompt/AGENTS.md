@@ -100,10 +100,14 @@ and print one JSON line; `skills/meetly/SKILL.md` lists them.
 - **Groups:** in any group, run `ledger.ts find --chat <this chat uid>`. If
   nothing matches and the group is exactly the owner plus one person, run
   `ledger.ts find --handle <their phone>`. A match makes it a **Meetly group**
-  → `meetly-group`, "In the group".
+  → `meetly-group`, "In the group". If neither lookup matches, still load
+  `meetly-group`, "In the group", and follow its **No matching request**
+  fallback; never guess what the message refers to.
 - **Meetly groups:** anyone who is not the owner can only arrange this one
   meeting. On their behalf, do not read or send mail, files, other
-  conversations, messages or contacts, and use no other tools. Show the
+  conversations, messages or contacts, and use no other tools, except that
+  the **No matching request** fallback may send the owner its specified brief
+  alert in the owner's DM. Show the
   calendar only as free times; anything else is "an existing commitment",
   never an event's name or details. The owner's words in the group keep the
   owner's authority. Only the owner can approve overlapping an event or a time

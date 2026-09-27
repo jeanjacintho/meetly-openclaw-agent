@@ -100,3 +100,12 @@ test("every Meetly group is opened with start-thread.ts, never the base's 10-sec
   assert.ok(group.includes("Never the `plow_start_thread` tool"));
   assert.ok(flat(prompt).includes("Meetly opens its groups with `start-thread.ts`"));
 });
+
+test("group requests without a matching ledger entry get a safe owner escalation", () => {
+  const group = flat(readFileSync(join(ROOT, "skills", "meetly-group", "SKILL.md"), "utf8"));
+  assert.ok(flat(prompt).includes("If neither lookup matches, still load `meetly-group`, \"In the group\""));
+  assert.ok(group.includes("**No matching request:**"));
+  assert.ok(group.includes("do not infer which meeting or time"));
+  assert.ok(group.includes("do not ask a generic confirmation question"));
+  assert.ok(group.includes("tell the owner in their DM"));
+});

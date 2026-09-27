@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  addRequest, cleanupList, pendingOwnerList, expiredRequests, findByChat, findOpenByHandle, normalizeHandle, sameHandle, updateRequest,
+  addRequest, saveRequest, cleanupList, pendingOwnerList, expiredRequests, findByChat, findOpenByHandle, normalizeHandle, sameHandle, updateRequest,
   type Ledger, type NewRequest,
 } from "../skills/meetly/scripts/ledger.ts";
 import { cli, tmpHome } from "./helpers.ts";
@@ -56,6 +56,18 @@ test("a second open request for the same person is refused until the first close
   l = updateRequest(l, "r_1", { status: "booked", eventId: "e1" }, T0);
   l = addRequest(l, input(), T0, "r_2");
   assert.equal(findOpenByHandle(l, "+15551234567")?.id, "r_2");
+});
+
+test("save replaces a duplicate open offer by normalized handle and preserves its id and chat link", () => {
+  const original = addRequest(empty(), input({ chatUid: "chat_1" }), T0, "r_1");
+  const updatedOffer = { ...offer, start: "2026-09-30T12:00:00-03:00", holdId: "h2" };
+  const saved = saveRequest(original, input({ handle: "5551234567", offered: [updatedOffer] }), T0 + HOUR, "r_2");
+  assert.equal(saved.requests.length, 1);
+  assert.equal(saved.requests[0]!.id, "r_1");
+  assert.equal(saved.requests[0]!.chatUid, "chat_1");
+  assert.deepEqual(saved.requests[0]!.offered, [updatedOffer]);
+  assert.equal(saved.requests[0]!.offeredAt, new Date(T0 + HOUR).toISOString());
+  assert.equal(findOpenByHandle(saved, "+15551234567")!.id, "r_1");
 });
 
 test("find by chat returns any status", () => {
@@ -131,6 +143,11 @@ test("CLI add, find, update, expired and cleanup round-trip", () => {
   const dup = cli("ledger.ts", ["add", "--json", JSON.stringify(input())], env);
   assert.equal(dup.status, 1);
   assert.match(dup.stderr, /already exists/);
+  const saved = cli("ledger.ts", ["save", "--json", JSON.stringify(input({ offered: [{ ...offer, holdId: "h2" }] }))], env);
+  assert.equal(saved.status, 0, saved.stderr);
+  assert.equal(saved.json.request.id, id);
+  assert.equal(saved.json.request.chatUid, "chat_1");
+  assert.equal(saved.json.request.offered[0].holdId, "h2");
 });
 
 test("a corrupt ledger.json fails loudly", () => {
