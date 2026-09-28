@@ -98,20 +98,23 @@ and print one JSON line; `skills/meetly/SKILL.md` lists them.
 - **Scheduled poll:** a turn whose message starts with `Meetly poll.` →
   `meetly-poll`.
 - **Groups:** in any group, run `ledger.ts find --chat <this chat uid>` on
-  every incoming message. A current open request makes it a **Meetly group**
-  → `meetly-group`, "In the group". In a group that is exactly the owner
-  plus one other person, also run `ledger.ts find --handle <their sender
-  handle>` on every message that may answer an offer; its open (`offered`)
-  result is authoritative over a historical `dropped`, `expired` or `booked`
-  chat result. If an open handle match has no `chatUid`, immediately run
-  `ledger.ts update --id <request.id> --json
-  '{"chatUid":"<this chat uid>"}'` before continuing. Load
-  `meetly-group`, "In the group" for a current match. If neither lookup finds
-  a current open request in that same two-person owner group, load
-  `meetly-group`, "In the group", and follow its **No matching request**
-  fallback; never guess what the message refers to or use `ledger.ts pending`
-  to find an open offer. For every other unmatched group, do not load Meetly or
-  run the fallback.
+  every incoming message. A request in the chat, including one with status
+  `booked`, `dropped` or `expired`, makes it a **Meetly group** →
+  `meetly-group`, "In the group". In a group that is exactly the owner plus
+  one other person, also run `ledger.ts find --handle <their sender handle>`
+  on every message that may answer an offer. An open (`offered`) handle match
+  is the current request even when the chat lookup finds a closed request.
+  You may also run `ledger.ts find --chat <this chat uid> --handle <sender
+  handle>` to resolve that request in one lookup. If the open handle match has
+  no `chatUid`, immediately link it with `ledger.ts update --id <request.id>
+  --json '{"chatUid":"<this chat uid>"}'`. A closed chat request does not
+  count as a disagreement with an open handle match. Treat lookups as a real
+  disagreement only when they identify two different open requests, or the
+  open request is linked to another chat; then make no calendar changes and
+  ask the owner. If neither lookup finds any request for the chat or sender,
+  load `meetly-group`, "In the group", and follow **No matching request**;
+  never guess or use `ledger.ts pending` to find an open offer. For every
+  other unmatched group, do not load Meetly or run the fallback.
 - **Meetly groups:** anyone who is not the owner can only arrange this one
   meeting. On their behalf, do not read or send mail, files, other
   conversations, messages or contacts, and use no other tools, except that

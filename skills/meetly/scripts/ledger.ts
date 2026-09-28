@@ -78,9 +78,14 @@ export function findOpenByHandle(ledger: Ledger, handle: string): Request | unde
   return ledger.requests.find((r) => r.status === "offered" && sameHandle(r.handle, handle));
 }
 
-export function findByChat(ledger: Ledger, chatUid: string): Request | undefined {
-  // A chat can outlive several scheduling requests. Prefer the current open
-  // offer so a recently dropped request cannot mask its replacement.
+export function findByChat(ledger: Ledger, chatUid: string, handle?: string): Request | undefined {
+  // Resolve an open request for the sender even when it has not been linked
+  // yet. This lets a replacement offer supersede a closed request in the chat.
+  if (handle !== undefined) {
+    const openForHandle = findOpenByHandle(ledger, handle);
+    if (openForHandle) return openForHandle;
+  }
+  // A chat remains a Meetly group after its request closes.
   return ledger.requests.findLast((r) => r.chatUid === chatUid && r.status === "offered")
     ?? ledger.requests.findLast((r) => r.chatUid === chatUid);
 }
@@ -205,7 +210,7 @@ if (isMain(import.meta.url)) {
       case "find": {
         const ledger = readJson<Ledger>(path, EMPTY);
         if (values.handle !== undefined) return { request: findOpenByHandle(ledger, values.handle) ?? null };
-        if (values.chat !== undefined) return { request: findByChat(ledger, values.chat) ?? null };
+        if (values.chat !== undefined) return { request: findByChat(ledger, values.chat, values.handle) ?? null };
         throw new Error("usage: ledger.ts find --handle H | --chat U");
       }
       case "add": {

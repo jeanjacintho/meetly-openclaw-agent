@@ -103,21 +103,34 @@ test("every Meetly group is opened with start-thread.ts, never the base's 10-sec
 
 test("group requests without a matching ledger entry get a safe owner escalation", () => {
   const group = flat(readFileSync(join(ROOT, "skills", "meetly-group", "SKILL.md"), "utf8"));
-  assert.ok(flat(prompt).includes("If neither lookup finds a current open request in that same two-person owner group, load `meetly-group`, \"In the group\""));
+  assert.ok(flat(prompt).includes("If neither lookup finds any request for the chat or sender, load `meetly-group`, \"In the group\""));
   assert.ok(flat(prompt).includes("For every other unmatched group, do not load Meetly or run the fallback."));
   assert.ok(group.includes("**No matching request:**"));
+  assert.ok(group.includes("A closed (`dropped`, `expired` or `booked`) request linked to this chat still makes it a Meetly group"));
   assert.ok(group.includes("do not infer which meeting or time"));
   assert.ok(group.includes("do not ask a generic confirmation question"));
   assert.ok(group.includes("tell the owner in their DM"));
-  assert.ok(flat(prompt).includes("run `ledger.ts update --id <request.id> --json '{\"chatUid\":\"<this chat uid>\"}'` before continuing"));
+  assert.ok(flat(prompt).includes("link it with `ledger.ts update --id <request.id>"));
+  assert.ok(flat(prompt).includes("--json '{\"chatUid\":\"<this chat uid>\"}'`"));
 });
 
 test("a group pick re-reads the current request and never substitutes pending", () => {
   const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
   assert.ok(group.includes("re-read the ledger in this turn before interpreting it"));
   assert.ok(group.includes("Re-run both `ledger.ts find --chat <this chat uid>` and `ledger.ts find --handle <sender handle>` now"));
-  assert.ok(group.includes("do not act on an older `dropped`, `expired` or `booked` request when a newer open request exists"));
+  assert.ok(group.includes("A closed chat request does not count as a disagreement"));
+  assert.ok(group.includes("both lookups identify different open requests"));
   assert.ok(group.includes("follow **No matching request** and do not use `ledger.ts pending` as a substitute"));
   assert.ok(group.includes("`ledger.ts pending` is only for offered requests with `pendingOwner` set"));
-  assert.ok(flat(prompt).includes("its open (`offered`) result is authoritative over a historical `dropped`, `expired` or `booked` chat result"));
+  assert.ok(flat(prompt).includes("A closed chat request does not count as a disagreement with an open handle match"));
+});
+
+test("closed Meetly requests stay in group handling, and true lookup disagreements are specific", () => {
+  const group = flat(readFileSync(join(ROOT, "skills/meetly-group/SKILL.md"), "utf8"));
+  assert.ok(flat(prompt).includes("A request in the chat, including one with status `booked`, `dropped` or `expired`, makes it a **Meetly group**"));
+  assert.ok(group.includes("For `dropped`, say the request was given up"));
+  assert.ok(flat(group).includes("for `booked`, say the meeting is already scheduled"));
+  assert.ok(flat(group).includes("For `expired`, say the offer expired"));
+  assert.ok(group.includes("A real disagreement is only when both lookups identify different open requests"));
+  assert.ok(group.includes("or the open handle match is linked to another chat"));
 });

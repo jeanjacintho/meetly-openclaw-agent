@@ -151,21 +151,24 @@ offer.
 
 ## In the group
 
-- On every contact message that may answer an offer, re-read the ledger in
-  this turn before interpreting it: run `ledger.ts find --chat <this chat
-  uid>` and `ledger.ts find --handle <sender handle>`. A previous turn's
-  request object or status is stale. Use the open `offered` request for this
-  handle that is linked to this chat (or has no `chatUid` yet); do not act on
-  an older `dropped`, `expired` or `booked` request when a newer open request
-  exists. If the open handle match has no `chatUid`, link it to this chat
-  with `ledger.ts update --id <id> --json '{"chatUid":"<this chat uid>"}'`
-  before proceeding. If the lookups disagree or the open request is linked to
-  another chat, make no calendar changes and ask the owner to identify the
-  right request.
+- On every contact message, re-read the ledger in this turn before
+  interpreting it: run `ledger.ts find --chat <this chat uid>` and
+  `ledger.ts find --handle <sender handle>`. A previous turn's request object
+  or status is stale. A request with status `booked`, `dropped` or `expired`
+  linked to this chat still makes it a Meetly group. Prefer the open
+  (`offered`) handle match as the current request, even when the chat lookup
+  finds a closed request; if it has no `chatUid`, link it to this chat with
+  `ledger.ts update --id <id> --json '{"chatUid":"<this chat uid>"}'`
+  before proceeding. A closed chat request does not count as a disagreement.
+  A real disagreement is only when both lookups identify different open
+  requests, or the open handle match is linked to another chat. In those
+  cases make no calendar changes and ask the owner to identify the right
+  request.
 - **No matching request:** Use this fallback only in a group that is exactly
-  the owner plus one other person, after both the chat lookup and the person's
-  handle lookup found no current open (`offered`) request. A historical
-  `dropped`, `expired` or `booked` result is not a matching request. In all
+  the owner plus one other person, when neither the chat lookup nor the
+  person's handle lookup finds any request. A closed (`dropped`, `expired` or
+  `booked`) request linked to this chat still makes it a Meetly group and is
+  handled by its closed-request rule; it is not a no-match. In all
   other unmatched groups, do not take Meetly action. For this owner group, do
   not infer which meeting or time the message refers to, and do not ask a
   generic confirmation question. Reply that Meetly cannot identify the
@@ -204,8 +207,12 @@ offer.
   conflict: never override; offer new times.
 - **They decline or give up:** delete the holds, run `ledger.ts update` with
   `{"status":"dropped","pendingOwner":null}`, and tell the owner.
-- **Changing a meeting that is already booked:** out of scope. Say you will
-  let the owner know, then tell the owner.
+- **The linked request is closed:** for `booked`, say the meeting is already
+  scheduled and that changes must go through the owner; then tell the owner.
+  For `dropped`, say the request was given up and the owner will follow up;
+  then tell the owner. For `expired`, say the offer expired and the owner
+  will follow up; then tell the owner. Do not run the no-match fallback for a
+  closed request.
 - **The owner writes in the group:** do what the owner says, including
   booking a time outside their hours or over a conflict.
 
