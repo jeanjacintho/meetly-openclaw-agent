@@ -88,8 +88,10 @@ docker compose up --build -d
 docker compose logs -f agent      # wait for: plow-boot: identity resolved …
 ```
 
-Text the line you minted; setup starts with your first message. The local
-dashboard is at <http://localhost:3001> (anyone who can reach it is admin).
+Text the line you minted; setup starts with your first message. By default,
+the local dashboard is at <http://localhost:3001> (anyone who can reach it is
+admin). Set `HOST_PORT` to bind another loopback port; the container listens
+on port 3001 either way.
 
 ```sh
 docker compose down          # stop, keep settings, holds ledger and schedule
