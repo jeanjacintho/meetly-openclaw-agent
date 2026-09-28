@@ -151,7 +151,12 @@ offer.
 
 ## In the group
 
-- On every contact message, re-read the ledger in this turn before
+- First decide whether the contact is trying to schedule, choose a time,
+  change or resume scheduling, or ask about the request's status. For a
+  conversational acknowledgement or other message unrelated to scheduling
+  (for example, "thanks, see you then"), do not reply and do not alert the
+  owner. Only handle scheduling-related messages below.
+- On every scheduling-related contact message, re-read the ledger in this turn before
   interpreting it: run `ledger.ts find --chat <this chat uid>` and
   `ledger.ts find --handle <sender handle>`. A previous turn's request object
   or status is stale. A request with status `booked`, `dropped` or `expired`
@@ -207,12 +212,13 @@ offer.
   conflict: never override; offer new times.
 - **They decline or give up:** delete the holds, run `ledger.ts update` with
   `{"status":"dropped","pendingOwner":null}`, and tell the owner.
-- **The linked request is closed:** for `booked`, say the meeting is already
-  scheduled and that changes must go through the owner; then tell the owner.
-  For `dropped`, say the request was given up and the owner will follow up;
-  then tell the owner. For `expired`, say the offer expired and the owner
-  will follow up; then tell the owner. Do not run the no-match fallback for a
-  closed request.
+- **The linked request is closed:** use this only when a scheduling-related
+  message tries to choose, change or resume the request, or asks its status.
+  For `booked`, say the meeting is already scheduled and that changes must go
+  through the owner; then tell the owner. For `dropped`, say the request was
+  given up and the owner will follow up; then tell the owner. For `expired`,
+  say the offer expired and the owner will follow up; then tell the owner. Do
+  not run the no-match fallback for a closed request.
 - **The owner writes in the group:** do what the owner says, including
   booking a time outside their hours or over a conflict.
 

@@ -129,8 +129,16 @@ test("closed Meetly requests stay in group handling, and true lookup disagreemen
   const group = flat(readFileSync(join(ROOT, "skills/meetly-group/SKILL.md"), "utf8"));
   assert.ok(flat(prompt).includes("A request in the chat, including one with status `booked`, `dropped` or `expired`, makes it a **Meetly group**"));
   assert.ok(group.includes("For `dropped`, say the request was given up"));
-  assert.ok(flat(group).includes("for `booked`, say the meeting is already scheduled"));
+  assert.ok(flat(group).includes("For `booked`, say the meeting is already scheduled"));
   assert.ok(flat(group).includes("For `expired`, say the offer expired"));
   assert.ok(group.includes("A real disagreement is only when both lookups identify different open requests"));
   assert.ok(group.includes("or the open handle match is linked to another chat"));
+});
+
+test("closed request responses are limited to scheduling intent, not acknowledgements", () => {
+  const group = flat(readFileSync(join(ROOT, "skills/meetly-group/SKILL.md"), "utf8"));
+  assert.ok(group.includes("Only handle scheduling-related messages below"));
+  assert.ok(group.includes("For a conversational acknowledgement or other message unrelated to scheduling"));
+  assert.ok(group.includes("do not reply and do not alert the owner"));
+  assert.ok(group.includes("use this only when a scheduling-related message tries to choose, change or resume the request, or asks its status"));
 });

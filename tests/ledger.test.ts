@@ -97,6 +97,34 @@ test("CLI sender-aware chat lookup prefers open request over closed chat history
   assert.equal(current.json.request.id, replacement.id);
 });
 
+test("CLI combined lookup returns a closed chat request when the sender has no open request", () => {
+  for (const status of ["booked", "dropped", "expired"] as const) {
+    const home = tmpHome();
+    const env = { MEETLY_HOME: home };
+    const created = cli("ledger.ts", ["add", "--json", JSON.stringify(input({ chatUid: "c1" }))], env);
+    const request = created.json.request;
+    cli("ledger.ts", ["update", "--id", request.id, "--json", JSON.stringify({ status })], env);
+
+    const result = cli("ledger.ts", ["find", "--chat", "c1", "--handle", "+15551234567"], env);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.json.request.id, request.id);
+    assert.equal(result.json.request.status, status);
+  }
+});
+
+test("sender-aware chat lookup does not hide an open request linked to another chat", () => {
+  let l = addRequest(empty(), input({ chatUid: "c1" }), T0, "r_closed");
+  l = updateRequest(l, "r_closed", { status: "dropped" }, T0 + HOUR);
+  l = addRequest(l, input({ chatUid: "c2", offered: [{ ...offer, holdId: "h2" }] }), T0 + 2 * HOUR, "r_open");
+
+  const chatResult = findByChat(l, "c1", "+15551234567");
+  const handleResult = findOpenByHandle(l, "+15551234567");
+  assert.equal(chatResult?.id, "r_closed");
+  assert.equal(handleResult?.id, "r_open");
+  assert.notEqual(chatResult?.id, handleResult?.id);
+  assert.equal(handleResult?.chatUid, "c2");
+});
+
 test("update resets offeredAt with new offers and rejects unknown keys", () => {
   let l = addRequest(empty(), input(), T0, "r_1");
   l = updateRequest(l, "r_1", { chatUid: "c1" }, T0 + HOUR);

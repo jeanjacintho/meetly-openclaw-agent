@@ -83,7 +83,9 @@ export function findByChat(ledger: Ledger, chatUid: string, handle?: string): Re
   // yet. This lets a replacement offer supersede a closed request in the chat.
   if (handle !== undefined) {
     const openForHandle = findOpenByHandle(ledger, handle);
-    if (openForHandle) return openForHandle;
+    if (openForHandle && (openForHandle.chatUid === undefined || openForHandle.chatUid === chatUid)) {
+      return openForHandle;
+    }
   }
   // A chat remains a Meetly group after its request closes.
   return ledger.requests.findLast((r) => r.chatUid === chatUid && r.status === "offered")
@@ -209,8 +211,8 @@ if (isMain(import.meta.url)) {
     switch (cmd) {
       case "find": {
         const ledger = readJson<Ledger>(path, EMPTY);
-        if (values.handle !== undefined) return { request: findOpenByHandle(ledger, values.handle) ?? null };
         if (values.chat !== undefined) return { request: findByChat(ledger, values.chat, values.handle) ?? null };
+        if (values.handle !== undefined) return { request: findOpenByHandle(ledger, values.handle) ?? null };
         throw new Error("usage: ledger.ts find --handle H | --chat U");
       }
       case "add": {
