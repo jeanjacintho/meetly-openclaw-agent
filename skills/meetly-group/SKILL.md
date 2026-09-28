@@ -152,10 +152,10 @@ offer.
 ## In the group
 
 - First decide whether the contact is trying to schedule, choose a time,
-  change or resume scheduling, or ask about the request's status. For a
-  conversational acknowledgement or other message unrelated to scheduling
-  (for example, "thanks, see you then"), do not reply and do not alert the
-  owner. Only handle scheduling-related messages below.
+  change or resume scheduling, decline, cancel or give up, or ask about the
+  request's status. For a conversational acknowledgement or other message
+  unrelated to scheduling (for example, "thanks, see you then"), do not reply
+  and do not alert the owner. Only handle scheduling-related messages below.
 - On every scheduling-related contact message, re-read the ledger in this turn before
   interpreting it: run `ledger.ts find --chat <this chat uid>` and
   `ledger.ts find --handle <sender handle>`. A previous turn's request object
