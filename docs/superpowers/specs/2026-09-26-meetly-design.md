@@ -293,7 +293,7 @@ group has exactly the owner + one handle with an open request (`find
               constraints?: { days?, after?, before? },
               allowOverlap?: [eventId],
               offered: [{ start, end, holdId?, account }],
-              status: "offered" | "booked" | "dropped" | "expired",
+              status: "offered" | "booked" | "dropped" | "expired" | "cancelled",
               eventId?, holdCleanup?: [{ holdId, account }],
               offeredAt, createdAt, updatedAt }
   ```
@@ -439,10 +439,21 @@ via DM with an allowed event; expiration with a shortened timeout
 The results determine poll step 3 and whether holds are retained; the rest of
 the design does not change.
 
+## Owner cancellation and rescheduling
+
+An explicit owner instruction in their DM authorizes cancelling or moving
+the matching meeting. `owner-events.ts` returns only title, id, account,
+calendarId and times; incomplete calendar reads are reported to the owner.
+Resolve the booked request by event id and account, and mutate that source
+calendar. Cancellation closes the request as `cancelled`; moving reuses the
+booking recorder. Notify the participant in the linked group, then confirm
+to the owner. A failed post-calendar step is retried once and reported to the
+owner without suppressing the participant notification. The detailed flow
+is maintained in `skills/meetly-group/SKILL.md`, "Owner cancels or moves".
+
 ## Out of scope (v1)
 
-Rescheduling or canceling already-booked events; requests originating from
-email; iMessage groups (direct chats only); multiple participants in one
+Requests originating from email; iMessage groups (direct chats only); multiple participants in one
 request; reminders before the event; chasing the person before the 48-hour
 deadline; using cron's `--trigger-script` to skip the LLM when there are no
 new messages (future optimization if cost becomes a concern).
