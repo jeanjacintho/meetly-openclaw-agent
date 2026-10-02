@@ -52,8 +52,9 @@ signed as Meetly.
   too.
 
 - **Offers only free time, inside your hours.** Your calendar shows up as free
-  slots within the days and hours you set. Anything else is "an existing
-  commitment" — never an event name or detail. If the other person can only
+  slots within the days and hours you set. A busy time is "an existing
+  commitment" — never an event name or detail. A time with insufficient notice
+  is explained as too soon, with alternatives offered. If the other person can only
   do a time outside your hours, Meetly asks you in that group and books it only on
   your yes there. A yes in your DM does not approve the group request.
 - **Holds expire.** No answer in 48 hours: the holds are deleted and the
