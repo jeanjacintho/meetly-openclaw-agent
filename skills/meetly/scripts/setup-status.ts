@@ -1,7 +1,7 @@
 // Is Meetly set up? READY with the config and the calendar range to read,
 // or SETUP_NEEDED with the next question.
 import { isMain, run } from "./cli.ts";
-import { DEFAULTS, nextField, QUESTIONS, readableCalendars, type Config, type RequiredField } from "./config.ts";
+import { DEFAULTS, nextField, normalizeConfig, QUESTIONS, type Config, type RequiredField } from "./config.ts";
 import { ownerDisplayName } from "./owner-chat.ts";
 import { macTimezone } from "./mac-timezone.ts";
 import { LATCH_ABOUT_URL, LATCH_DOWNLOAD_URL, macConnected } from "./mac.ts";
@@ -17,12 +17,7 @@ export type Status =
 
 export function status(now: number = Date.now()): Status {
   const stored = readJson<Config | null>(file("config.json"), null);
-  // A config saved before readableCalendars may still list `primary`.
-  const config = stored?.setupDoneAt ? {
-    ...stored,
-    ownerGate: stored.ownerGate ?? true,
-    calendars: readableCalendars(stored.calendars, stored.defaultAccount),
-  } : stored;
+  const config = stored?.setupDoneAt ? normalizeConfig(stored) : stored;
   if (config?.setupDoneAt) {
     const to = now + (config.horizonDays + 1) * 86_400_000;
     return { status: "READY", config, range: { from: localIso(now, config.timezone), to: localIso(to, config.timezone) } };

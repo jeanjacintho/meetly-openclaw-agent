@@ -245,6 +245,9 @@ test("editing a field after setup updates config.json and keeps setupDoneAt", ()
     assert.equal(readJson<Config | null>(join(home, "config.json"), null)!.ownerGate, true);
     record("ownerGate", "off");
     assert.equal(readJson<Config | null>(join(home, "config.json"), null)!.ownerGate, false);
+    assert.equal(loadConfig().ownerGate, false);
+    const standingAuthorization = status();
+    assert.equal(standingAuthorization.status === "READY" && standingAuthorization.config.ownerGate, false);
     assert.throws(() => record("durationMin", "600"));
     assert.throws(() => record("color", "blue"), /unknown field/);
   });
