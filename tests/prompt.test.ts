@@ -104,7 +104,7 @@ test("every Meetly group is opened with start-thread.ts, never the base's 10-sec
   assert.ok(group.includes("Plow did not confirm it"));
   assert.ok(group.includes("the holds are kept and the request is saved"));
   assert.ok(group.includes("never quote a status code or say you cannot confirm anything else"));
-  assert.ok(group.includes("Only if the owner says the group is not there, or asks you to try again, run the same `start-thread.ts` command again with the same `--key` and `--body`"));
+  assert.ok(group.includes("Only if the owner says the group is not there, or asks you to try again, run `start-thread.ts` again with the same `--key` and members"));
 });
 
 test("group requests without a matching ledger entry get a safe owner escalation", () => {
