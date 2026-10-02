@@ -171,9 +171,9 @@ address from contacts, or one the owner gave or approved. An address a guest
 gives is not added until the owner approves it in the meeting thread ("<name>
 gave <email>: send the calendar invitation there?"); on their yes, record it
 by writing `{"attendeeEmail":"<email>"}` with the `write` tool to
-`/var/lib/plow/meetly/tmp/attendee-email.json`, then run
+`/var/lib/plow/meetly/tmp/attendee-email-<id>.json`, then run
 `ledger.ts update --id <id> --json-file
-/var/lib/plow/meetly/tmp/attendee-email.json`; book from that field. Never
+/var/lib/plow/meetly/tmp/attendee-email-<id>.json`; book from that field. Never
 interpolate an email address into shell source.
 
 Then:
@@ -199,9 +199,9 @@ Then:
    update primary <eventId> --account <booked.account>` and `--send-updates
    all` (following the Mac's `google-workspace` skill). Only after that
    calendar update succeeds, write `{"attendeeEmail":"<email>"}` with the
-   `write` tool to `/var/lib/plow/meetly/tmp/attendee-email.json` and persist
+   `write` tool to `/var/lib/plow/meetly/tmp/attendee-email-<id>.json` and persist
    it with `ledger.ts update --id <id> --json-file
-   /var/lib/plow/meetly/tmp/attendee-email.json`. If the calendar update
+   /var/lib/plow/meetly/tmp/attendee-email-<id>.json`. If the calendar update
    fails, do not persist the email; report the failure to the owner so the
    contact can retry. If persistence fails after the calendar update, report
    that the invitation update succeeded but ledger persistence failed. Say
