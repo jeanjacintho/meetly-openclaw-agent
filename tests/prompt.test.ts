@@ -149,6 +149,8 @@ test("an owner booking with no time named takes the announced first option, thro
     "A request someone else made (`origin: inbound`) is approved only in its meeting thread: point the owner there and book nothing",
   ];
   for (const rule of rules) assert.ok(group.includes(rule), `missing rule: ${rule}`);
+  const ownerPick = group.slice(group.indexOf("- **Owner request pick**"));
+  assert.ok(ownerPick.indexOf("If it has no `chatUid`, stop before booking") < ownerPick.indexOf("2. Follow **Pick**"));
   assert.ok(flat(prompt).includes("a request someone else made, `origin: inbound`, is approved only in its meeting thread"));
 });
 

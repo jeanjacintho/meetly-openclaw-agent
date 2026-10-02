@@ -291,11 +291,12 @@ offer.
      `origin: owner`, `status: offered`, and a current non-empty `offered[]`;
      choose its first offered hold. Do not run `find --chat` with the owner's
      DM or resolve a sender handle from that DM.
+     If it has no `chatUid`, stop before booking and tell the owner the offer
+     has no linked meeting thread.
   2. Follow **Pick** steps 1 and 2 for updating the selected hold and deleting
      the other holds. Its fresh handle lookup is already satisfied by step 7.
   3. Send the booking confirmation to the request's `chatUid` using the normal
-     meeting-thread send path. If it has no `chatUid`, stop before booking and
-     tell the owner the offer has no linked meeting thread.
+     meeting-thread send path.
 - **Another day or time:** delete the current holds. Run `slots.ts` narrowed
   to what they said (plus the owner's original constraints for
   `origin: owner`), hold again, offer again, and update `offered`.
