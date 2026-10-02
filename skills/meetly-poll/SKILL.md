@@ -106,7 +106,7 @@ still explain why no contact message was sent.
      owner in that meeting thread (`message`, that chat uid as its target), in
      one line and in their language, that the time they were asked about is
      still waiting for their yes or no, with its `nextStep`. For each
-     `ownerWaiting` item without a `chatUid` and with `ownerApprovalAt`, remind
+     `ownerWaiting` item without a `chatUid`, remind
      the owner in their DM (`owner-chat.ts`) which person's held options await
      approval. For each
      `deliveryUnknown` item, tell the owner in their DM that Meetly cannot
