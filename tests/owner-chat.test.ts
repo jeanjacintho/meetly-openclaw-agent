@@ -1,11 +1,46 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { findOwnerChat, ownerChat, ownerDisplayName, type Identity } from "../skills/meetly/scripts/owner-chat.ts";
+import { findGroupContact, groupContact } from "../skills/meetly/scripts/group-contact.ts";
+import { cli } from "./helpers.ts";
 
 const self = { type: "agent", relationship: "self", line: { uid: "line_me" } };
 const owner = { type: "member", role: "owner" };
 const chat = (uid: string, participants: unknown[], status = "active") => ({ uid, status, participants });
 const identity = (chats: unknown[]) => ({ line: { uid: "line_me" }, chats }) as Identity;
+
+test("an existing owner group resolves the contact from its roster", async () => {
+  for (const handle of ["+15551234567", "guest@example.com"]) {
+    const guest = { type: "member", role: "guest", provider_key: handle, display_name: " Guest " };
+    const me = identity([chat("dm", [self, owner]), chat("group", [self, owner, guest])]);
+    assert.deepEqual(findGroupContact(me, "group"), { handle, name: "Guest" });
+    const calls: Call[] = [];
+    assert.deepEqual(await groupContact("group", { fetch: fakeFetch(200, me, calls), base: "https://api.plow.test", token: "t" }),
+      { contact: { handle, name: "Guest" } });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]!.url, "https://api.plow.test/v1/agents/me");
+    assert.equal(calls[0]!.init?.body, undefined);
+  }
+});
+
+test("unsupported or ambiguous rosters never select an outreach recipient", () => {
+  const guest = { type: "member", role: "guest", provider_key: "+15551234567" };
+  for (const [label, me] of [
+    ["missing chat", identity([])],
+    ["owner DM", identity([chat("group", [self, owner])])],
+    ["no owner", identity([chat("group", [self, guest])])],
+    ["two guests", identity([chat("group", [self, owner, guest, { ...guest, provider_key: "+15551234568" }])])],
+    ["two owners", identity([chat("group", [self, owner, { ...guest, role: "owner" }])])],
+    ["wrong agent line", identity([chat("group", [{ ...self, line: { uid: "other" } }, owner, guest])])],
+    ["inactive", identity([chat("group", [self, owner, guest], "archived")])],
+    ["invalid handle", identity([chat("group", [self, owner, { ...guest, provider_key: "a name" }])])],
+    ["missing handle", identity([chat("group", [self, owner, { ...guest, provider_key: undefined }])])],
+  ] as const) assert.equal(findGroupContact(me, "group"), null, label);
+  assert.equal(findGroupContact({}, "group"), null);
+  const usage = cli("group-contact.ts", [], {});
+  assert.equal(usage.status, 1);
+  assert.match(usage.stderr, /usage: group-contact/);
+});
 
 test("the one active two-person chat with the owner", () => {
   assert.equal(findOwnerChat(identity([chat("dm", [self, owner])])), "dm");
@@ -61,4 +96,3 @@ test("ownerDisplayName reads the owner's profile name from their DM", async () =
   assert.equal(await ownerDisplayName(opts(identity([chat("dm", [self, owner])]))), undefined);
   assert.equal(await ownerDisplayName(opts(identity([]))), undefined);
 });
-

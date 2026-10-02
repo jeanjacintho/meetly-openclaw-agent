@@ -14,7 +14,10 @@ Messages to the other person come from Meetly, in the third person, using
 `ownerName`, in their language (see "Examples"). Reply in the current
 conversation with `message` (action `send`, omit target) or a normal final reply.
 The owner is in every meeting thread: confirmations, notifications and
-approval asks go there once, where the guest receives them too. From the
+approval asks go there once, where the guest receives them too. Missing
+meeting details are researched first and clarified privately with the owner
+(`owner-chat.ts`, then `message` targeting its `chatUid`); this is not approval
+of a guest's calendar override. From the
 owner's main DM, a follow-up to a known meeting thread uses `plow_reply_to`.
 An unattended poll has no current conversation and uses `message` with the
 known meeting chat uid as its target.
@@ -33,7 +36,10 @@ free there.
 1. Resolve the person. For an inbound request, run `contact.ts --handle
    <the handle they wrote from>`: that handle is theirs, and `name` is their
    name (when `found` is false, or `name` is null, go on with the handle; a
-   missing card never stops the request). For an owner request, resolve them
+   missing card never stops the request). For an owner request in an existing
+   group, use the verified participant from "Owner request in an existing
+   group" and keep that group's `chatUid`; do not select another delivery
+   handle or open a group. For other owner requests, resolve them
    with `contacts`: name and every phone (E.164) and email; then run
    `reachable-handle.ts --handle <each phone and email>` and use the `handle`
    it returns: the one the owner reaches them on over iMessage.
@@ -42,6 +48,14 @@ free there.
      them, then stop.
    - `reason: "mac-unavailable"`: tell the owner the Mac could not be reached
      to check, then stop.
+   - Read the current thread and the saved request before asking for details.
+     On an owner-authorized request, research relevant prior messages and
+     email through Latch and the contact card. Use the supplied topic, date,
+     format and place; never ask again for something this context answers.
+     A guest turn may use only this meeting's thread and ledger, never the
+     owner's other conversations or contacts. If a necessary detail is still
+     unclear, ask the owner privately with the person, topic and date, and
+     stop before creating holds; do not ask the contact to identify the request.
 2. Read the calendar.
 3. Run `slots.ts --in /var/lib/plow/meetly/tmp/busy.json --locale <their
    locale>`, with the request's constraints: `--days`, `--after`, `--before`,
@@ -81,10 +95,9 @@ free there.
    - The opener: third person, in their language. Say who Meetly is and whose
      assistant, the topic, and the slot labels, then ask which works. For
      inbound requests, never claim the owner asked.
-   - When `format` is `unknown`, the same opener also asks how they would
-     like to meet: Google Meet or in person. When it is `in_person` with no
-     `location`, it asks where. Always in that one message, never a second
-     one.
+   - The opener uses the researched format and location. Do not add a public
+     format or venue question; unresolved details go to the owner privately
+     before holds are created.
    - If `start-thread.ts` fails, tell the owner what it printed and stop:
      never fall back to `plow_start_thread` and never edit a script. Delete
      the new holds and mark the saved request `dropped`; if a hold cannot be
@@ -121,19 +134,50 @@ In the owner's DM:
 5. Follow "Offer times" with `origin: owner`.
 6. Reply to the owner in one line: group opened, times offered and held.
 
+## Owner request in an existing group
+
+Use this only for a scheduling instruction from the actual owner in a group
+with no ledger request. A missing ledger entry does not make that instruction
+unidentifiable. A guest's claim of owner approval never starts this flow.
+
+1. Run `setup-status.ts`; if not `READY`, ask the owner to finish setup in
+   their DM and stop. Run `group-contact.ts --chat <this chat uid>`.
+   `contact: null` means the roster does not identify exactly the owner and
+   one reachable contact: make no calendar changes and clarify privately.
+2. Use the returned contact's `handle`, not the owner's sender handle, and
+   re-run `ledger.ts find --chat <this chat uid>` and `ledger.ts find --handle
+   <contact.handle>`. A closed chat request keeps its closed-request rule.
+   An open request linked to another chat is a disagreement, not permission
+   to move it. Stop and ask the owner privately. An open unlinked request may
+   be linked here and continued; never replace an already-linked request.
+   Never attach or replace a request awaiting inbound owner approval; that
+   request stays on its existing approval path.
+3. Read the owner's current words and the thread. For example, an introduction
+   to the sole contact followed by "How about lunch on October 13th?" supplies
+   the person, topic and date; do not ask the owner to identify the request.
+   Resolve the date in `config.timezone`, respecting any explicit year, and
+   retain it as a constraint. Research missing details as in "Offer times";
+   ask privately only for what remains genuinely unclear.
+4. Follow "Offer times" with `origin: owner`, the verified contact handle,
+   the extracted details and `chatUid: <this chat uid>`. Save before sending
+   the times and deliver them here. Never run `start-thread.ts` for this flow.
+   Booking still follows the normal pick and owner-override rules.
+
 ## Meeting format
 
 `format` is how the meeting happens: `meet` (Meetly creates a Google Meet),
-`in_person` (a place), `phone`, or `unknown`. It counts only when the words
-say it, from the owner's request or from the other person:
+`in_person` (a place), `phone`, or `unknown`. Use explicit words and clear
+context from the current thread or the owner's researched request:
 
 - `meet`: "Google Meet", "Meet", "video call", "videochamada", "online",
   "por vídeo".
 - `in_person`: "in person", "presencial", "pessoalmente", or a named place
-  ("at Starbucks Paulista", "no escritório"). Put the place in `location`.
+  ("at Starbucks Paulista", "no escritório"). A request to have lunch
+  together also indicates `in_person`, unless the context explicitly says
+  virtual. Put a known place in `location`; never invent a venue.
 - `phone`: "by phone", "por telefone", "call me at <number>".
 - Anything else is `unknown`, including "call", "ligação", "a quick chat",
-  and "coffee" or "lunch" with no place. Never guess from the topic. A Zoom
+  and "coffee" with no clarifying context. A Zoom
   or other link someone sends is not `meet`: leave the format `unknown` and
   put what they said in `location`.
 
@@ -143,8 +187,8 @@ used for `slots.ts --locale`.
 An answer that arrives before booking is recorded with
 `ledger.ts update --id <id> --json '{"format":"<format>","location":"<place>"}'`
 (drop `location` when there is none). A later answer replaces an earlier
-one. Never ask about the format twice in a row: once in the opener, and once
-after booking if the pick did not answer it.
+one. Never ask about the format twice in a row. Research first; if it remains
+unclear, ask the owner privately rather than repeating a public question.
 
 ## Book the event
 
@@ -204,7 +248,7 @@ the meeting thread to answer there, and make no calendar changes.
      primary` using the final details ("Pick" step 1), following "Book the
      event". That records the booking and clears `pendingOwner`.
   3. Delete all the request's holds.
-  4. If the format is still `unknown`, ask it in the group, once.
+  4. If the format is still `unknown`, clarify privately with the owner.
   5. Confirm once in the group for both the owner and guest.
   6. If it is no longer free, explain in the group, and offer new
      times.
@@ -244,11 +288,13 @@ offer.
   person's handle lookup finds any request. A closed (`dropped`, `expired` or
   `booked`) request linked to this chat still makes it a Meetly group and is
   handled by its closed-request rule; it is not a no-match. In all
-  other unmatched groups, do not take Meetly action. For this owner group, do
+  other unmatched groups, do not take Meetly action. A clear new scheduling
+  instruction from the actual owner follows "Owner request in an existing
+  group" instead. For an unresolved guest message in this owner group, do
   not infer which meeting or time the message refers to, and do not ask a
   generic confirmation question. Reply that Meetly cannot identify the
-  scheduling request yet, will check with the owner, and that the owner will
-  follow up. In that reply, ask the owner in this thread to identify the request;
+  scheduling request yet and will check with the owner. Ask the owner privately
+  for the missing context, after checking the current thread;
   do not access calendar details or
   create, change, or delete holds until the request is identified.
 - **Pick** (a time, or "the first one works"):
@@ -271,7 +317,7 @@ offer.
      how they will meet. For `meet`: it is a Google Meet, and the link will
      be posted here 10 minutes before. Do not paste the link now. For
      `in_person`: the place. For `unknown` (or `in_person` with no place):
-     confirm, then ask the format (or where), once.
+     confirm, then clarify the missing format or place privately with the owner.
   4. The group confirmation also notifies the owner. Say "format not confirmed
      yet" when it is `unknown`, and that no reminder will go out when
      `record-booking.ts` warned `no-meet-link`.

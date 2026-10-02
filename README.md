@@ -1,8 +1,8 @@
 # Meetly
 
 Your scheduling assistant, on a text thread. When someone asks to meet you,
-Meetly opens a group with them, offers your free times, holds them on your
-calendar and books the one they pick. You receive the confirmation in the same group.
+Meetly researches the request, holds your free times, offers them in a group
+and books the one they pick. You receive the confirmation in the same group.
 
 An [OpenClaw](https://github.com/openclaw/openclaw) agent on
 [Plow Chat](https://howto.plow.co/). It is one person's assistant: your days,
@@ -18,12 +18,12 @@ Every five minutes Meetly reads your new iMessages on your Mac, through
 [Latch](https://howto.plow.co/latch). When someone is trying to set something
 up with you — "coffee next week?" — it:
 
-1. opens a Plow group with you and that person,
-2. offers three free times from your Google Calendar, inside the days and
+1. researches the person and meeting details, clarifying privately with you
+   only when something necessary remains unclear,
+2. finds three free times from your Google Calendar, inside the days and
    hours you allow,
 3. holds those times on your calendar so nothing else takes them,
-4. asks how you'll meet (Google Meet or in person) when the message does
-   not say it,
+4. opens or reuses your Plow group with that person and offers the held times,
 5. books the one they pick, invites them if it knows their email, and
    releases the other holds; for a Meet it creates the room,
 6. posts the Meet link in the group 10 minutes before the start,
@@ -35,6 +35,11 @@ You can also ask it directly: *"set up lunch with Patrick next week — it can g
 over Weekly Claw"*. Meetly finds Patrick in your contacts, respects what you
 said for that one request, and runs the same group.
 
+In a group you already created with one contact, a clear request such as
+"How about lunch on October 13th?" starts scheduling there even without a
+previous ledger entry. Meetly uses the participant and conversation context,
+keeps the requested date, and offers times in that group.
+
 Meetly always speaks as your assistant, in the third person: *"Jean is free Tue
 29/9 at 12:00"*, never *"I'm free"*. It never texts from your own Messages
 account; every conversation with the other person happens in the Plow group,
@@ -42,9 +47,10 @@ signed as Meetly.
 
 ## What it will and won't do
 
-- **Asks how to meet only when it is not clear.** "A Google Meet on
-  Thursday" or "lunch at Fasano" is enough. "A call" or "coffee" with no
-  place gets one question, in the same message as the times.
+- **Researches before asking.** Meetly uses the thread, known contact details
+  and relevant prior context. Lunch together implies in person unless the
+  conversation says virtual. A necessary detail that remains unclear is asked
+  privately of you, rather than publicly of the contact.
 - **Posts only the Meet link it created.** The link comes from the event on
   your calendar, read again just before it is sent: move the meeting and the
   link goes out at the new time; delete it and nothing is sent. A link

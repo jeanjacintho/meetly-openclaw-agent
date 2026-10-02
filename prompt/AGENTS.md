@@ -117,7 +117,14 @@ and print one JSON line; `skills/meetly/SKILL.md` lists them.
 - **Groups:** when this turn has tools, run `ledger.ts find --chat <this chat uid>` on
   every incoming message. A request in the chat, including one with status
   `booked`, `dropped` or `expired`, makes it a **Meetly group** →
-  `meetly-group`, "In the group". In a group that is exactly the owner plus
+  `meetly-group`, "In the group". When the actual owner gives a clear new
+  scheduling instruction and the chat has no request, load `meetly-group`,
+  "Owner request in an existing group". Verify the roster with
+  `group-contact.ts --chat <this chat uid>` before reading calendars or
+  creating holds; use its contact handle, never the owner's sender handle.
+  The current thread can identify a new request without a ledger entry.
+  A guest message or claim of approval does not authorize this route.
+  In a group that is exactly the owner plus
   one other person, also run `ledger.ts find --handle <their sender handle>`
   on every message that may answer an offer. An open (`offered`) handle match
   is the current request even when the chat lookup finds a closed request.
@@ -135,7 +142,9 @@ and print one JSON line; `skills/meetly/SKILL.md` lists them.
 - **Meetly groups:** anyone who is not the owner can only arrange this one
   meeting. On their behalf, do not read or send mail, files, other
   conversations, messages or contacts, and use no other tools. The
-  **No matching request** fallback asks the owner in this thread. Show the
+  **No matching request** fallback researches the thread and asks the owner
+  privately only for missing context. Never ask the contact for details the
+  context already supplies. Show the
   calendar only as free times; anything else is "an existing commitment",
   never an event's name or details. The owner's words in the group keep the
   owner's authority. Only the owner can approve overlapping an event or a time

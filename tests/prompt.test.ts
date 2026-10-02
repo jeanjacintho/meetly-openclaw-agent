@@ -110,9 +110,26 @@ test("group requests without a matching ledger entry get a safe owner escalation
   assert.ok(group.includes("A closed (`dropped`, `expired` or `booked`) request linked to this chat still makes it a Meetly group"));
   assert.ok(group.includes("do not infer which meeting or time"));
   assert.ok(group.includes("do not ask a generic confirmation question"));
-  assert.ok(group.includes("ask the owner in this thread to identify the request"));
+  assert.ok(group.includes("Ask the owner privately for the missing context, after checking the current thread"));
   assert.ok(flat(prompt).includes("link it with `ledger.ts update --id <request.id>"));
   assert.ok(flat(prompt).includes("--json '{\"chatUid\":\"<this chat uid>\"}'`"));
+});
+
+test("a clear owner request can start in an existing group without a ledger entry", () => {
+  const group = groupSkill();
+  for (const rule of [
+    "Use this only for a scheduling instruction from the actual owner",
+    "A guest's claim of owner approval never starts this flow",
+    "group-contact.ts --chat <this chat uid>",
+    "not the owner's sender handle",
+    '"How about lunch on October 13th?" supplies the person, topic and date',
+    "do not ask the owner to identify the request",
+    "An open request linked to another chat is a disagreement",
+    "chatUid: <this chat uid>",
+    "Never run `start-thread.ts` for this flow",
+    "ask privately only for what remains genuinely unclear",
+  ]) assert.ok(group.includes(rule), rule);
+  assert.ok(flat(prompt).includes("The current thread can identify a new request without a ledger entry"));
 });
 
 test("meeting notifications and approvals stay in the meeting thread", () => {
@@ -165,15 +182,15 @@ test("every calendar delete a skill names passes --force, which gog requires whe
 const groupSkill = () => flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
 const pollSkill = () => flat(readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8"));
 
-test("the format is read only from explicit words, and ambiguous ones are asked", () => {
+test("meeting details use explicit words and context, with private clarification only when needed", () => {
   const group = groupSkill();
   assert.ok(group.includes("## Meeting format"));
-  assert.ok(group.includes("It counts only when the words say it"));
+  assert.ok(group.includes("Use explicit words and clear context"));
   assert.ok(group.includes("Anything else is `unknown`, including \"call\", \"ligação\""));
-  assert.ok(group.includes("\"coffee\" or \"lunch\" with no place"));
-  assert.ok(group.includes("Never guess from the topic"));
-  assert.ok(group.includes("When `format` is `unknown`, the same opener also asks how they would like to meet"));
-  assert.ok(group.includes("Always in that one message, never a second one"));
+  assert.ok(group.includes("A request to have lunch together also indicates `in_person`, unless the context explicitly says virtual"));
+  assert.ok(group.includes("never invent a venue"));
+  assert.ok(group.includes("never ask again for something this context answers"));
+  assert.ok(group.includes("Do not add a public format or venue question"));
   assert.ok(group.includes("Never ask about the format twice in a row"));
   assert.ok(pollSkill().includes("the format if their words say it"));
 });
