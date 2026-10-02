@@ -289,6 +289,8 @@ test("inbound offers require owner DM approval by default", () => {
   assert.ok(group.includes("owner-gate:<id>"));
   assert.ok(setup.includes("This is on by default"));
   assert.ok(setup.includes("that is standing authorization"));
+  assert.ok(flat(prompt).includes("inbound owner gate, enabled by default"));
+  assert.ok(!flat(prompt).includes("for them without waiting"));
   assert.ok(poll.includes("Never contact the other person before approval"));
 });
 

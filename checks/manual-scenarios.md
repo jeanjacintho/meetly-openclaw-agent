@@ -46,7 +46,11 @@ Shortcuts:
    - Expect: running `m/register-crons.ts` again prints `"actions":[]`.
 3. [ ] **Inbound request.** From the second phone, iMessage the owner: "want
    to grab coffee next week?".
-   - Expect, within ~10 min: a Plow group with the owner and that phone.
+   - Expect, within ~10 min: 3 calendar holds and a private owner approval
+     request showing the person, topic and held options. No group or contact
+     message is sent yet; the ledger has `ownerApprovalAt` and no `chatUid`.
+   - In the owner's DM, approve that request. Expect one Plow group with the
+     owner and that phone, using the same held options.
    - Expect: the opener is in the third person, in the sender's language, and
      lists 3 labels in the sender's locale format.
    - Expect: 3 `Hold: …` events on the owner's primary calendar.
@@ -150,7 +154,7 @@ ahead so its reminder fires during the run.
     - Expect: booking keeps the selected offer's travel holds and deletes the
       other offers' meeting and travel holds. Decline, re-offer, or expiry
       deletes every related hold.
-24. [ ] **Inbound owner gate.** Turn `ownerGate` on and send a scheduling
+24. [ ] **Inbound owner gate.** With default settings, send a scheduling
      request from a second account.
     - Expect: Meetly creates holds and asks the owner privately; it opens no
       group and sends no proposed time to the contact before approval.
