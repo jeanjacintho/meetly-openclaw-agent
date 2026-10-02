@@ -208,16 +208,20 @@ export function saveRequest(ledger: Ledger, input: NewRequest, now: number, id: 
 
 // Restore the last sent offer after a failed message send. Newly created holds
 // enter the cleanup queue in the same atomic ledger write, before deletion.
+// `expectedOfferedAt` is the `offeredAt` the failed turn's save returned: if a
+// concurrent save replaced the offer since, that newer offer is kept untouched.
 export function rollbackOffer(ledger: Ledger, id: string, snapshot: {
-  offered: Offer[]; offeredAt: string; holdCleanup?: HoldRef[];
+  offered: Offer[]; offeredAt: string; holdCleanup?: HoldRef[]; expectedOfferedAt: string;
 }, now: number): Ledger {
   checkOffers(snapshot.offered);
+  if (!isDate(snapshot.expectedOfferedAt)) throw new Error("expectedOfferedAt must be the offeredAt returned by save");
   if (!isDate(snapshot.offeredAt)) throw new Error("offeredAt must be a time");
   checkHoldRefs(snapshot.holdCleanup ?? [], "holdCleanup");
   const index = ledger.requests.findIndex((r) => r.id === id);
   if (index < 0) throw new Error(`no request ${id}`);
   const current = ledger.requests[index]!;
   if (current.status !== "offered") throw new Error(`request ${id} is not open`);
+  if (current.offeredAt !== snapshot.expectedOfferedAt) return ledger;
   const newHolds = current.offered.flatMap(({ holdId, account }) => holdId ? [{ holdId, account }] : []);
   const holdCleanup = [...(snapshot.holdCleanup ?? []), ...newHolds]
     .filter((hold, i, all) => all.findIndex((item) => item.holdId === hold.holdId && item.account === hold.account) === i);
@@ -358,7 +362,8 @@ if (isMain(import.meta.url)) {
         if (!values.id) throw new Error("usage: ledger.ts rollback-offer --id X --json-file F");
         const snapshot = jsonArg(values) as Parameters<typeof rollbackOffer>[2];
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => rollbackOffer(l, values.id!, snapshot, now));
-        return { request: ledger.requests.find((r) => r.id === values.id) };
+        const request = ledger.requests.find((r) => r.id === values.id);
+        return { request, rolledBack: request?.offeredAt === snapshot.offeredAt };
       }
       case "cleanup-remove": {
         if (!values.id) throw new Error("usage: ledger.ts cleanup-remove --id X --json-file F");

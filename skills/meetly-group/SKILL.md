@@ -78,10 +78,13 @@ free there.
      in the group itself reply normally. Say the new times were sent only
      after that send succeeded. If it fails, write a JSON file containing the
      saved `offered[]`, `offeredAt`, and `holdCleanup` (if present) from before
-     the save, then run `ledger.ts rollback-offer --id <id>
+     the save, plus `expectedOfferedAt` set to the `offeredAt` that the save
+     returned, then run `ledger.ts rollback-offer --id <id>
      --json-file <file>`. This atomically restores the old offer and timestamp,
      preserves the existing cleanup queue, and queues every new hold before
-     any deletion. Delete the new holds ("Holds"); after each successful
+     any deletion. If it returns `rolledBack: false`, another turn already
+     replaced the offer: leave the holds alone and do not claim the old times
+     stand. Otherwise delete the new holds ("Holds"); after each successful
      delete, write `{ "holdId": "...", "account": "..." }` to a JSON file
      and run `ledger.ts cleanup-remove --id <id> --json-file <file>`. A failed
      delete stays queued for the poll. If rollback fails, stop and tell the

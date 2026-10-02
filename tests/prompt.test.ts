@@ -129,6 +129,8 @@ test("meeting notifications and approvals stay in the meeting thread", () => {
     "in the poll use `message` with that chat uid as its target",
     "Say the new times were sent only after that send succeeded",
     "ledger.ts rollback-offer --id <id>",
+    "`expectedOfferedAt` set to the `offeredAt` that the save",
+    "If it returns `rolledBack: false`",
     "never say the new request was sent",
     "Only after the group opened or the send succeeded, reply to the owner in one line",
     "If it failed, reply with the error from \"Offer times\" step 6 instead",
