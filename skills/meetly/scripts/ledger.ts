@@ -209,21 +209,17 @@ export function saveRequest(ledger: Ledger, input: NewRequest, now: number, id: 
 // Restore the last sent offer after a failed message send. Newly created holds
 // enter the cleanup queue in the same atomic ledger write, before deletion.
 export function rollbackOffer(ledger: Ledger, id: string, snapshot: {
-  offered: Offer[]; offeredAt: string; holdCleanup: HoldRef[]; newHolds: HoldRef[];
+  offered: Offer[]; offeredAt: string; holdCleanup?: HoldRef[];
 }, now: number): Ledger {
   checkOffers(snapshot.offered);
   if (!isDate(snapshot.offeredAt)) throw new Error("offeredAt must be a time");
-  checkHoldRefs(snapshot.holdCleanup, "holdCleanup");
-  checkHoldRefs(snapshot.newHolds, "newHolds");
+  checkHoldRefs(snapshot.holdCleanup ?? [], "holdCleanup");
   const index = ledger.requests.findIndex((r) => r.id === id);
   if (index < 0) throw new Error(`no request ${id}`);
   const current = ledger.requests[index]!;
   if (current.status !== "offered") throw new Error(`request ${id} is not open`);
-  const currentHolds = new Set(current.offered.flatMap((offer) => offer.holdId ? [`${offer.account}\0${offer.holdId}`] : []));
-  if (snapshot.newHolds.some((hold) => !currentHolds.has(`${hold.account}\0${hold.holdId}`))) {
-    throw new Error("newHolds must belong to the current offer");
-  }
-  const holdCleanup = [...snapshot.holdCleanup, ...snapshot.newHolds]
+  const newHolds = current.offered.flatMap(({ holdId, account }) => holdId ? [{ holdId, account }] : []);
+  const holdCleanup = [...(snapshot.holdCleanup ?? []), ...newHolds]
     .filter((hold, i, all) => all.findIndex((item) => item.holdId === hold.holdId && item.account === hold.account) === i);
   const requests = [...ledger.requests];
   requests[index] = { ...current, offered: snapshot.offered, offeredAt: snapshot.offeredAt, holdCleanup, updatedAt: new Date(now).toISOString() };

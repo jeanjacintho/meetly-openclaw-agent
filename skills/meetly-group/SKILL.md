@@ -77,8 +77,8 @@ free there.
      new times; in the poll use `message` with that chat uid as its target;
      in the group itself reply normally. Say the new times were sent only
      after that send succeeded. If it fails, write a JSON file containing the
-     saved `offered[]`, `offeredAt`, `holdCleanup` from before the save and
-     every new meeting hold ref, then run `ledger.ts rollback-offer --id <id>
+     saved `offered[]`, `offeredAt`, and `holdCleanup` (if present) from before
+     the save, then run `ledger.ts rollback-offer --id <id>
      --json-file <file>`. This atomically restores the old offer and timestamp,
      preserves the existing cleanup queue, and queues every new hold before
      any deletion. Delete the new holds ("Holds"); after each successful

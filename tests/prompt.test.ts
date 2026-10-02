@@ -128,8 +128,8 @@ test("meeting notifications and approvals stay in the meeting thread", () => {
     "From the owner's main DM use `plow_reply_to` with that `chatUid` and the new times",
     "in the poll use `message` with that chat uid as its target",
     "Say the new times were sent only after that send succeeded",
-    "If it fails, the person still has the old times: make them current again",
-    "never say the request was updated or sent",
+    "ledger.ts rollback-offer --id <id>",
+    "never say the new request was sent",
     "Only after the group opened or the send succeeded, reply to the owner in one line",
     "If it failed, reply with the error from \"Offer times\" step 6 instead",
   ];

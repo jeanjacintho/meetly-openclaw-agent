@@ -80,8 +80,11 @@ test("failed re-offer rollback restores offer age and cleanup refs before deleti
     offered: withPendingCleanup.requests[0]!.offered,
     offeredAt: withPendingCleanup.requests[0]!.offeredAt,
     holdCleanup: withPendingCleanup.requests[0]!.holdCleanup!,
-    newHolds: [{ holdId: "h_new", account: "jean@example.com" }],
   }, T0 + HOUR);
+  const withoutCleanup = rollbackOffer(saved, "r_1", {
+    offered: original.requests[0]!.offered, offeredAt: original.requests[0]!.offeredAt,
+  }, T0 + HOUR);
+  assert.deepEqual(withoutCleanup.requests[0]!.holdCleanup, [{ holdId: "h_new", account: "jean@example.com" }]);
   assert.deepEqual(rolledBack.requests[0]!.offered, withPendingCleanup.requests[0]!.offered);
   assert.equal(rolledBack.requests[0]!.offeredAt, withPendingCleanup.requests[0]!.offeredAt);
   assert.deepEqual(rolledBack.requests[0]!.holdCleanup, [
@@ -224,7 +227,6 @@ test("CLI add, find, update, expired and cleanup round-trip", () => {
   writeFileSync(rollback, JSON.stringify({
     offered: [offer], offeredAt: "2026-09-28T12:00:00.000Z",
     holdCleanup: [{ holdId: "h1", account: "a" }],
-    newHolds: [{ holdId: "h2", account: offer.account }],
   }));
   const rolledBack = cli("ledger.ts", ["rollback-offer", "--id", id, "--json-file", rollback], env);
   assert.equal(rolledBack.status, 0, rolledBack.stderr);
