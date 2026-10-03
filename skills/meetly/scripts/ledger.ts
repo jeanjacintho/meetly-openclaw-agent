@@ -352,13 +352,22 @@ export function ownerApprovalList(ledger: Ledger): Request[] {
   return ledger.requests.filter((r) => r.status === "offered" && r.ownerApprovalAt !== undefined && r.ownerApprovedAt === undefined);
 }
 
+// The travel buffers created with the offer that was booked.
+export function bookedTravel(r: Request): HoldRef[] {
+  return r.offered.find((offer) => offer.holdId === r.eventId
+    || Date.parse(offer.start) === Date.parse(r.booked?.start ?? ""))?.travel ?? [];
+}
+
 // Booked Meets whose link is due in the group: from `leadMin` before the
-// start until `graceMin` after it, once.
+// start until `graceMin` after it, once. A booked meeting with travel buffers
+// is also checked until it starts, so a cancelled event queues its buffers.
 export function dueReminders(ledger: Ledger, now: number, leadMin: number, graceMin = 5): Request[] {
   return ledger.requests.filter((r) => {
-    if (r.status !== "booked" || r.format !== "meet" || !(r.meetUrl || r.roomUrl) || !r.booked || r.reminder) return false;
+    if (r.status !== "booked" || !r.booked || r.reminder) return false;
     const start = Date.parse(r.booked.start);
-    return now >= start - leadMin * 60_000 && now < start + graceMin * 60_000;
+    if (now >= start + graceMin * 60_000) return false;
+    if (r.format === "meet" && (r.meetUrl || r.roomUrl) && now >= start - leadMin * 60_000) return true;
+    return bookedTravel(r).length > 0;
   });
 }
 

@@ -6,7 +6,7 @@ import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
 import { loadConfig, reminderLeadMin } from "./config.ts";
 import { readEvent, type EventInfo } from "./event.ts";
-import { updateRequest, type Ledger, type Patch, type Request } from "./ledger.ts";
+import { bookedTravel, updateRequest, type Ledger, type Patch, type Request } from "./ledger.ts";
 import { file } from "./paths.ts";
 import { updateJson } from "./store.ts";
 
@@ -32,17 +32,17 @@ function timeLabel(ms: number, locale: string, tz: string): string {
 }
 
 export function checkReminder(request: Request, event: EventInfo, now: number, opts: Options): Decision {
-  if (request.status !== "booked" || request.format !== "meet" || request.reminder) return { action: "skip", patch: {} };
+  if (request.status !== "booked" || request.reminder) return { action: "skip", patch: {} };
   if (event.id !== request.eventId) throw new Error(`event ${event.id} is not this request's event (${request.eventId})`);
   const at = new Date(now).toISOString();
   if (event.status === "cancelled") {
-    const travel = request.offered.find((offer) => offer.holdId === request.eventId
-      || Date.parse(offer.start) === Date.parse(request.booked?.start ?? ""))?.travel ?? [];
-    const holdCleanup = [...(request.holdCleanup ?? []), ...travel]
+    const holdCleanup = [...(request.holdCleanup ?? []), ...bookedTravel(request)]
       .filter((hold, i, all) => all.findIndex((h) => h.holdId === hold.holdId && h.account === hold.account) === i);
     return { action: "cancelled", patch: { status: "cancelled", holdCleanup, reminder: { at, outcome: "cancelled" } } };
   }
 
+  // Only a Meet has a link to remind about; an in-person meeting is checked for cancellation alone.
+  if (request.format !== "meet") return { action: "skip", patch: {} };
   const patch: Patch = {};
   const booked = request.booked!;
   if (Date.parse(event.start) !== Date.parse(booked.start) || Date.parse(event.end) !== Date.parse(booked.end)) {
