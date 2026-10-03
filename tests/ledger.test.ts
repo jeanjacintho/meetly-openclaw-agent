@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  addRequest, saveRequest, settleOffer, discardStaleOffers, removeCleanupRef, cleanupList, pendingOwnerList, expiredRequests, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest,
+  addRequest, saveRequest, settleOffer, discardStaleOffers, removeCleanupRef, appendLog, cleanupList, pendingOwnerList, expiredRequests, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, pipeline, stageOf,
   type Ledger, type NewRequest,
 } from "../skills/meetly/scripts/ledger.ts";
-import { cli, tmpHome } from "./helpers.ts";
+import { cli, tmpHome, handlesFile } from "./helpers.ts";
 
 const T0 = Date.parse("2026-09-28T12:00:00Z");
 const HOUR = 3600_000;
@@ -78,7 +78,7 @@ test("a re-offer to an existing group stays staged until its send succeeds", () 
   // The delivered offer, its age and its holds are untouched, and nothing is queued for deletion yet.
   assert.deepEqual(request.offered, original.requests[0]!.offered);
   assert.equal(request.offeredAt, original.requests[0]!.offeredAt);
-  assert.equal(request.holdCleanup, undefined);
+  assert.deepEqual(request.holdCleanup, []);
   assert.deepEqual(request.pendingOffer, { revision: "rev1", offered: [newOffer], offeredAt: new Date(T0).toISOString() });
   // The poll's expiry and cleanup reads never see the staged holds as current or deletable.
   assert.deepEqual(cleanupList(staged), []);
@@ -148,7 +148,7 @@ test("CLI sender-aware chat lookup prefers open request over closed chat history
   const old = cli("ledger.ts", ["find", "--chat", "c1"], env).json.request;
   cli("ledger.ts", ["update", "--id", old.id, "--json", '{"status":"dropped"}'], env);
   const replacement = cli("ledger.ts", ["add", "--json", JSON.stringify(input({ offered: [{ ...offer, holdId: "h2" }] }))], env).json.request;
-  const current = cli("ledger.ts", ["find", "--chat", "c1", "--handle", "+15551234567"], env);
+  const current = cli("ledger.ts", ["find", "--chat", "c1", "--handles-file", handlesFile("+15551234567")], env);
   assert.equal(current.status, 0, current.stderr);
   assert.equal(current.json.request.id, replacement.id);
 });
@@ -161,7 +161,7 @@ test("CLI combined lookup returns a closed chat request when the sender has no o
     const request = created.json.request;
     cli("ledger.ts", ["update", "--id", request.id, "--json", JSON.stringify({ status })], env);
 
-    const result = cli("ledger.ts", ["find", "--chat", "c1", "--handle", "+15551234567"], env);
+    const result = cli("ledger.ts", ["find", "--chat", "c1", "--handles-file", handlesFile("+15551234567")], env);
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.json.request.id, request.id);
     assert.equal(result.json.request.status, status);
@@ -215,6 +215,19 @@ test("cleanup lists only requests with pending hold deletes", () => {
   assert.deepEqual(cleanupList(l).map((r) => r.id), ["r_2"]);
 });
 
+test("closure time stays fixed when a closed request gets another log entry", () => {
+  let l = addRequest(empty(), input(), T0, "r_1");
+  l = updateRequest(l, "r_1", { status: "cancelled" }, T0 + HOUR);
+  const closedAt = l.requests[0]!.closedAt;
+  assert.equal(closedAt, new Date(T0 + HOUR).toISOString());
+  l = appendLog(l, "r_1", "owner notified", T0 + 10 * HOUR);
+  assert.equal(l.requests[0]!.closedAt, closedAt);
+  assert.equal(pipeline(l, T0 + 11 * HOUR).closed[0]!.closedAt, closedAt);
+  const legacy = { requests: [{ ...l.requests[0]!, closedAt: undefined, log: undefined, updatedAt: new Date(T0 + 5 * HOUR).toISOString() }] };
+  // A legacy row with no closing time falls back to its last update, never its creation.
+  assert.equal(pipeline(legacy, T0 + 2 * 24 * HOUR).closed[0]!.closedAt, new Date(T0 + 5 * HOUR).toISOString());
+});
+
 test("pendingOwner is set, listed and cleared", () => {
   let l = addRequest(empty(), input(), T0, "r_1");
   const pending = { start: "2026-10-03T10:00:00-03:00", end: "2026-10-03T10:30:00-03:00", askedAt: new Date(T0).toISOString() };
@@ -235,8 +248,8 @@ test("CLI add, find, update, expired and cleanup round-trip", () => {
   assert.equal(added.status, 0, added.stderr);
   const id = added.json.request.id;
   assert.match(id, /^r_[0-9a-f]{8}$/);
-  assert.equal(cli("ledger.ts", ["find", "--handle", "5551234567"], env).json.request.id, id);
-  assert.deepEqual(cli("ledger.ts", ["find", "--handle", "+15550000000"], env).json, { request: null });
+  assert.equal(cli("ledger.ts", ["find", "--handles-file", handlesFile("5551234567")], env).json.request.id, id);
+  assert.deepEqual(cli("ledger.ts", ["find", "--handles-file", handlesFile("+15550000000")], env).json, { request: null });
   const patch = join(home, "patch.json");
   writeFileSync(patch, JSON.stringify({ chatUid: "chat_1" }));
   assert.equal(cli("ledger.ts", ["update", "--id", id, "--json-file", patch], env).json.request.chatUid, "chat_1");
@@ -295,7 +308,7 @@ test("CLI add, find, update, expired and cleanup round-trip", () => {
 test("a corrupt ledger.json fails loudly", () => {
   const home = tmpHome();
   writeFileSync(join(home, "ledger.json"), "[oops");
-  const r = cli("ledger.ts", ["find", "--handle", "+15551234567"], { MEETLY_HOME: home });
+  const r = cli("ledger.ts", ["find", "--handles-file", handlesFile("+15551234567")], { MEETLY_HOME: home });
   assert.equal(r.status, 1);
   assert.match(r.stderr, /ledger\.json/);
 });

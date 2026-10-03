@@ -109,6 +109,8 @@ and print one JSON line; `skills/meetly/SKILL.md` lists them.
   - the owner asks to meet, schedule or book with someone → `meetly-group`,
     "Owner request" (a request someone else made, `origin: inbound`, is
     approved only in its meeting thread);
+  - the owner asks who they are waiting on, or how their meetings stand →
+    `meetly-group`, "Pipeline";
   - the owner cancels, moves or clears time that may hold a booked meeting →
     `meetly-group`, "Owner cancels or moves";
   - the owner changes a setting, pauses, resumes or asks for status →
@@ -121,11 +123,11 @@ and print one JSON line; `skills/meetly/SKILL.md` lists them.
   every incoming message. A request in the chat, including one with status
   `booked`, `dropped`, `expired` or `cancelled`, makes it a **Meetly group** →
   `meetly-group`, "In the group". In a group that is exactly the owner plus
-  one other person, also run `ledger.ts find --handle <their sender handle>`
+  one other person, also run `ledger.ts find --handles-file <file with their sender handle>`
   on every message that may answer an offer. An open (`offered`) handle match
   is the current request even when the chat lookup finds a closed request.
-  You may also run `ledger.ts find --chat <this chat uid> --handle <sender
-  handle>` to resolve that request in one lookup. If the open handle match has
+  You may also run `ledger.ts find --chat <this chat uid> --handles-file <file with the
+  sender handle>` to resolve that request in one lookup. If the open handle match has
   no `chatUid`, immediately link it with `ledger.ts update --id <request.id>
   --json '{"chatUid":"<this chat uid>"}'`. A closed chat request does not
   count as a disagreement with an open handle match. Treat lookups as a real

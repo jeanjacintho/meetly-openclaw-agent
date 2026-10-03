@@ -81,6 +81,27 @@ test("meetUrl only takes a Google Meet link", () => {
   }
 });
 
+const ROOM = "https://zoom.us/j/123456789";
+
+test("roomUrl takes only a personal Zoom room, only on a video meeting, and clears with null", () => {
+  const l = addRequest(empty(), input({ format: "meet" }), T0, "r_1");
+  for (const bad of ["http://zoom.us/j/1", "https://zoom.us.evil.example/j/1", "https://meet.google.com/abc-defg-hij", "https://zoom.us/j/1?x=1", ""]) {
+    assert.throws(() => updateRequest(l, "r_1", { roomUrl: bad }, T0), /roomUrl/, bad);
+  }
+  const withRoom = updateRequest(l, "r_1", { roomUrl: ROOM }, T0);
+  assert.equal(withRoom.requests[0]!.roomUrl, ROOM);
+  assert.equal("roomUrl" in updateRequest(withRoom, "r_1", { roomUrl: null }, T0).requests[0]!, false);
+  // Moving to another format drops it; it cannot be set on one that is not a video meeting.
+  assert.equal("roomUrl" in updateRequest(withRoom, "r_1", { format: "in_person", location: "Office" }, T0).requests[0]!, false);
+  const phone = addRequest(empty(), input({ format: "phone" }), T0, "r_2");
+  assert.throws(() => updateRequest(phone, "r_2", { roomUrl: ROOM }, T0), /roomUrl/);
+});
+
+test("a booked video meeting with the owner's Zoom room is due for a reminder like a Meet", () => {
+  const l = bookedMeet({ meetUrl: null, roomUrl: ROOM });
+  assert.deepEqual(dueReminders(l, START - 5 * MIN, 10).map((r) => r.id), ["r_1"]);
+});
+
 test("meetUrl is refused on a meeting that is not a Meet", () => {
   for (const format of ["in_person", "phone", "unknown"]) {
     const l = addRequest(empty(), input({ format }), T0, "r_1");
@@ -145,21 +166,19 @@ test("the lead and the grace are parameters", () => {
   assert.deepEqual(dueReminders(l, START + 9 * MIN, 10, 0).map((r) => r.id), []);
 });
 
-test("only a booked Meet with a link, a time and no reminder yet is due", () => {
+test("only a booked meeting with an event and a time is re-read in the window, reminded or not", () => {
   const at = START - 5 * MIN;
   const cases: [string, Ledger][] = [
-    ["already sent", bookedMeet({ reminder: { at: new Date(T0).toISOString(), outcome: "sent" } })],
-    ["cancelled", bookedMeet({ reminder: { at: new Date(T0).toISOString(), outcome: "cancelled" } })],
-    ["no link", bookedMeet({ meetUrl: null })],
     ["no booked time", bookedMeet({ booked: null })],
-    // Leaving meet drops the link, so these can never be due.
-    ["in person", bookedMeet({ format: "in_person", meetUrl: null })],
-    ["unknown", bookedMeet({ format: "unknown", meetUrl: null })],
     ["dropped", bookedMeet({ status: "dropped" })],
     ["still offered", bookedMeet({ status: "offered" })],
   ];
   for (const [name, l] of cases) assert.deepEqual(dueReminders(l, at, 10), [], name);
   assert.equal(dueReminders(bookedMeet(), at, 10).length, 1);
+  // After the reminder it is still re-read, so a later cancellation is caught.
+  assert.equal(dueReminders(bookedMeet({ reminder: { at: new Date(T0).toISOString(), outcome: "sent" } }), at, 10).length, 1);
+  // Any format is re-read in the window, so an external cancellation is seen; only a Meet gets a reminder.
+  assert.equal(dueReminders(bookedMeet({ format: "in_person", meetUrl: null }), at, 10).length, 1);
 });
 
 test("several meetings: each is due on its own time", () => {
@@ -205,7 +224,7 @@ test("CLI save with a format, book, list due reminders, mark sent", () => {
   assert.equal(cli("ledger.ts", ["reminders"], { ...env, MEETLY_REMINDER_LEAD_MIN: String(25 * 60) }).json.requests.length, 1);
   const mark = { reminder: { at: new Date().toISOString(), outcome: "sent" } };
   cli("ledger.ts", ["update", "--id", id, "--json", JSON.stringify(mark)], env);
-  assert.deepEqual(cli("ledger.ts", ["reminders", "--lead-min", String(25 * 60)], env).json, { requests: [] });
+  assert.equal(cli("ledger.ts", ["reminders", "--lead-min", String(25 * 60)], env).json.requests.length, 1);
   const bad = cli("ledger.ts", ["reminders", "--lead-min", "x"], env);
   assert.equal(bad.status, 1);
   assert.match(bad.stderr, /lead-min/);

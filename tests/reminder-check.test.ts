@@ -42,6 +42,21 @@ test("in the window, the link is sent to the group with the time in the person's
   });
 });
 
+test("a booking in the owner's Zoom room sends that room, and a cancelled event sends nothing", () => {
+  const room = "https://zoom.us/j/123456789";
+  const zoom = bookedMeet({ meetUrl: null, roomUrl: room });
+  const noLink = event({ meetUrl: null });
+  const out = check(zoom, event({ meetUrl: null, roomUrl: room }), START - 8 * MIN);
+  assert.equal(out.action, "send");
+  assert.equal(out.send!.meetUrl, room);
+  // The live event no longer shows the saved room (location removed or changed): nothing is sent.
+  assert.equal(check(zoom, noLink, START - 8 * MIN).action, "no-link");
+  assert.equal(check(zoom, event({ meetUrl: null, roomUrl: "https://zoom.us/j/999999999" }), START - 8 * MIN).action, "no-link");
+  assert.equal(check(zoom, event({ meetUrl: null, roomUrl: room, status: "cancelled" }), START - 8 * MIN).action, "cancelled");
+  // Neither a Meet link nor a room: nothing to send.
+  assert.equal(check(bookedMeet({ meetUrl: null }), noLink, START - 8 * MIN).action, "no-link");
+});
+
 test("the time is written in the owner's zone and the person's locale", () => {
   const out = check(bookedMeet({ locale: "en-US" }), event(), START - 5 * MIN);
   assert.equal(out.send!.time, "04:00 AM");
@@ -62,11 +77,22 @@ test("too early is wait, and nothing changes", () => {
   assert.deepEqual(out.patch, {});
 });
 
+test("an in-person meeting cancelled outside the agent is recorded too, and one still on is left alone", () => {
+  const inPerson = bookedMeet({ meetUrl: null }, { format: "in_person" });
+  assert.equal(check(inPerson, parseEvent(fixture("event-cancelled")), START - 5 * MIN).action, "cancelled");
+  assert.equal(check(inPerson, event({ meetUrl: null }), START - 5 * MIN).action, "skip");
+});
+
+test("a meeting cancelled after its reminder went out is still recorded as cancelled", () => {
+  const reminded = bookedMeet({ reminder: { at: new Date(T0).toISOString(), outcome: "sent" } });
+  assert.equal(check(reminded, parseEvent(fixture("event-cancelled")), START - 1 * MIN).action, "cancelled");
+});
+
 test("a deleted or cancelled event is recorded as cancelled and nothing is sent", () => {
   const out = check(bookedMeet(), parseEvent(fixture("event-cancelled")), START - 5 * MIN);
   assert.equal(out.action, "cancelled");
   assert.equal(out.send, undefined);
-  assert.deepEqual(out.patch, { reminder: { at: new Date(START - 5 * MIN).toISOString(), outcome: "cancelled" } });
+  assert.deepEqual(out.patch, { status: "cancelled", reminder: { at: new Date(START - 5 * MIN).toISOString(), outcome: "cancelled" } });
 });
 
 test("a Meet removed from the event is recorded as no-link, for the owner to hear about", () => {
@@ -163,7 +189,7 @@ test("CLI: the poll's full reminder sequence", () => {
   const marked = cli("reminder-check.ts", ["--id", id, "--sent"], env);
   assert.equal(marked.status, 0, marked.stderr);
   assert.equal(marked.json.request.reminder.outcome, "sent");
-  assert.deepEqual(cli("ledger.ts", ["reminders"], env).json, { requests: [] });
+  // Still re-read in the window, so a later cancellation is seen, but nothing is sent twice.
   assert.equal(cli("reminder-check.ts", ["--id", id, "--event-file", eventFile], env).json.action, "skip");
   assert.equal(cli("reminder-check.ts", ["--id", id, "--sent"], env).status, 1);
 
@@ -186,5 +212,8 @@ test("CLI: a cancelled event is written to the ledger so the next poll skips it"
   writeFileSync(eventFile, fixture("event-cancelled"));
   const out = cli("reminder-check.ts", ["--id", id, "--event-file", eventFile], env);
   assert.equal(out.json.action, "cancelled");
-  assert.equal(cli("ledger.ts", ["find", "--chat", "c1"], env).json.request.reminder.outcome, "cancelled");
+  const cancelled = cli("ledger.ts", ["find", "--chat", "c1"], env).json.request;
+  assert.equal(cancelled.reminder.outcome, "cancelled");
+  assert.equal(cancelled.status, "cancelled");
+  assert.equal(cancelled.closedAt, cancelled.updatedAt);
 });

@@ -97,14 +97,14 @@ test("setup fills the owner's name and time zone by itself and asks only when th
 test("every Meetly group is opened with start-thread.ts, never the base's 10-second tool", () => {
   const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
   assert.ok(group.includes("`request:<saved request id>` for every request"));
-  assert.ok(group.includes("run `reachable-handle.ts --handle <each phone and email>` and use the `handle` it returns"));
+  assert.ok(group.includes("run `reachable-handle.ts --handles-file <file with each phone and email>` and use the `handle` it returns"));
   assert.ok(group.includes("Never the `plow_start_thread` tool"));
   assert.ok(flat(prompt).includes("Meetly opens its groups with `start-thread.ts`"));
   // An unconfirmed group is explained plainly, never resent by itself, and retried only when the owner says it is not there.
   assert.ok(group.includes("Plow did not confirm it"));
   assert.ok(group.includes("the holds are kept and the request is saved"));
   assert.ok(group.includes("never quote a status code or say you cannot confirm anything else"));
-  assert.ok(group.includes("Only if the owner says the group is not there, or asks you to try again, run `start-thread.ts` again with the same `--key` and members"));
+  assert.ok(group.includes("Only if the owner says the group is not there, or asks you to try again, run `start-thread.ts` again with the same `key` and members"));
 });
 
 test("group requests without a matching ledger entry get a safe owner escalation", () => {
@@ -120,7 +120,7 @@ test("group requests without a matching ledger entry get a safe owner escalation
   assert.ok(flat(prompt).includes("--json '{\"chatUid\":\"<this chat uid>\"}'`"));
 });
 
-test("meeting notifications and approvals stay in the meeting thread", () => {
+test("routine meeting notifications stay in the group and pre-thread gate approval is explicit", () => {
   const group = groupSkill();
   assert.ok(group.includes("Ask the owner in this thread"));
   assert.ok(group.includes("A yes in the owner's DM does not approve the request"));
@@ -147,7 +147,7 @@ test("meeting notifications and approvals stay in the meeting thread", () => {
 test("a group pick re-reads the current request and never substitutes pending", () => {
   const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
   assert.ok(group.includes("re-read the ledger in this turn before interpreting it"));
-  assert.ok(group.includes("Re-run both `ledger.ts find --chat <this chat uid>` and `ledger.ts find --handle <sender handle>` now"));
+  assert.ok(group.includes("Re-run both `ledger.ts find --chat <this chat uid>` and `ledger.ts find --handles-file <file with sender handle>` now"));
   assert.ok(group.includes("A closed chat request does not count as a disagreement"));
   assert.ok(group.includes("both lookups identify different open requests"));
   assert.ok(group.includes("follow **No matching request** and do not use `ledger.ts pending` as a substitute"));
@@ -163,7 +163,7 @@ test("an owner booking with no time named takes the announced first option, thro
     "the first option because no time was named",
     "A time the other person already picked, or the owner names, is the time",
     "request of theirs that is already open (`origin: owner`), with no time, resolve it in",
-    "`ledger.ts find --handle <contact handle>`. Re-read it",
+    "`ledger.ts find --handles-file <file with contact handle>`. Re-read it",
     "Book its first current offered time through **Owner request pick** below",
     "Send the booking confirmation to the request's `chatUid`",
     "A request someone else made (`origin: inbound`) is approved only in its meeting thread: point the owner there and book nothing",
@@ -344,9 +344,42 @@ test("setup asks only what nobody can infer, and the rest starts at defaults", (
   assert.ok(!readme.includes("asks that one thing"));
 });
 
+test("Meetly researches the current thread, contact history and relevant messages before proposing", () => {
+  const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
+  assert.ok(group.includes("## Research before proposing"));
+  assert.ok(group.includes("ledger.ts history --handles-file <file with their handle>"));
+  assert.ok(group.includes("search the owner's relevant email and Plow messages"));
+  assert.ok(group.includes("ask the owner privately before contacting the other person"));
+});
+
+test("Meetly re-proposes fresh times when the other person says none of the options work", () => {
+  const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
+  assert.ok(group.includes("**None of these times work:** treat this as a request for another offer"));
+  assert.ok(group.includes("Re-read the calendar"));
+  assert.ok(group.includes("search the remaining configured horizon"));
+  assert.ok(group.includes("never claim a slot is free from an earlier calendar read"));
+});
+
+test("do not contact is checked before every contact-visible message and stored for all aliases", () => {
+  const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
+  const poll = flat(readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8"));
+  assert.ok(group.includes("Before every contact-visible message"));
+  assert.ok(group.includes("blocklist.ts check --handles-file <file>"));
+  assert.ok(group.includes("blocklist.ts block --handles-file <file>"));
+  assert.ok(poll.includes("Before each contact-visible poll message, immediately check `blocklist.ts check --handles-file <file>`"));
+  assert.ok(poll.includes("not update the reminder timestamp"));
+});
+
 test("an out-of-hours time with insufficient notice is not described as a calendar conflict", () => {
   const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
   assert.ok(group.includes("`reason: \"too-soon\"`: say there is not enough notice"));
   assert.ok(group.includes("do not call it a calendar conflict"));
   assert.ok(group.includes("`reason: \"busy\"`: say the owner has an existing commitment"));
+});
+
+test("a blocked person gets no calendar notice either, and the do-not-contact entry stores no free text", () => {
+  const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
+  assert.ok(group.includes("Run the same check before any calendar command that notifies the person (`--send-updates all`"));
+  assert.ok(group.includes("use `--send-updates none` and send no group message"));
+  assert.ok(!group.includes("--name <name>"));
 });
