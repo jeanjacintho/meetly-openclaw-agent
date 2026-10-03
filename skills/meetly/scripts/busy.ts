@@ -11,9 +11,7 @@ import { status } from "./setup-status.ts";
 import { writeJson } from "./store.ts";
 import { zonedToUtc } from "./time.ts";
 
-// `movable`: the owner listed a word from this block's title, so Meetly may offer
-// times over it. The title itself never leaves this script.
-export type Busy = { start: string; end: string; id?: string; account?: string; movable?: true };
+export type Busy = { start: string; end: string; id?: string; account?: string };
 export type BusyResult = { busy: Busy[]; unknownAfter?: string; degraded: string[] };
 
 type Stamp = string | { dateTime?: string; date?: string } | undefined;
@@ -65,7 +63,7 @@ function skipped(e: CalEvent): boolean {
   return (e.attendees ?? []).some((a) => a?.self === true && a.responseStatus === "declined");
 }
 
-export function toBusy(results: unknown[], opts: { tz: string; max: number; movable?: string[] }): BusyResult {
+export function toBusy(results: unknown[], opts: { tz: string; max: number }): BusyResult {
   const busy: Busy[] = [];
   const degraded: string[] = [];
   let unknownAfter: number | undefined;
@@ -96,8 +94,6 @@ export function toBusy(results: unknown[], opts: { tz: string; max: number; mova
       const b: Busy = { start: new Date(start).toISOString(), end: new Date(end).toISOString() };
       if (e.id !== undefined) b.id = e.id;
       if (e.account !== undefined) b.account = e.account;
-      const title = e.summary?.toLowerCase();
-      if (title && opts.movable?.some((w) => title.includes(w))) b.movable = true;
       busy.push(b);
     }
     for (const { count, last } of perAccount.values()) {
@@ -159,12 +155,12 @@ export async function listEvents(
 }
 
 export async function fetchBusy(
-  config: Pick<Config, "timezone" | "calendars"> & { movable?: string[] },
+  config: Pick<Config, "timezone" | "calendars">,
   range: { from: string; to: string },
   opts: BridgeOptions = {},
 ): Promise<BusyResult> {
   const { events, degraded, truncatedAfter } = await listEvents(config, range, opts);
-  const out = toBusy([{ events }, ...truncatedAfter.map((after) => ({ events: [], truncated: { after } }))], { tz: config.timezone, max: FETCH_MAX, movable: config.movable });
+  const out = toBusy([{ events }, ...truncatedAfter.map((after) => ({ events: [], truncated: { after } }))], { tz: config.timezone, max: FETCH_MAX });
   out.degraded.push(...degraded);
   return out;
 }
@@ -186,8 +182,8 @@ if (isMain(import.meta.url)) {
     }
     const max = Number(values.max);
     if (!Number.isInteger(max) || max <= 0) throw new Error(`--max must be a positive whole number, got ${values.max}`);
-    const { timezone, movable } = loadConfig();
+    const { timezone } = loadConfig();
     const results = readInput(values.in ?? []).map((text) => JSON.parse(text));
-    return toBusy(results, { tz: timezone, max, movable });
+    return toBusy(results, { tz: timezone, max });
   });
 }

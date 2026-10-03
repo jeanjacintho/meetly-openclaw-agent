@@ -112,13 +112,6 @@ test("durations and horizons are bounded integers", () => {
   assert.deepEqual(parseField("ownerGate", "on"), { ownerGate: true });
   assert.deepEqual(parseField("ownerGate", "off"), { ownerGate: false });
   assert.throws(() => parseField("ownerGate", "maybe"), /ownerGate/);
-  // Movable blocks are title words the owner lists: lowercased, deduplicated, bounded; none clears them.
-  assert.deepEqual(parseField("movable", " Prayer, GYM ,prayer "), { movable: ["prayer", "gym"] });
-  assert.deepEqual(parseField("movable", "none"), { movable: undefined });
-  assert.throws(() => parseField("movable", "a"), /movable/);
-  assert.throws(() => parseField("movable", "x".repeat(41)), /movable/);
-  assert.throws(() => parseField("movable", Array.from({ length: 21 }, (_, i) => `word${i}`).join(",")), /movable/);
-  assert.throws(() => parseField("movable", " , "), /movable/);
   // The video provider is Meet, or the owner's personal Zoom room (a strict https zoom.us URL).
   assert.deepEqual(parseField("videoProvider", "meet"), { zoomRoomUrl: undefined });
   const room = "https://us02web.zoom.us/j/123456789?pwd=abc.DEF";
@@ -224,10 +217,6 @@ test("editing a field after setup updates config.json and keeps setupDoneAt", ()
     assert.equal(readJson<Config | null>(join(home, "config.json"), null)!.zoomRoomUrl, "https://zoom.us/j/123456789");
     record("videoProvider", "meet");
     assert.equal("zoomRoomUrl" in readJson<object>(join(home, "config.json"), {}), false);
-    record("movable", "prayer, gym");
-    assert.deepEqual(readJson<Config | null>(join(home, "config.json"), null)!.movable, ["prayer", "gym"]);
-    record("movable", "none");
-    assert.equal("movable" in readJson<object>(join(home, "config.json"), {}), false);
     record("ownerGate", "on");
     assert.equal(readJson<Config | null>(join(home, "config.json"), null)!.ownerGate, true);
     record("ownerGate", "off");

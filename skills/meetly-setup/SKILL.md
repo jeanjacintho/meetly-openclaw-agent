@@ -78,9 +78,6 @@ to install anything else.
   same way before answering the current question.
 - "I use Zoom, here is my room: <link>" → `record-setup.ts --field videoProvider --value <their Zoom room link>`;
   "use Google Meet" → `meet`. Meetly posts that room and cannot create new Zoom links.
-- "My prayer time and gym can move" → `record-setup.ts --field movable --value <words from the titles>`
-  (for example `prayer, gym`); "nothing can move" → `none`. Meetly then offers
-  times over those blocks, and never repeats their titles to anyone.
 - "Ask me before replying to new meeting requests" →
   `record-setup.ts --field ownerGate --value on`; "you can answer meeting
   requests without asking me first" → `off`. The default is off. When on,
