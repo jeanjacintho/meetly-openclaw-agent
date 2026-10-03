@@ -190,7 +190,7 @@ test("closed request responses are limited to scheduling intent, not acknowledge
   assert.ok(group.includes("For a conversational acknowledgement or other message unrelated to scheduling"));
   assert.ok(group.includes("do not reply and do not alert the owner"));
   assert.ok(group.includes("decline, cancel or give up"));
-  assert.ok(group.includes("**They decline or give up:** delete the holds"));
+  assert.ok(group.includes("**They decline or give up:** delete the meeting and travel holds"));
   assert.ok(group.includes("use this only when a scheduling-related message tries to choose, change or resume the request, or asks its status"));
 });
 
@@ -330,7 +330,7 @@ test("an owner who cancels or moves a booked meeting has Meetly tell the other p
   assert.ok(group.includes("tell them in their group (the request's `chatUid`) with `plow_reply_to`"));
   assert.ok(group.includes("A Google cancellation email is not a message from Meetly"));
   // A failed step after the calendar change is retried, the group still hears, and the owner learns what is left.
-  assert.ok(group.includes("If the delete fails, change nothing else, tell the owner and send nothing to the group"));
+  assert.ok(group.includes("If the event delete fails, change nothing else, tell the owner and send nothing to the group"));
   assert.ok(group.includes("retry it once in this turn, and still send the group message"));
   assert.ok(group.includes("tell the owner exactly which steps are left"));
   assert.ok(group.includes("For `cancelled`, say the owner cancelled that meeting and ask the owner to follow up here"));
@@ -385,6 +385,21 @@ test("do not contact is checked before every contact-visible message and stored 
   assert.ok(poll.includes("do not update the reminder or nudge timestamp"));
 });
 
+test("travel buffer references are persisted before an outside-hours booking", () => {
+  const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
+  // A booked meeting becomes in person only once its buffers are held; a failed check or hold leaves the prior format.
+  assert.ok(group.includes("record `in_person` (\"Meeting format\") only once both are held"));
+  assert.ok(group.includes("keep the prior format, say the meeting cannot switch to in person without another time"));
+  assert.ok(group.includes("Only then record `in_person`, and save the holds on the booking with `ledger.ts set-travel"));
+  assert.ok(group.includes("persist their refs with `ledger.ts set-travel --id <id> --json-file <file>`"));
+  assert.ok(group.includes("the ledger keeps them in `pendingOwner.travel` (a retry that holds a new pair queues the displaced refs for cleanup in the same write)"));
+  assert.ok(group.includes("Do this before creating the event"));
+  assert.ok(group.includes("If this write fails, delete both buffers"));
+  assert.ok(group.includes("copies that offer's `travel[]` refs into the booking (`booked.travel`)"));
+  assert.ok(group.includes("save their refs on that offer (for a time that is an offer) with `ledger.ts set-travel` before booking"));
+  assert.ok(group.includes("If saving those refs fails, delete both travel holds"));
+});
+
 test("an out-of-hours time with insufficient notice is not described as a calendar conflict", () => {
   const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
   assert.ok(group.includes("`reason: \"too-soon\"`: say there is not enough notice"));
@@ -397,6 +412,25 @@ test("a blocked person gets no calendar notice either, and the do-not-contact en
   assert.ok(group.includes("Run the same check before any calendar command that notifies the person (`--send-updates all`"));
   assert.ok(group.includes("use `--send-updates none` and send no group message"));
   assert.ok(!group.includes("--name <name>"));
+});
+
+test("travel: one exact-time check, cancel and move handle the buffers, and a pick reaches the travel path", () => {
+  const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
+  assert.ok(group.includes("and every id in the chosen offer's `travel[]`, its own buffer holds"));
+  assert.ok(group.includes("for each id in the chosen offer's `travel[]` (the offer's own buffer holds are not conflicts)"));
+  assert.ok(group.includes("**Exact-time check.** Read the calendar (`busy.ts --fetch`), then run `slots.ts --in /var/lib/plow/meetly/tmp/busy.json --at <start>"));
+  assert.ok(group.includes("the buffers are `slot.travel.before` and `slot.travel.after`"));
+  assert.ok(group.includes("the ledger queues the booking's travel buffers for the cleanup poll in that same write"));
+  // Pick deletes the hold set record-booking queued, and removes each from the queue so the poll does not retry gone events.
+  assert.ok(group.includes("so after each successful delete run `ledger.ts cleanup-remove` (or leave the deletion to the cleanup poll)"));
+  assert.ok(group.includes("first run the exact-time check (\"Travel time\") at the new time") || group.includes("With it set, first run the exact-time check (\"Travel time\") at the new time"));
+  // Buffers follow the current setting: created when enabled after booking, released with `travel: []` when cleared, kept on a location answer.
+  for (const rule of ["the buffers follow the current `config.travelMin`, not what the booking happens to hold", "also when the booking has none because the setting was turned on after it was booked", "stage `{\"travel\":[],…}` so the move releases the old ones atomically", "needs no new check and no new holds: keep them", "`record-booking.ts` already queued them in `holdCleanup` in the booking write"])
+    assert.ok(group.includes(rule), rule);
+  for (const rule of ["`ledger.ts stage-travel --id <id> --json-file F`", "Only after it succeeds, run `ledger.ts commit-travel --id <id> --revision <that revision>`", "the booking takes the new buffers and the target time in that same write", "If it prints `committed: false`, the poll already settled this move from the live event", "reading the calendar fresh first (if `degraded` is not empty, stop", "If it refuses because another move is in progress, delete the buffers you just created", "every id in `booked.travel` (if any) in `--allow-overlap`", "repeating `--allow-overlap` for each id in the request's `allowOverlap`"])
+    assert.ok(group.includes(rule), rule);
+  assert.ok(group.includes("the picked offer has no `travel[]`, follow \"Travel time\" before booking"));
+  assert.ok(group.includes("`record-booking.ts` records the booking, clears `pendingOwner` and, in that same write"));
 });
 
 test("a pick re-checks the calendar before it converts a hold, so a movable overlap is never trusted from the offer", () => {

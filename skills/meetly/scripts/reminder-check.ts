@@ -6,7 +6,7 @@ import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
 import { loadConfig, reminderLeadMin } from "./config.ts";
 import { readEvent, type EventInfo } from "./event.ts";
-import { updateRequest, type Ledger, type Patch, type Request } from "./ledger.ts";
+import { reconcileTravel, updateRequest, type Ledger, type Patch, type Request } from "./ledger.ts";
 import { file } from "./paths.ts";
 import { updateJson } from "./store.ts";
 
@@ -35,6 +35,7 @@ export function checkReminder(request: Request, event: EventInfo, now: number, o
   if (request.status !== "booked") return { action: "skip", patch: {} };
   if (event.id !== request.eventId) throw new Error(`event ${event.id} is not this request's event (${request.eventId})`);
   const at = new Date(now).toISOString();
+  // updateRequest queues the booked travel buffers when the meeting closes.
   if (event.status === "cancelled") return { action: "cancelled", patch: { status: "cancelled", reminder: { at, outcome: "cancelled" } } };
   // A cancellation is caught even after the reminder went out; nothing else is sent twice.
   if (request.format !== "meet" || request.reminder) return { action: "skip", patch: {} };
@@ -42,7 +43,7 @@ export function checkReminder(request: Request, event: EventInfo, now: number, o
   const patch: Patch = {};
   const booked = request.booked!;
   if (Date.parse(event.start) !== Date.parse(booked.start) || Date.parse(event.end) !== Date.parse(booked.end)) {
-    patch.booked = { start: event.start, end: event.end, account: booked.account };
+    patch.booked = { ...booked, start: event.start, end: event.end };
   }
   // The link is the one on the event, or the owner's Zoom room saved at booking
   // while the live event's location still shows that same room.
@@ -96,10 +97,12 @@ if (isMain(import.meta.url)) {
     const now = Date.now();
     let decision: Decision | undefined;
     updateJson<Ledger>(path, empty, (l) => {
-      const request = l.requests.find((r) => r.id === values.id);
+      // A move whose turn died is settled from the live event before anything else is decided.
+      const settled = event.status === "cancelled" ? l : reconcileTravel(l, values.id!, event, now);
+      const request = settled.requests.find((r) => r.id === values.id);
       if (!request) throw new Error(`no request ${values.id}`);
       decision = checkReminder(request, event, now, { leadMin, tz: timezone });
-      return Object.keys(decision.patch).length ? updateRequest(l, request.id, decision.patch, now) : l;
+      return Object.keys(decision.patch).length ? updateRequest(settled, request.id, decision.patch, now) : settled;
     });
     const { patch: _patch, ...out } = decision!;
     return out;

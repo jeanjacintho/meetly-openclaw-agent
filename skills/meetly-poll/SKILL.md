@@ -44,7 +44,8 @@ still explain why no contact message was sent.
         `reminder-check.ts --id <id> --sent`. If delivery is unknown, still
         mark it sent: never resend.
       - `wait`: the meeting moved; nothing now.
-      - `cancelled`: the event was deleted; send nothing.
+      - `cancelled`: the event was deleted (a Meet or an in-person meeting
+        with travel buffers); send nothing.
       - `no-link`: the Meet was removed from the event. Tell the meeting
         thread in one line that no link went out for <name>'s meeting.
       - `skip`: already handled, or not a Meet: nothing to send.
@@ -84,8 +85,8 @@ still explain why no contact message was sent.
       batch>` and go to step 6.
 5. Run `cursor.ts set <highest rowid in the batch>`.
 6. Maintenance:
-   - For each request from `ledger.ts expired`: delete its holds ("Holds" in
-     `meetly-group`), then `ledger.ts update --id <id> --json
+   - For each request from `ledger.ts expired`: delete its meeting and travel
+     holds ("Holds" in `meetly-group`), then `ledger.ts update --id <id> --json
      '{"status":"expired","pendingOwner":null}'`. If it has a `chatUid`, check
      the blocklist then tell the group the held times were released; this also
      notifies the owner.
