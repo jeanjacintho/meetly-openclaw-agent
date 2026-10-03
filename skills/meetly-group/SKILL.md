@@ -76,7 +76,8 @@ free there.
    `chatUid` if already known, `topic`, `location`, `durationMin`,
    `constraints`, `allowOverlap`, `format` and `locale` (see "Meeting
    format"), and `offered[]` with each `start`/`end`/`holdId`/`account` and
-   created travel hold refs in `travel[]`; include `holdCleanup` when earlier
+   created travel hold refs in `travel[]`; include `ownerApprovalAt` when the
+   owner gate below applies; include `holdCleanup` when earlier
    deletes failed. `save` creates a request or updates the
    existing open request for that person, preserving its id and existing
    `chatUid` when the new value is absent. Holds from the replaced offer are
@@ -85,7 +86,8 @@ free there.
    created, stop and report the ledger error to the owner; do not send an
    offer. If any deletion fails, report those hold ids too.
    - **Owner gate:** when `origin` is `inbound` and `config.ownerGate` is
-     true, update the saved request with `ownerApprovalAt: <now ISO>`. Do not
+     true, that same `save` carries `ownerApprovalAt: <now ISO>`, so the
+     request is never open without its approval hold. Do not
      open a group or send any proposed time to the other person yet. Run
      `owner-chat.ts`, then use `message` (`action: send`, channel `plow`,
      accountId `chat`, target its `chatUid`) to send the owner one private

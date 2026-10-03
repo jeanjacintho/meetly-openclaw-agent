@@ -73,7 +73,9 @@ const LOG_TEXT_MAX = 300;
 export type Ledger = { requests: Request[] };
 
 export type NewRequest = Omit<Request,
-  "id" | "status" | "eventId" | "pendingOwner" | "ownerApprovalAt" | "ownerApprovedAt" | "booked" | "meetUrl" | "roomUrl" | "reminder" | "offeredAt" | "closedAt" | "nudgedAt" | "personNudgedAt" | "log" | "createdAt" | "updatedAt">;
+  "id" | "status" | "eventId" | "pendingOwner" | "ownerApprovalAt" | "ownerApprovedAt" | "booked" | "meetUrl" | "roomUrl" | "reminder" | "offeredAt" | "closedAt" | "nudgedAt" | "personNudgedAt" | "log" | "createdAt" | "updatedAt">
+  // Saved with the offer, so an inbound request is never open without its approval hold.
+  & { ownerApprovalAt?: string };
 export type Patch = Partial<Pick<Request,
   "status" | "chatUid" | "eventId" | "offered" | "holdCleanup" | "name" | "location" | "allowOverlap" | "constraints" | "topic" | "format" | "locale">> & {
   pendingOwner?: PendingOwner | null;
@@ -202,10 +204,13 @@ export function addRequest(ledger: Ledger, input: NewRequest, now: number, id: s
   if (input.locale !== undefined) checkLocale(input.locale);
   const open = findOpenByHandle(ledger, input.handle);
   if (open) throw new Error(`open request ${open.id} already exists for this person; update it instead`);
+  if (input.ownerApprovalAt !== undefined && (input.origin !== "inbound" || !isDate(input.ownerApprovalAt))) {
+    throw new Error(`ownerApprovalAt must be a time and only applies to an inbound request, got ${JSON.stringify(input.ownerApprovalAt)}`);
+  }
   const at = new Date(now).toISOString();
   // A new offer is never booked: a booking, its link and its reminder are
   // only ever set through update, where they are validated.
-  const { booked: _b, meetUrl: _m, roomUrl: _z, reminder: _r, closedAt: _c, nudgedAt: _n, personNudgedAt: _pn, ownerApprovalAt: _oa, ownerApprovedAt: _oap, log: _l, ...fields } = input as NewRequest & Partial<Pick<Request, "booked" | "meetUrl" | "roomUrl" | "reminder" | "closedAt" | "nudgedAt" | "personNudgedAt" | "ownerApprovalAt" | "ownerApprovedAt" | "log">>;
+  const { booked: _b, meetUrl: _m, roomUrl: _z, reminder: _r, closedAt: _c, nudgedAt: _n, personNudgedAt: _pn, ownerApprovedAt: _oap, log: _l, ...fields } = input as NewRequest & Partial<Pick<Request, "booked" | "meetUrl" | "roomUrl" | "reminder" | "closedAt" | "nudgedAt" | "personNudgedAt" | "ownerApprovalAt" | "ownerApprovedAt" | "log">>;
   const request: Request = { ...fields, format, id, status: "offered", offeredAt: at, createdAt: at, updatedAt: at };
   return { requests: [...ledger.requests, request] };
 }
@@ -234,7 +239,7 @@ export function saveRequest(ledger: Ledger, input: NewRequest, now: number, id: 
     format: validated.format === "unknown" ? existing.format ?? "unknown" : validated.format,
     locale: input.locale ?? existing.locale,
     personNudgedAt: undefined,
-    ownerApprovalAt: undefined,
+    ownerApprovalAt: validated.ownerApprovalAt,
     ownerApprovedAt: undefined,
     holdCleanup,
     createdAt: existing.createdAt,

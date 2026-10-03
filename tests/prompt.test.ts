@@ -69,7 +69,9 @@ test("every script the prompt or a skill names exists", () => {
 
 test("the poll message is what the prompt keys on", () => {
   assert.ok(POLL_MESSAGE.startsWith("Meetly poll."));
-  assert.ok(readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8").includes("start-thread.ts"));
+  const poll = readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8");
+  assert.ok(!poll.includes("Open the group with `start-thread.ts`"));
+  assert.ok(flat(poll).includes("`meetly-group` alone decides whether to ask the owner first or open the group"));
 });
 
 test("Meetly introduces itself as Meetly, never by the configured name, as the owner or as a Plow assistant", () => {

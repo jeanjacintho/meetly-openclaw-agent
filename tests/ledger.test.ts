@@ -204,6 +204,18 @@ test("pendingOwner is set, listed and cleared", () => {
   assert.deepEqual(pendingOwnerList(l), []);
 });
 
+test("save records the owner approval hold together with the offer", () => {
+  const at = new Date(T0).toISOString();
+  const l = saveRequest(empty(), input({ origin: "inbound", ownerApprovalAt: at }), T0, "r_1");
+  assert.equal(l.requests[0]!.ownerApprovalAt, at);
+  assert.deepEqual(ownerApprovalList(l).map((r) => r.id), ["r_1"]);
+  assert.throws(() => saveRequest(empty(), input({ origin: "owner", ownerApprovalAt: at }), T0, "r_1"), /inbound/);
+  assert.throws(() => saveRequest(empty(), input({ origin: "inbound", ownerApprovalAt: "soon" }), T0, "r_1"), /ownerApprovalAt/);
+  const reoffered = saveRequest(updateRequest(l, "r_1", { ownerApprovedAt: at }, T0), input({ origin: "inbound", ownerApprovalAt: at }), T0 + HOUR, "r_2");
+  assert.equal(reoffered.requests[0]!.ownerApprovedAt, undefined);
+  assert.equal(reoffered.requests[0]!.ownerApprovalAt, at);
+});
+
 test("owner gate requests wait for owner approval and appear in the approvals list", () => {
   let l = addRequest(empty(), input(), T0, "r_1");
   l = updateRequest(l, "r_1", { ownerApprovalAt: new Date(T0).toISOString() }, T0);
