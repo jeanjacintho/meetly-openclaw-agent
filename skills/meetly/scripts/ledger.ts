@@ -616,6 +616,12 @@ export function historyFor(ledger: Ledger, handle: string): Pick<Request, "id" |
 
 const EMPTY: Ledger = { requests: [] };
 
+// True while the unattended poll is processing a guest's message: it holds the row (`cursor.ts hold`, state written by a
+// script, not by the model) until the ledger records the request. Whatever `origin` the model writes in that window, the
+// request comes from a guest's text, so it is treated as inbound and gated. (A turn that skips the hold step is not
+// caught: only a runtime-provided context could be fully trusted.)
+const pollTurn = (): boolean => readJson<{ held?: number } | null>(file("cursor.json"), null)?.held !== undefined;
+
 // The approval state is written only by save (derived from the configuration), approve, decline and expire; never by a model-supplied payload.
 function refuseApprovalKeys(value: Record<string, unknown>): void {
   for (const key of ["ownerApprovalAt", "ownerApprovedAt"]) {
@@ -670,7 +676,7 @@ if (isMain(import.meta.url)) {
         // through `save`, which applies the owner gate, so it can never be created here without the pending marker.
         const input = jsonArg(values);
         refuseApprovalKeys(input);
-        if (input.origin !== "owner") throw new Error("add is only for the owner's own requests; save an inbound request with ledger.ts save (it applies the owner gate)");
+        if (input.origin !== "owner" || pollTurn()) throw new Error("add is only for the owner's own requests, never while the poll is processing a guest's message; save an inbound request with ledger.ts save (it applies the owner gate)");
         const id = `r_${randomBytes(4).toString("hex")}`;
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => addRequest(l, input, now, id));
         return { request: ledger.requests.find((r) => r.id === id) };
@@ -683,6 +689,8 @@ if (isMain(import.meta.url)) {
         // The owner gate is decided here, in the locked write, from the configuration and the current request: an
         // inbound offer that has no group yet waits for the owner's approval; the caller never supplies the marker.
         const gateOn = loadConfig().ownerGate === true;
+        // A request saved while the poll holds a guest's row is inbound, whatever the payload says.
+        if (pollTurn()) input.origin = "inbound";
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => {
           const hasGroup = (findOpenByHandle(l, input.handle)?.chatUid ?? input.chatUid) !== undefined;
           if (gateOn && input.origin === "inbound" && !hasGroup) {
