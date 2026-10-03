@@ -11,10 +11,13 @@ import { status } from "./setup-status.ts";
 import { writeJson } from "./store.ts";
 import { zonedToUtc } from "./time.ts";
 
-// `movable`: the owner listed a word from the title of a block nobody else is
-// invited to (an invitation always carries its organizer, so a title alone from
-// someone else never qualifies), so Meetly may offer times over it. The title
-// itself never leaves this script.
+// `movable`: the owner listed a word from the title of a block the owner
+// organized (`organizer.self`, which Latch reports) and nobody else is invited to,
+// so Meetly may offer times over it. A title alone never qualifies: an invitation
+// or an event a collaborator put on a shared calendar can carry any words, so an
+// event whose organizer is not proven to be the owner stays hard-busy (and with a
+// Latch that does not report the organizer, nothing is movable). The title itself
+// never leaves this script.
 export type Busy = { start: string; end: string; id?: string; account?: string; movable?: true };
 export type BusyResult = { busy: Busy[]; unknownAfter?: string; degraded: string[] };
 
@@ -34,6 +37,8 @@ export type CalEvent = {
   status?: string;
   // Latch lists only the others invited, by address; the raw Google shape lists everyone as objects.
   attendees?: (string | { self?: boolean; resource?: boolean; responseStatus?: string })[];
+  // Latch keeps only whether the owner organized it (`{self:true}`); the raw Google shape carries the whole organizer.
+  organizer?: { self?: boolean; email?: string };
 };
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
@@ -99,7 +104,7 @@ export function toBusy(results: unknown[], opts: { tz: string; max: number; mova
       const b: Busy = { start: new Date(start).toISOString(), end: new Date(end).toISOString() };
       if (e.id !== undefined) b.id = e.id;
       if (e.account !== undefined) b.account = e.account;
-      if (!hasOthers(e) && !MEETLY_HOLD.test(e.summary ?? "") && e.summary && opts.movable?.some((w) => titleHasWordOrPhrase(e.summary!, w))) b.movable = true;
+      if (e.organizer?.self === true && !hasOthers(e) && !MEETLY_HOLD.test(e.summary ?? "") && e.summary && opts.movable?.some((w) => titleHasWordOrPhrase(e.summary!, w))) b.movable = true;
       busy.push(b);
     }
     for (const { count, last } of perAccount.values()) {

@@ -67,7 +67,8 @@ signed as Meetly.
   group, in one line.
 - **Overlaps only with your word.** Meetly books over an existing event only
   when you named that event in your request, said yes in the group, or listed
-  a word from its title as movable ("prayer", "gym"). People in the group can
+  a word from its title as movable ("prayer", "gym") on an event you created
+  yourself. People in the group can
   never unlock a conflict or a time outside your hours.
 - **Stays on topic in groups.** The group is for this one meeting. Meetly does
   not read your mail, files or other conversations for the other person.
