@@ -1,8 +1,9 @@
 # Meetly
 
 Your scheduling assistant, on a text thread. When someone asks to meet you,
-Meetly opens a group with them, offers your free times, holds them on your
-calendar and books the one they pick. You receive the confirmation in the same group.
+Meetly holds free times on your calendar and asks you privately for approval.
+Once you approve, it opens a group, offers those times and books the one they
+pick. You receive the confirmation in the same group.
 
 An [OpenClaw](https://github.com/openclaw/openclaw) agent on
 [Plow Chat](https://howto.plow.co/). It is one person's assistant: your days,
@@ -18,10 +19,10 @@ Every five minutes Meetly reads your new iMessages on your Mac, through
 [Latch](https://howto.plow.co/latch). When someone is trying to set something
 up with you — "coffee next week?" — it:
 
-1. opens a Plow group with you and that person,
-2. offers three free times from your Google Calendar, inside the days and
-   hours you allow,
-3. holds those times on your calendar so nothing else takes them,
+1. finds three free times inside your allowed days and hours and holds them,
+2. asks you privately to approve those options before contacting the person,
+3. once you approve, opens a Plow group with you and that person and offers
+   the held times,
 4. asks how you'll meet (a video call or in person) when neither the message
    nor your default meeting type says it,
 5. books the one they pick, invites them if it knows their email, and
@@ -30,7 +31,9 @@ up with you — "coffee next week?" — it:
 6. posts the video link in the group 10 minutes before the start,
 7. confirms in the group, where both you and the other person receive it.
 
-It does not wait for you. If you are busy, the meeting still gets booked.
+After you approve the outreach, Meetly handles their choice and booking in
+the group. You can explicitly authorize automatic replies to inbound requests
+if you prefer to skip the approval step.
 
 You can also ask it directly: *"set up lunch with Patrick next week — it can go
 over Weekly Claw"*. Meetly finds Patrick in your contacts, respects what you
@@ -60,8 +63,14 @@ signed as Meetly.
   is explained as too soon, with alternatives offered. If the other person can only
   do a time outside your hours, Meetly asks you in that group and books it only on
   your yes there. A yes in your DM does not approve the group request.
-- **Holds expire.** No answer in 48 hours: the holds are deleted and the
-  group is told the times were released.
+- **Gets your approval before contacting someone who asks to meet.** Meetly
+  holds proposed times and asks you in your DM before it contacts the person.
+  This is on by default, including for existing configurations. If you tell
+  Meetly to answer meeting requests without asking first, that is standing
+  authorization for automatic replies.
+- **Holds expire.** No answer in 48 hours: the holds are deleted. If you
+  never approved, only you are told; once a group exists, it is told the times
+  were released.
 - **Tells them when you cancel or move.** Ask Meetly to cancel or move a
   meeting it booked and it updates the calendar and says so in that person's
   group, in one line.
@@ -192,7 +201,8 @@ message is skipped.
   contact, trusted, and an idempotency key. An uncertain delivery is
   recorded without a chat and never resent on its own; if you say the group
   is not there, Meetly tries again with the same key. Meeting confirmations and
-  approval asks stay in that group; the owner is a participant.
+  approval asks stay in that group; the owner is a participant. The one
+  exception is the owner gate, which asks you in your DM before any group exists.
 - **Scripts.** Small TypeScript CLIs in `skills/meetly/scripts/`, run directly
   by the image's Node (`node <script>.ts`, no build): setup, the message
   cursor, the request ledger, busy/free-slot math in your time zone, cron

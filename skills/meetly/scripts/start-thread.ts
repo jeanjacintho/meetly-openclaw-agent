@@ -13,14 +13,16 @@ import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
 import { isBlocked, loadBlocked } from "./blocklist.ts";
-import { withLock } from "./store.ts";
 import { fetchIdentity, findOwnerDm, plowApi, type ApiOptions } from "./owner-chat.ts";
+import { awaitingOwnerApproval, sameHandle, type Ledger } from "./ledger.ts";
+import { loadConfig } from "./config.ts";
 import { file } from "./paths.ts";
 import { isHandle } from "./reachable-handle.ts";
+import { readJson, withLock } from "./store.ts";
 
 export type Started = { chatUid: string; messageSent: true } | { chatUid: null; deliveryUnknown: true };
 
-export async function startThread(opts: ApiOptions & { members: string[]; body: string; key: string }): Promise<Started> {
+export async function startThread(opts: ApiOptions & { members: string[]; body: string; requestId: string }): Promise<Started> {
   if (opts.members.length === 0) throw new Error("give at least one phone number");
   // A phone in E.164 or an iMessage email: reachable-handle.ts says which one.
   for (const m of opts.members) {
@@ -32,8 +34,17 @@ export async function startThread(opts: ApiOptions & { members: string[]; body: 
   for (const m of opts.members) if (isBlocked(blockedInitially, m)) {
     throw new Error(`do not contact: ${m} is on the owner's do-not-contact list; the owner must take them off it first`);
   }
+  // The group is opened for one saved, open request, and only for its person; an
+  // inbound request still waiting for the owner never reaches them.
+  const request = readJson<Ledger>(file("ledger.json"), { requests: [] }).requests.find((r) => r.id === opts.requestId);
+  if (!request || request.status !== "offered") throw new Error(`request ${opts.requestId} is not an open request: save the offer first`);
+  if (awaitingOwnerApproval(request)) throw new Error(`request ${request.id} is waiting for the owner's approval: nothing may be sent yet`);
+  // With the owner gate on, an inbound request needs the owner's recorded approval, whatever the ledger's marker says.
+  if (request.origin === "inbound" && loadConfig().ownerGate && request.ownerApprovedAt === undefined) {
+    throw new Error(`request ${request.id} has not been approved by the owner: nothing may be sent yet`);
+  }
+  if (!opts.members.every((m) => sameHandle(m, request.handle))) throw new Error(`the member must be the request's person (${request.handle})`);
   if (!opts.body.trim()) throw new Error("the body is empty");
-  if (!opts.key.trim()) throw new Error("the key is empty");
   const api = plowApi(opts);
   const identity = await fetchIdentity(api);
   const lineUid = identity.line?.uid;
@@ -52,7 +63,7 @@ export async function startThread(opts: ApiOptions & { members: string[]; body: 
     }
     // The request identity must survive regenerated wording after an unknown
     // delivery; the opener body is not durable state in the ledger.
-    const idempotencyKey = createHash("sha256").update(JSON.stringify([lineUid, opts.key, members])).digest("hex");
+    const idempotencyKey = createHash("sha256").update(JSON.stringify([lineUid, `request:${request.id}`, members])).digest("hex");
 
     let res: Response;
     try {
@@ -79,10 +90,10 @@ if (isMain(import.meta.url)) {
   run(() => {
     // Members and body come from the conversation, so they never go on the command line.
     const { values } = parseArgs({ options: { "input-file": { type: "string" } } });
-    if (!values["input-file"]) throw new Error('pass --input-file F (JSON {"members":[…],"body":"…","key":"request:<the saved request id>"})');
-    const input = JSON.parse(readFileSync(values["input-file"], "utf8")) as { members?: string[]; body?: string; key?: string };
-    if (!input.key) throw new Error("the input needs a key (request:<the saved request id>) so a retry cannot open a second group");
+    if (!values["input-file"]) throw new Error('pass --input-file F (JSON {"members":[…],"body":"…","requestId":"<the saved request id>"})');
+    const input = JSON.parse(readFileSync(values["input-file"], "utf8")) as { members?: string[]; body?: string; requestId?: string };
+    if (!input.requestId) throw new Error("the input needs requestId (the saved request id)");
     if (input.body === undefined) throw new Error("the input needs a body");
-    return startThread({ members: input.members ?? [], body: input.body, key: input.key });
+    return startThread({ members: input.members ?? [], body: input.body, requestId: input.requestId });
   });
 }

@@ -14,8 +14,10 @@ Messages to the other person come from Meetly, in the third person, using
 `ownerName`, in their language (see "Examples"). Reply in the current
 conversation with `message` (action `send`, omit target) or a normal final reply.
 The owner is in every meeting thread: confirmations, notifications and
-approval asks go there once, where the guest receives them too. From the
-owner's main DM, a follow-up to a known meeting thread uses `plow_reply_to`.
+approval asks go there once, where the guest receives them too. The configured
+pre-thread owner gate is the exception: its approval request goes to the
+owner's DM because no meeting thread exists yet. From the owner's main DM, a
+follow-up to a known meeting thread uses `plow_reply_to`.
 An unattended poll has no current conversation and uses `message` with the
 known meeting chat uid as its target.
 Before every contact-visible message (including an existing-group offer,
@@ -75,8 +77,9 @@ free there.
    `origin`, `handle` (the intended contact handle), `name`, `sourceRowid`,
    `chatUid` if already known, `topic`, `location`, `durationMin`,
    `constraints`, `allowOverlap`, `format` and `locale` (see "Meeting
-   format"), `attendeeEmail` when contacts has one for them, and `offered[]` with each `start`/`end`/`holdId`/`account`; include `holdCleanup`
-   when earlier deletes failed. `save` creates a request or updates the
+   format"), `attendeeEmail` when contacts has one for them, and `offered[]` with each `start`/`end`/`holdId`/`account`; include `ownerApprovalAt` when the
+   owner gate below applies; include `holdCleanup` when earlier
+   deletes failed. `save` creates a request or updates the
    existing open request for that person, preserving its id and existing
    `chatUid` when the new value is absent. When the request already has a
    `chatUid`, the new times are only staged: its `offered[]` (what the person
@@ -86,6 +89,16 @@ free there.
    If it fails, delete each hold just
    created, stop and report the ledger error to the owner; do not send an
    offer. If any deletion fails, report those hold ids too.
+   - **Owner gate:** when `origin` is `inbound`, `config.ownerGate` is
+     true and the request has no `chatUid` yet (a re-offer to a group it
+     already has is sent and promoted as above), put `ownerApprovalAt: <now ISO>` in the step 5 `ledger.ts save`
+     payload, so the request is saved already gated in one write. Do not
+     open a group or send any proposed time to the other person yet. Run
+     `owner-chat.ts`, then use `message` (`action: send`, channel `plow`,
+     accountId `chat`, target its `chatUid`) to send the owner one private
+     message with the person's name, topic, and held time options, asking for
+     yes or no. The owner approval flow below resumes it. The holds expire
+     normally if the owner does not answer.
 6. Deliver the times:
    - An open request that already has a `chatUid`: post the new times there.
      From the owner's main DM use `plow_reply_to` with that `chatUid` and the
@@ -106,9 +119,12 @@ free there.
      to try again in a few minutes. A staged offer left by a turn that died is discarded by the
      cleanup poll after 15 minutes.
    - Otherwise open a group with the person's handle and the opener: run
-     `start-thread.ts --input-file <file>` (JSON `{"members":[<handle>],"body":"<opener>","key":"<key>"}`), with key
-     `request:<saved request id>` for every request, so a retry keeps its key
-     and a later request gets a new one. Never the `plow_start_thread` tool: it
+     `start-thread.ts --input-file <file>` (JSON `{"members":[<handle>],"body":"<opener>","requestId":"<saved request id>"}`),
+     the `request.id` that `save` returned: it refuses any other request, any
+     other person, a request awaiting the owner, and an inbound request the
+     owner has not approved while the gate is on. It derives the idempotency
+     key `request:<id>` itself, so a retry keeps its key and a later request
+     gets a new one. Never the `plow_start_thread` tool: it
      gives Plow 10 s, and a group Plow takes longer to open reads as an
      unknown delivery that withholds the rest of the turn, the owner's reply
      included.
@@ -139,7 +155,7 @@ free there.
      nothing else about delivery: never quote a status code or say you cannot
      confirm anything else. Never resend by another route. Only if the owner
      says the group is not there, or asks you to try again, run
-     `start-thread.ts` again with the same `key` and members. The idempotency
+     `start-thread.ts` again with the same `requestId` and members. The idempotency
      key is based on request identity, so regenerated opener wording still
      resolves to the same group. Link the group it returns as below.
    - After a group opens, run `ledger.ts update --id <saved request id>
@@ -180,12 +196,50 @@ In the owner's DM:
    request someone else made (`origin: inbound`) is approved only in its
    meeting thread: point the owner there and book nothing.
 
+## Approve an inbound request
+
+This section applies only in the owner's DM. Before interpreting a short yes
+or no as a new scheduling instruction, run `ledger.ts approvals` and check
+whether the owner is answering a pending inbound request. Match by the person
+and topic in the approval message; if more than one fits, ask which one.
+
+- **Yes:** first claim the approval with `ledger.ts approve --id <id>` (also to resume a yes that was interrupted: `ledger.ts approvals` lists those as `approved-unsent`, and opening the group again is safe because `start-thread.ts` is idempotent). If
+  `approved` is false the request was already closed (the poll expired it) or
+  approved: do nothing else, delete nothing, and tell the owner what the
+  ledger now shows. Only a claimed request is acted on; `start-thread.ts`
+  refuses one that is still waiting. Then re-read the calendar and run
+  `slots.ts --in … --at <start>` for every held time, passing that offer's hold
+  ids with `--allow-overlap`. If the times are still free, open the saved
+  offer's group with its existing holds; do not run "Offer times" or
+  `ledger.ts save` again. Open the group with `start-thread.ts --input-file` (its `requestId` is `<id>`) and, when it returns a chat uid,
+  link it with `ledger.ts update --id <id> --json '{"chatUid":"<uid>"}'`. If it
+  returns `deliveryUnknown`, leave `chatUid` absent and follow the no-retry
+  rule: approval is recorded separately from delivery certainty. If any held
+  time is no longer free, do not send the stale options: run "Offer times"
+  again with a new `ownerApprovalAt`. Create the fresh holds first and save
+  them; that `save` replaces the pending request and queues the old holds for
+  cleanup in the same write (never delete the old holds yourself, so an
+  interrupted turn never leaves the request pointing at deleted holds), and
+  the owner approves those exact times.
+- **No:** run `ledger.ts decline --id <id>`: in one write it closes the
+  request and queues every hold for the cleanup poll, which deletes them (never
+  delete them yourself, so an interruption leaves nothing pointing at deleted
+  holds). If `declined` is false the request was no longer waiting: say what
+  the ledger shows. No message has gone to the other person, so do not contact
+  them.
+- **No clear answer:** leave the request and holds as they are and ask whether
+  to approve or decline.
+
+After either decision, tell the owner what Meetly did. Approval authorizes
+only sending the displayed times to this person; it does not authorize
+booking a meeting.
+
 ## Pipeline
 
 When the owner asks who they are waiting on, or how their meetings stand,
 run `ledger.ts pipeline` and answer in their language, one short line per
 person: what the meeting is for, its `stage` and its `nextStep`. Stages:
-`waiting_on_us` (an out-of-hours time for the owner to approve),
+`waiting_on_us` (an out-of-hours time or inbound offer awaiting owner approval),
 `delivery_unknown` (no linked group; check Messages manually and never resend),
 `sent` (offered less than a day ago), `waiting_on_them` (no
 answer in a day or more, with the hours), `confirmed` (booked: day and time;
@@ -457,6 +511,12 @@ offer.
   requests, or the open handle match is linked to another chat. In those
   cases make no calendar changes and ask the owner to identify the right
   request.
+- If either lookup identifies an inbound request with `ownerApprovalAt` and
+  no `ownerApprovedAt`, the
+  owner gate is still active. Do not link the chat, replace or update the
+  offer, create holds, book, or send any message to the contact. Leave the
+  ledger request untouched and tell the owner privately that this contact
+  reached an unapproved request.
 - **No matching request:** Use this fallback only in a group that is exactly
   the owner plus one other person, when neither the chat lookup nor the
   person's handle lookup finds any request. A closed (`dropped`, `expired`,

@@ -1,12 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { startThread } from "../skills/meetly/scripts/start-thread.ts";
+import { beforeEach, afterEach } from "node:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { cli, tmpHome } from "./helpers.ts";
-
-// The opener takes the blocklist lock, so each test file works in its own data dir.
-process.env.MEETLY_HOME = tmpHome();
+import { cli, seedRequest, tmpHome } from "./helpers.ts";
 
 const identity = {
   line: { uid: "line_me" },
@@ -29,7 +27,13 @@ function fakeFetch(post: () => Response | Promise<Response>, calls: Call[] = [],
   }) as typeof fetch;
 }
 const base = "https://api.plow.test/";
-const args = { members: ["+15551234567"], body: "Hi Ana, this is Meetly, Jean's assistant.", key: "rowid:42" };
+const args = { members: ["+15551234567"], body: "Hi Ana, this is Meetly, Jean's assistant.", requestId: "r_1" };
+
+// Every group is opened for one saved request, so each test starts with one for this person.
+let home = "";
+let prior: string | undefined;
+beforeEach(() => { prior = process.env.MEETLY_HOME; home = tmpHome(); process.env.MEETLY_HOME = home; seedRequest(home); });
+afterEach(() => { if (prior === undefined) delete process.env.MEETLY_HOME; else process.env.MEETLY_HOME = prior; });
 
 test("posts the same chat the plow_start_thread tool would", async () => {
   const calls: Call[] = [];
@@ -48,7 +52,7 @@ test("posts the same chat the plow_start_thread tool would", async () => {
   assert.match(body.idempotency_key, /^[0-9a-f]{64}$/);
 });
 
-test("the same request key and people give the same idempotency key even if wording changes", async () => {
+test("the same request and people give the same idempotency key even if wording changes", async () => {
   const keys: string[] = [];
   const fetch = fakeFetch(() => new Response('{"uid":"c"}', { status: 200 }), []);
   const spy = (async (url: string | URL | Request, init?: RequestInit) => {
@@ -58,7 +62,8 @@ test("the same request key and people give the same idempotency key even if word
   await startThread({ ...args, fetch: spy, base, token: "t" });
   await startThread({ ...args, fetch: spy, base, token: "t" });
   await startThread({ ...args, body: "Hi Ana, here are the times Jean can meet.", fetch: spy, base, token: "t" });
-  await startThread({ ...args, key: "rowid:43", fetch: spy, base, token: "t" });
+  seedRequest(home, { id: "r_2" });
+  await startThread({ ...args, requestId: "r_2", fetch: spy, base, token: "t" });
   assert.equal(keys[0], keys[1]);
   assert.equal(keys[0], keys[2]);
   assert.notEqual(keys[0], keys[3]);
@@ -85,24 +90,47 @@ test("a refused request, bad phones or no owner handle fail loudly", async () =>
   await assert.rejects(startThread({ ...args, fetch: fakeFetch(() => new Response("{}"), [], { line: { uid: "x" }, chats: [] }), base, token: "t" }), /has not texted/);
 });
 
-test("the CLI reads its input from a file, needs a key and the Plow env", () => {
-  const dir = tmpHome();
+test("the CLI reads its input from a file and needs a request and the Plow env", () => {
   const input = (extra: object) => {
-    const path = join(dir, `in-${Math.random()}.json`);
+    const path = join(home, `in-${Math.random()}.json`);
     writeFileSync(path, JSON.stringify({ members: ["+15551234567"], body: "hi; $(touch pwned)", ...extra }));
     return path;
   };
-  const r = cli("start-thread.ts", ["--input-file", input({})], { PLOW_API_BASE: "http://127.0.0.1:9", PLOW_AGENT_TOKEN: "t" });
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /key/);
-  const noEnv = cli("start-thread.ts", ["--input-file", input({ key: "k" })], { PLOW_API_BASE: "", PLOW_AGENT_TOKEN: "" });
+  const noRequest = cli("start-thread.ts", ["--input-file", input({})], { MEETLY_HOME: home, PLOW_API_BASE: "http://127.0.0.1:9", PLOW_AGENT_TOKEN: "t" });
+  assert.equal(noRequest.status, 1);
+  assert.match(noRequest.stderr, /requestId/);
+  const noEnv = cli("start-thread.ts", ["--input-file", input({ requestId: "r_1" })], { MEETLY_HOME: home, PLOW_API_BASE: "", PLOW_AGENT_TOKEN: "" });
   assert.equal(noEnv.status, 1);
   assert.match(noEnv.stderr, /PLOW_API_BASE/);
 });
 
 test("an iMessage email is a member like a phone, which is how an Android owner of an iPad is reached", async () => {
+  seedRequest(home, { handle: "ana@example.com" });
   const calls: Call[] = [];
   const out = await startThread({ ...args, members: ["ana@example.com"], fetch: fakeFetch(() => new Response('{"uid":"chat_e"}', { status: 200 }), calls), base, token: "tok" });
   assert.deepEqual(out, { chatUid: "chat_e", messageSent: true });
   assert.deepEqual(JSON.parse(String(calls[1]!.init?.body)).members, ["+5511999990000", "ana@example.com"]);
+});
+
+test("opens a group only for the saved open request and its own person, and never before the owner approves", async () => {
+  const calls: Call[] = [];
+  const fetch = fakeFetch(() => new Response('{"uid":"chat_9"}', { status: 201 }), calls);
+  const go = (over: Record<string, unknown> = {}) => startThread({ ...args, fetch, base, token: "tok", ...over });
+  await assert.rejects(go({ requestId: "r_missing" }), /not an open request/);
+  await assert.rejects(go({ members: ["+15557654321"] }), /must be the request's person/);
+  seedRequest(home, { status: "dropped" });
+  await assert.rejects(go(), /not an open request/);
+  seedRequest(home, { origin: "inbound", ownerApprovalAt: "2026-09-28T12:00:00.000Z" });
+  await assert.rejects(go(), /waiting for the owner's approval/);
+  assert.equal(calls.length, 0);
+  // With the gate on, an inbound request that never got the pending marker is refused too: the config decides.
+  writeFileSync(join(home, "config.json"), JSON.stringify({
+    ownerName: "Jean", timezone: "America/Sao_Paulo", days: ["mon"], windowStart: "09:00", windowEnd: "18:00", durationMin: 30, horizonDays: 7,
+    calendars: [{ account: "a@example.com", id: "a@example.com" }], defaultAccount: "a@example.com", setupDoneAt: "2026-09-28T12:00:00.000Z",
+  }));
+  seedRequest(home, { origin: "inbound" });
+  await assert.rejects(go(), /not been approved by the owner/);
+  assert.equal(calls.length, 0);
+  seedRequest(home, { origin: "inbound", ownerApprovalAt: "2026-09-28T12:00:00.000Z", ownerApprovedAt: "2026-09-28T12:05:00.000Z" });
+  assert.deepEqual(await go(), { chatUid: "chat_9", messageSent: true });
 });

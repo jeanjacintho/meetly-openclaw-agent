@@ -49,6 +49,11 @@ export type Request = {
   eventId?: string;
   holdCleanup?: HoldRef[];
   pendingOwner?: PendingOwner;
+  // Inbound request is held for explicit owner approval before outreach.
+  ownerApprovalAt?: string;
+  // Set only after the owner approves this exact offer, whether or not Plow
+  // returned a chat uid for the attempted delivery.
+  ownerApprovedAt?: string;
   format?: Format;
   locale?: string;
   booked?: Booked;
@@ -76,11 +81,13 @@ const LOG_TEXT_MAX = 300;
 export type Ledger = { requests: Request[] };
 
 export type NewRequest = Omit<Request,
-  "id" | "status" | "eventId" | "pendingOwner" | "booked" | "meetUrl" | "roomUrl" | "reminder" | "offeredAt" | "closedAt" | "nudgedAt" | "personNudgedAt" | "log" | "createdAt" | "updatedAt">;
+  "id" | "status" | "eventId" | "pendingOwner" | "ownerApprovedAt" | "booked" | "meetUrl" | "roomUrl" | "reminder" | "offeredAt" | "closedAt" | "nudgedAt" | "personNudgedAt" | "log" | "createdAt" | "updatedAt">;
 export type Patch = Partial<Pick<Request,
   "status" | "chatUid" | "eventId" | "offered" | "holdCleanup" | "name" | "location" | "allowOverlap" | "constraints" | "topic" | "format" | "locale">> & {
   attendeeEmail?: string;
   pendingOwner?: PendingOwner | null;
+  ownerApprovalAt?: string | null;
+  ownerApprovedAt?: string;
   booked?: Booked | null;
   meetUrl?: string | null;
   roomUrl?: string | null;
@@ -92,11 +99,11 @@ export type Patch = Partial<Pick<Request,
 const FORMATS: readonly Format[] = [...DEFAULT_FORMATS, "unknown"];
 const OUTCOMES: readonly Reminder["outcome"][] = ["sent", "cancelled", "no-link"];
 const PATCH_KEYS = [
-  "status", "chatUid", "eventId", "offered", "holdCleanup", "name", "location", "allowOverlap", "constraints", "topic", "pendingOwner",
+  "status", "chatUid", "eventId", "offered", "holdCleanup", "name", "location", "allowOverlap", "constraints", "topic", "pendingOwner", "ownerApprovalAt", "ownerApprovedAt",
   "format", "locale", "booked", "meetUrl", "roomUrl", "reminder", "nudgedAt", "personNudgedAt", "attendeeEmail",
 ];
 // Keys a patch can clear with null.
-const NULLABLE = ["pendingOwner", "booked", "meetUrl", "roomUrl", "reminder", "personNudgedAt"] as const;
+const NULLABLE = ["pendingOwner", "ownerApprovalAt", "booked", "meetUrl", "roomUrl", "reminder", "personNudgedAt"] as const;
 
 const isDate = (t: unknown) => typeof t === "string" && !Number.isNaN(Date.parse(t));
 
@@ -164,17 +171,21 @@ export function findOpenByHandle(ledger: Ledger, handle: string): Request | unde
   return ledger.requests.find((r) => r.status === "offered" && sameHandle(r.handle, handle));
 }
 
+// An inbound request the owner has not approved yet: no offer reaches the person.
+export const awaitingOwnerApproval = (r: Request): boolean => r.ownerApprovalAt !== undefined && r.ownerApprovedAt === undefined;
+
 export function findByChat(ledger: Ledger, chatUid: string, handle?: string): Request | undefined {
   // Resolve an open request for the sender even when it has not been linked
   // yet. This lets a replacement offer supersede a closed request in the chat.
   if (handle !== undefined) {
     const openForHandle = findOpenByHandle(ledger, handle);
-  if (openForHandle && (openForHandle.chatUid === undefined || openForHandle.chatUid === chatUid)) {
+  if (openForHandle && !awaitingOwnerApproval(openForHandle)
+      && (openForHandle.chatUid === undefined || openForHandle.chatUid === chatUid)) {
       return openForHandle;
     }
   }
   // A chat remains a Meetly group after its request closes.
-  return ledger.requests.findLast((r) => r.chatUid === chatUid && r.status === "offered")
+  return ledger.requests.findLast((r) => r.chatUid === chatUid && r.status === "offered" && !awaitingOwnerApproval(r))
     ?? ledger.requests.findLast((r) => r.chatUid === chatUid);
 }
 
@@ -210,10 +221,14 @@ export function addRequest(ledger: Ledger, input: NewRequest, now: number, id: s
   const attendeeEmail = input.attendeeEmail === undefined ? undefined : checkEmail(input.attendeeEmail);
   const open = findOpenByHandle(ledger, input.handle);
   if (open) throw new Error(`open request ${open.id} already exists for this person; update it instead`);
+  if (input.ownerApprovalAt !== undefined && (input.origin !== "inbound" || !isDate(input.ownerApprovalAt))) {
+    throw new Error(`ownerApprovalAt must be a time and only applies to an inbound request, got ${JSON.stringify(input.ownerApprovalAt)}`);
+  }
   const at = new Date(now).toISOString();
   // A new offer is never booked: a booking, its link and its reminder are
   // only ever set through update, where they are validated.
-  const { booked: _b, meetUrl: _m, roomUrl: _z, reminder: _r, closedAt: _c, nudgedAt: _n, personNudgedAt: _pn, log: _l, ...fields } = input as NewRequest & Partial<Pick<Request, "booked" | "meetUrl" | "roomUrl" | "reminder" | "closedAt" | "nudgedAt" | "personNudgedAt" | "log">>;
+  const { booked: _b, meetUrl: _m, roomUrl: _z, reminder: _r, closedAt: _c, ownerApprovedAt: _oap, nudgedAt: _n, personNudgedAt: _pn, log: _l, ...fields } = input as NewRequest & Partial<Pick<Request, "booked" | "meetUrl" | "roomUrl" | "reminder" | "closedAt" | "ownerApprovedAt" | "nudgedAt" | "personNudgedAt" | "log">>;
+  if (fields.ownerApprovalAt !== undefined && !isDate(fields.ownerApprovalAt)) throw new Error(`ownerApprovalAt must be a time, got ${JSON.stringify(fields.ownerApprovalAt)}`);
   const request: Request = { ...fields, ...(attendeeEmail ? { attendeeEmail } : {}), format, id, status: "offered", offeredAt: at, createdAt: at, updatedAt: at };
   return { requests: [...ledger.requests, request] };
 }
@@ -238,6 +253,14 @@ const withoutRefs = (refs: HoldRef[], keep: HoldRef[]): HoldRef[] =>
 export function saveRequest(ledger: Ledger, input: NewRequest, now: number, id: string, revision = id): Ledger {
   const existing = findOpenByHandle(ledger, input.handle);
   if (!existing) return addRequest(ledger, input, now, id);
+  // The gate is for a request that has no group yet: a re-offer to a linked group goes the send and promote way.
+  if (input.ownerApprovalAt !== undefined && existing.chatUid !== undefined) {
+    throw new Error(`request ${existing.id} already has a group: an owner approval cannot gate a re-offer to it`);
+  }
+  // A gated offer is replaced only by one that carries a fresh approval time (stale options regenerated).
+  if (awaitingOwnerApproval(existing) && !(input.ownerApprovalAt && Date.parse(input.ownerApprovalAt) > Date.parse(existing.ownerApprovalAt!))) {
+    throw new Error(`request ${existing.id} is waiting for owner approval; replace its offer only with a new ownerApprovalAt`);
+  }
 
   // Reuse addRequest's validation and timestamp behavior, then apply its new
   // offer to the existing record. An absent chatUid must not erase the link.
@@ -250,6 +273,7 @@ export function saveRequest(ledger: Ledger, input: NewRequest, now: number, id: 
     // A new offer that does not name a format keeps the one already answered.
     format: validated.format === "unknown" ? existing.format ?? "unknown" : validated.format,
     locale: input.locale ?? existing.locale,
+    ownerApprovedAt: undefined,
     createdAt: existing.createdAt,
     updatedAt: new Date(now).toISOString(),
   };
@@ -328,6 +352,8 @@ export function updateRequest(ledger: Ledger, id: string, patch: Patch, now: num
       throw new Error(`pendingOwner needs valid start, end and askedAt: ${JSON.stringify(pending)}`);
     }
   }
+  if (patch.ownerApprovalAt !== undefined && patch.ownerApprovalAt !== null && !isDate(patch.ownerApprovalAt)) throw new Error(`ownerApprovalAt must be a time, got ${JSON.stringify(patch.ownerApprovalAt)}`);
+  if (patch.ownerApprovedAt !== undefined && !isDate(patch.ownerApprovedAt)) throw new Error(`ownerApprovedAt must be a time, got ${JSON.stringify(patch.ownerApprovedAt)}`);
   if (patch.format !== undefined) checkFormat(patch.format);
   if (patch.locale !== undefined) checkLocale(patch.locale);
   const patched = patch.attendeeEmail !== undefined ? { ...patch, attendeeEmail: checkEmail(patch.attendeeEmail) } : patch;
@@ -344,6 +370,15 @@ export function updateRequest(ledger: Ledger, id: string, patch: Patch, now: num
   const index = ledger.requests.findIndex((r) => r.id === id);
   if (index < 0) throw new Error(`no request ${id}`);
   const currentRequest = ledger.requests[index]!;
+  const approvalPending = awaitingOwnerApproval(currentRequest);
+  if (approvalPending) {
+    if (patch.chatUid !== undefined && patch.ownerApprovedAt === undefined) {
+      throw new Error(`request ${id} is waiting for owner approval; chatUid cannot be linked before owner approval`);
+    }
+    if (patch.status === "booked" || patch.eventId !== undefined || patch.booked !== undefined) {
+      throw new Error(`request ${id} is waiting for owner approval; it cannot be booked or attached to an event`);
+    }
+  }
   const at = new Date(now).toISOString();
   const updated: Request = { ...ledger.requests[index]!, updatedAt: at };
   if (currentRequest.status !== "offered" && currentRequest.status !== "booked" && !currentRequest.closedAt) {
@@ -391,12 +426,57 @@ export function appendLog(ledger: Ledger, id: string, text: string, now: number)
 
 export function expiredRequests(ledger: Ledger, hours: number, now: number): Request[] {
   // A request with an offer being sent is not expired: its send settles first.
-  return ledger.requests.filter((r) => r.status === "offered" && !r.pendingOffer && now - Date.parse(r.offeredAt) >= hours * 3600_000);
+  // An approved request's holds are counted from the approval, so opening the group just after it never races the expiry.
+  return ledger.requests.filter((r) => r.status === "offered" && !r.pendingOffer && now - Date.parse(r.ownerApprovedAt ?? r.offeredAt) >= hours * 3600_000);
+}
+
+// Close, in one locked write, every open request whose holds have run out, and
+// queue its holds for cleanup. The rows returned are the ones
+// this write claimed, as they were: a request that a refresh replaced in the
+// meantime is not expired, and a hold is only ever queued once.
+export function expireRequests(ledger: Ledger, hours: number, now: number): { ledger: Ledger; claimed: Request[] } {
+  const claimed = expiredRequests(ledger, hours, now);
+  const next = claimed.reduce((l, r) => updateRequest(l, r.id, {
+    status: "expired", pendingOwner: null, ownerApprovalAt: null,
+    holdCleanup: mergeRefs(r.holdCleanup ?? [], holdRefs(r.offered)),
+  }, now), ledger);
+  return { ledger: next, claimed };
 }
 
 // Open requests waiting for the owner to confirm an out-of-hours time.
 export function pendingOwnerList(ledger: Ledger): Request[] {
   return ledger.requests.filter((r) => r.status === "offered" && r.pendingOwner !== undefined);
+}
+
+// The owner's yes, claimed atomically: it succeeds only while the request is
+// still open and waiting, so an expiry that closed it first wins, and once it
+// is claimed the expiry clock restarts from the approval (`expiredRequests`).
+export function approveRequest(ledger: Ledger, id: string, now: number): { ledger: Ledger; approved: boolean } {
+  const r = ledger.requests.find((x) => x.id === id);
+  if (!r || r.status !== "offered") return { ledger, approved: false };
+  // Already approved but never opened (the turn died, or the group failed): resumable, through the idempotent start-thread.ts.
+  if (approvedUnsent(r)) return { ledger, approved: true };
+  if (!awaitingOwnerApproval(r)) return { ledger, approved: false };
+  return { ledger: updateRequest(ledger, id, { ownerApprovedAt: new Date(now).toISOString() }, now), approved: true };
+}
+
+// Approved by the owner but no group yet: the opener may not have gone out.
+const approvedUnsent = (r: Request): boolean => r.ownerApprovedAt !== undefined && r.ownerApprovalAt !== undefined && r.chatUid === undefined;
+
+// The owner's no, in one write: the request closes and every hold goes to the
+// cleanup queue before any is deleted, so an interruption never leaves a pending
+// request pointing at deleted holds.
+export function declineRequest(ledger: Ledger, id: string, now: number): { ledger: Ledger; declined: boolean } {
+  const r = ledger.requests.find((x) => x.id === id);
+  if (!r || r.status !== "offered" || !awaitingOwnerApproval(r)) return { ledger, declined: false };
+  const next = updateRequest(ledger, id, { status: "dropped", ownerApprovalAt: null, holdCleanup: mergeRefs(r.holdCleanup ?? [], holdRefs(r.offered)) }, now);
+  return { ledger: next, declined: true };
+}
+
+// Requests the owner still has to decide on, and ones they approved that have not been opened yet.
+export function ownerApprovalList(ledger: Ledger): (Request & { state: "waiting" | "approved-unsent" })[] {
+  return ledger.requests.filter((r) => r.status === "offered" && (awaitingOwnerApproval(r) || approvedUnsent(r)))
+    .map((r) => ({ ...r, state: awaitingOwnerApproval(r) ? "waiting" as const : "approved-unsent" as const }));
 }
 
 // Booked meetings to re-read from the calendar: from `leadMin` before the
@@ -451,7 +531,7 @@ const NEXT_STEP: Record<Stage, string> = {
 export function stageOf(r: Request, now: number): Stage {
   if (r.status === "booked") return "confirmed";
   if (r.status !== "offered") return "passed";
-  if (r.pendingOwner) return "waiting_on_us";
+  if (r.pendingOwner || awaitingOwnerApproval(r)) return "waiting_on_us";
   if (!r.chatUid) return "delivery_unknown";
   return hoursSince(r.offeredAt, now) >= STALE_HOURS ? "waiting_on_them" : "sent";
 }
@@ -471,7 +551,8 @@ export function pipeline(ledger: Ledger, now: number, blocked: string[] = []): {
   waitingOnOwner: PipelineItem[]; deliveryUnknown: PipelineItem[]; waitingOnThem: PipelineItem[]; booked: PipelineItem[]; closed: PipelineItem[];
 } {
   const item = (r: Request, extra: Partial<PipelineItem> = {}) => pipelineItem(r, now, extra);
-  const waiting = (r: Request) => ({ hoursWaiting: hoursSince(r.pendingOwner?.askedAt ?? r.offeredAt, now) });
+  const waiting = (r: Request) => ({ hoursWaiting: hoursSince(r.pendingOwner?.askedAt
+    ?? (r.ownerApprovedAt ? r.offeredAt : r.ownerApprovalAt ?? r.offeredAt), now) });
   const requests = ledger.requests.filter((r) => !blocked.some((b) => sameHandle(b, r.handle)));
   const open = requests.filter((r) => r.status === "offered");
   const upcoming = requests.filter((r) => r.status === "booked" && (!r.booked || Date.parse(r.booked.start) >= now));
@@ -607,10 +688,12 @@ if (isMain(import.meta.url)) {
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => removeCleanupRef(l, values.id!, ref, now));
         return { request: ledger.requests.find((r) => r.id === values.id) };
       }
-      case "expired": {
+      case "expire": {
         const hours = values.hours !== undefined ? Number(values.hours) : holdHours();
         if (!Number.isFinite(hours) || hours < 0) throw new Error(`--hours must be a number >= 0, got ${values.hours}`);
-        return { requests: expiredRequests(readJson<Ledger>(path, EMPTY), hours, now) };
+        let claimed: Request[] = [];
+        updateJson<Ledger>(path, EMPTY, (l) => { const out = expireRequests(l, hours, now); claimed = out.claimed; return out.ledger; });
+        return { requests: claimed };
       }
       case "log": {
         if (!values.id) throw new Error("usage: ledger.ts log --id X [--text-file F]");
@@ -632,6 +715,28 @@ if (isMain(import.meta.url)) {
       }
       case "pending":
         return { requests: pendingOwnerList(readJson<Ledger>(path, EMPTY)) };
+      case "approve": {
+        if (!values.id) throw new Error("usage: ledger.ts approve --id X");
+        let approved = false;
+        const ledger = updateJson<Ledger>(path, EMPTY, (l) => {
+          const out = approveRequest(l, values.id!, now);
+          approved = out.approved;
+          return out.ledger;
+        });
+        return { approved, request: ledger.requests.find((r) => r.id === values.id) ?? null };
+      }
+      case "decline": {
+        if (!values.id) throw new Error("usage: ledger.ts decline --id X");
+        let declined = false;
+        const ledger = updateJson<Ledger>(path, EMPTY, (l) => {
+          const out = declineRequest(l, values.id!, now);
+          declined = out.declined;
+          return out.ledger;
+        });
+        return { declined, request: ledger.requests.find((r) => r.id === values.id) ?? null };
+      }
+      case "approvals":
+        return { requests: ownerApprovalList(readJson<Ledger>(path, EMPTY)) };
       case "cleanup":
         return { requests: cleanupList(updateJson<Ledger>(path, EMPTY, (l) => discardStaleOffers(l, now, 15 * 60_000))).map((r) => ({ id: r.id, holdCleanup: r.holdCleanup })) };
       case "reminders": {
@@ -640,7 +745,7 @@ if (isMain(import.meta.url)) {
         return { requests: dueReminders(readJson<Ledger>(path, EMPTY), now, lead) };
       }
       default:
-        throw new Error("usage: ledger.ts find | add | save | update | promote-offer | discard-offer | cleanup-remove | expired | pending | pipeline | monitor | history | log | cleanup | reminders");
+        throw new Error("usage: ledger.ts find | add | save | update | promote-offer | discard-offer | cleanup-remove | expire | approve | decline | pending | approvals | pipeline | monitor | history | log | cleanup | reminders");
     }
   });
 }

@@ -23,6 +23,8 @@ export type Config = {
   horizonDays: number;
   calendars: Calendar[];
   defaultAccount: string;
+  // When enabled, inbound requests wait for owner approval before contacting the person.
+  ownerGate?: boolean;
   // Minutes to leave free before and after an in-person meeting.
   travelMin?: number;
   // The owner's personal Zoom room; unset means Google Meet.
@@ -35,7 +37,7 @@ export type Config = {
 };
 
 // Every setting the owner can change.
-export const FIELDS = ["ownerName", "timezone", "days", "window", "durationMin", "horizonDays", "calendars", "videoProvider", "minNotice", "defaultFormat"] as const;
+export const FIELDS = ["ownerName", "timezone", "days", "window", "durationMin", "horizonDays", "calendars", "ownerGate", "videoProvider", "minNotice", "defaultFormat"] as const;
 export type Field = (typeof FIELDS)[number];
 
 // What setup cannot start without, in the order it asks: nobody but the owner,
@@ -50,6 +52,8 @@ export const DEFAULTS = {
   windowEnd: "18:00",
   durationMin: 30,
   horizonDays: 14,
+  // Inbound contacts never receive an offer until the owner approves it.
+  ownerGate: true,
 };
 
 export const QUESTIONS: Record<RequiredField, string> = {
@@ -161,6 +165,12 @@ export function parseField(field: string, value: string): Partial<Config> {
       return { durationMin: integer(value, "the duration in minutes", 15, 240) };
     case "horizonDays":
       return { horizonDays: integer(value, "the number of days", 1, 30) };
+    case "ownerGate": {
+      const v = value.trim().toLowerCase();
+      if (["on", "yes", "true", "enabled"].includes(v)) return { ownerGate: true };
+      if (["off", "no", "false", "disabled"].includes(v)) return { ownerGate: false };
+      throw new Error(`ownerGate must be on or off, got "${value}"`);
+    }
     case "travel": {
       const raw = value.trim().toLowerCase();
       if (raw === "none" || raw === "0") return { travelMin: undefined };
@@ -244,9 +254,11 @@ export function validateConfig(partial: Partial<Config>): Config {
     windowEnd: p.windowEnd,
     durationMin: p.durationMin,
     horizonDays: p.horizonDays,
-    calendars: readableCalendars(p.calendars, p.defaultAccount),
+    calendars: p.calendars,
     defaultAccount: p.defaultAccount,
   };
+  if (p.ownerGate !== undefined && typeof p.ownerGate !== "boolean") throw new Error("ownerGate must be true or false");
+  config.ownerGate = p.ownerGate;
   if (p.travelMin !== undefined) {
     if (!Number.isInteger(p.travelMin) || p.travelMin < 1 || p.travelMin > 180) {
       throw new Error(`travel must be 1 to 180 minutes, got ${JSON.stringify(p.travelMin)}`);
@@ -258,12 +270,19 @@ export function validateConfig(partial: Partial<Config>): Config {
   if (p.defaultFormat !== undefined) config.defaultFormat = p.defaultFormat;
   if (p.setupDoneAt !== undefined) config.setupDoneAt = p.setupDoneAt;
   if (p.paused !== undefined) config.paused = p.paused;
-  return config;
+  return normalizeConfig(config);
+}
+
+export function normalizeConfig(config: Config): Config {
+  return {
+    ...config,
+    ownerGate: config.ownerGate ?? DEFAULTS.ownerGate,
+    calendars: readableCalendars(config.calendars, config.defaultAccount),
+  };
 }
 
 export function loadConfig(): Config {
   const config = readJson<Config | null>(file("config.json"), null);
   if (!config?.setupDoneAt) throw new Error("Meetly is not set up yet");
-  // A config saved before readableCalendars may still list `primary`.
-  return { ...config, calendars: readableCalendars(config.calendars, config.defaultAccount) };
+  return normalizeConfig(config);
 }

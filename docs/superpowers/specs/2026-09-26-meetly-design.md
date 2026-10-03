@@ -2,6 +2,13 @@
 
 Date: 2026-09-26 · Status: approved by the owner; reviewed before the plan
 
+**Inbound approval update (#56):** The original inbound sequence below is
+superseded by `skills/meetly-group/SKILL.md`, "Approve an inbound request".
+Hold the times, persist the pending request and ask the owner privately before
+opening a group. `ownerGate` defaults on, including for existing configurations
+without that setting; only explicit owner authorization disables it. An
+owner-authored scheduling request already authorizes outreach.
+
 ## Objective
 
 Meetly is an OpenClaw agent on Plow that schedules appointments on the owner's
