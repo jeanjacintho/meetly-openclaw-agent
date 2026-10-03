@@ -103,6 +103,8 @@ test("moving a meeting: one move at a time, the new buffers out of cleanup's rea
   // Committed: the new buffers are owned, the old ones queued, nothing pending.
   const done = commitTravel(staged, "r_1", "r_1", T0).ledger;
   assert.deepEqual(done.requests[0]!.booked!.travel, newTravel);
+  // The booking takes the target interval in the same write (a dead turn before record-booking leaves nothing at the old time).
+  assert.deepEqual([done.requests[0]!.booked!.start, done.requests[0]!.booked!.end], [target.start, target.end]);
   assert.deepEqual(done.requests[0]!.holdCleanup!.map((h) => h.holdId).sort(), ["t1", "t2"]);
   assert.equal(done.requests[0]!.pendingTravel, undefined);
   assert.equal(commitTravel(staged, "r_1", "other", T0).committed, false);
@@ -115,6 +117,13 @@ test("moving a meeting: one move at a time, the new buffers out of cleanup's rea
   assert.equal(abandoned.pendingTravel, undefined);
   assert.deepEqual(abandoned.booked!.travel, oldTravel);
   assert.deepEqual(abandoned.holdCleanup!.map((h) => h.holdId).sort(), ["t3", "t4"]);
+  // A duration-only edit (same start, other end) is not the move the buffers were computed for: abandoned too.
+  const resized = reconcileTravel(staged, "r_1", { start: target.start, end: "2026-10-05T11:00:00-03:00" }, late).requests[0]!;
+  assert.deepEqual(resized.booked!.travel, oldTravel);
+  assert.deepEqual(resized.holdCleanup!.map((h) => h.holdId).sort(), ["t3", "t4"]);
+  // A reminder that belonged to the old start is cleared when the move lands.
+  const reminded = updateRequest(staged, "r_1", { reminder: { at: new Date(T0).toISOString(), outcome: "sent" } }, T0);
+  assert.equal(commitTravel(reminded, "r_1", "r_1", T0).ledger.requests[0]!.reminder, undefined);
   // The calendar accepted the move: the booking takes the new time and buffers, the old buffers are queued.
   const accepted = reconcileTravel(staged, "r_1", target, late).requests[0]!;
   assert.deepEqual([accepted.booked!.start, accepted.booked!.end], [target.start, target.end]);

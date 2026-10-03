@@ -327,20 +327,32 @@ export function stageTravel(ledger: Ledger, id: string, refs: HoldRef[], target:
 
 // A commit applies only to the stage it was issued for: when the stage was
 // reconciled away meanwhile, the ledger is left untouched and the caller told.
+// The one promotion transition: the stage's target time and buffers become the
+// booking's together (so cancellation polling and the pipeline see the new
+// interval at once), the old buffers are queued, and a reminder that belonged
+// to the old start is cleared. Both commit and reconciliation go through it.
+function promoteTravel(ledger: Ledger, index: number, now: number): Ledger {
+  const { pendingTravel, ...current } = ledger.requests[index]!;
+  const requests = [...ledger.requests];
+  const moved = Date.parse(current.booked!.start) !== Date.parse(pendingTravel!.start);
+  const next: Request = {
+    ...current,
+    booked: { ...current.booked!, start: pendingTravel!.start, end: pendingTravel!.end, travel: pendingTravel!.refs },
+    holdCleanup: mergeRefs(current.holdCleanup ?? [], withoutRefs(current.booked!.travel ?? [], pendingTravel!.refs)),
+    updatedAt: new Date(now).toISOString(),
+  };
+  if (moved) delete next.reminder;
+  requests[index] = next;
+  return { requests };
+}
+
 export function commitTravel(ledger: Ledger, id: string, revision: string, now: number): { ledger: Ledger; committed: boolean } {
   const index = ledger.requests.findIndex((r) => r.id === id);
   if (index < 0) throw new Error(`no request ${id}`);
-  const { pendingTravel, ...current } = ledger.requests[index]!;
+  const current = ledger.requests[index]!;
   if (current.status !== "booked" || !current.booked) throw new Error(`request ${id} is not a booked meeting`);
-  if (!pendingTravel || pendingTravel.revision !== revision) return { ledger, committed: false };
-  const requests = [...ledger.requests];
-  requests[index] = {
-    ...current,
-    booked: { ...current.booked, travel: pendingTravel.refs },
-    holdCleanup: mergeRefs(current.holdCleanup ?? [], withoutRefs(current.booked.travel ?? [], pendingTravel.refs)),
-    updatedAt: new Date(now).toISOString(),
-  };
-  return { ledger: { requests }, committed: true };
+  if (!current.pendingTravel || current.pendingTravel.revision !== revision) return { ledger, committed: false };
+  return { ledger: promoteTravel(ledger, index, now), committed: true };
 }
 
 // A turn that died between the stage and the commit leaves a stage behind. After
@@ -353,20 +365,15 @@ export const staleTravelStage = (r: Request, now: number): boolean =>
 export function reconcileTravel(ledger: Ledger, id: string, event: { start: string; end: string }, now: number): Ledger {
   const index = ledger.requests.findIndex((r) => r.id === id);
   if (index < 0) throw new Error(`no request ${id}`);
-  const { pendingTravel, ...current } = ledger.requests[index]!;
-  if (!pendingTravel || !staleTravelStage(ledger.requests[index]!, now)) return ledger;
-  const requests = [...ledger.requests];
-  const updatedAt = new Date(now).toISOString();
-  if (current.status === "booked" && current.booked && Date.parse(event.start) === Date.parse(pendingTravel.start)) {
-    requests[index] = {
-      ...current,
-      booked: { ...current.booked, start: event.start, end: event.end, travel: pendingTravel.refs },
-      holdCleanup: mergeRefs(current.holdCleanup ?? [], withoutRefs(current.booked.travel ?? [], pendingTravel.refs)),
-      updatedAt,
-    };
-  } else {
-    requests[index] = { ...current, holdCleanup: mergeRefs(current.holdCleanup ?? [], pendingTravel.refs), updatedAt };
+  const stage = ledger.requests[index]!;
+  if (!stage.pendingTravel || !staleTravelStage(stage, now)) return ledger;
+  // The calendar took the move only if both endpoints are the ones the buffers were computed for.
+  if (stage.status === "booked" && stage.booked && Date.parse(event.start) === Date.parse(stage.pendingTravel.start) && Date.parse(event.end) === Date.parse(stage.pendingTravel.end)) {
+    return promoteTravel(ledger, index, now);
   }
+  const { pendingTravel, ...current } = stage;
+  const requests = [...ledger.requests];
+  requests[index] = { ...current, holdCleanup: mergeRefs(current.holdCleanup ?? [], pendingTravel.refs), updatedAt: new Date(now).toISOString() };
   return { requests };
 }
 
