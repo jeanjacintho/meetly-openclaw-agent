@@ -24,7 +24,10 @@ Before every contact-visible message (including an existing-group offer,
 booking confirmation, cancellation, or approval follow-up), run
 `blocklist.ts check --handle <request.handle>` immediately before sending. If
 blocked, do not send; tell the owner privately and leave the request and
-calendar state unchanged.
+calendar state unchanged. Run the same check before any calendar command that
+notifies the person (`--send-updates all`: booking, moving, cancelling). If
+they are blocked, a guest-driven booking stops there; for an owner-directed
+cancel or move, use `--send-updates none` and send no group message.
 
 ## Read the calendar
 
@@ -258,8 +261,8 @@ calendar or the chat confirmed, never a plan or a guess. Read it back with
 
 When the owner says never to contact someone, or to stop, resolve their
 Contacts card and block every phone and email alias with repeated
-`--handle` options: `blocklist.ts block --handle <phone> --handle <email>
---name <name>`. Confirm in one line. To take them off, resolve the same card
+`--handle` options: `blocklist.ts block --handle <phone> --handle <email>`.
+Confirm in one line. To take them off, resolve the same card
 and pass every alias to `blocklist.ts unblock`. In the poll, skip a sender for
 whom `blocklist.ts check --handle <sender>` says `blocked`: no group, no
 holds, nothing sent. `start-thread.ts` checks the list again immediately

@@ -408,3 +408,10 @@ test("an out-of-hours time with insufficient notice is not described as a calend
   assert.ok(group.includes("do not call it a calendar conflict"));
   assert.ok(group.includes("`reason: \"busy\"`: say the owner has an existing commitment"));
 });
+
+test("a blocked person gets no calendar notice either, and the do-not-contact entry stores no free text", () => {
+  const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
+  assert.ok(group.includes("Run the same check before any calendar command that notifies the person (`--send-updates all`"));
+  assert.ok(group.includes("use `--send-updates none` and send no group message"));
+  assert.ok(!group.includes("--name <name>"));
+});
