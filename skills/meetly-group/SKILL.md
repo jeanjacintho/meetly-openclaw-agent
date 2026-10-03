@@ -481,17 +481,11 @@ the meeting thread to answer there, and make no calendar changes.
   2. If an in-person time needs travel buffers, create both travel holds
      before the meeting event. If either cannot be created, delete any buffer
      already made, keep failed deletes in `holdCleanup`, and do not book.
-     Immediately after both buffers exist, persist their refs in an `offered[]`
-     entry for this start and end using `ledger.ts update --id <id>
-     --json-file <file>`; write the JSON with the `write` tool. Do this before
-     creating the event. If this write fails, delete both buffers, queue any
-     failed deletes in `holdCleanup`, and do not book.
   3. If it is still free, create the event with `plow-gog calendar create
      primary` using the final details ("Pick" step 1), following "Book the
-     event". That records the booking and clears `pendingOwner`. Then update
-     the same `offered[]` entry with the event's `holdId` and `account`; keep
-its persisted `travel[]` refs so later cleanup knows which buffers
-belong to it.
+     event". That records the booking and clears `pendingOwner`. Add an offer
+     with this event's `start`, `end`, `holdId`, `account` and the travel refs
+     to `offered[]` so later cleanup knows which buffers belong to it.
   4. Delete all the request's other meeting and travel holds.
   5. If the format is still `unknown`, ask it in the group, once.
   6. Confirm once in the group for both the owner and guest.
@@ -674,14 +668,12 @@ this request's own hold; other overlap ids still follow "Movable blocks". If
 `outsideHours` is true, save the picked time in `pendingOwner` and ask the
 owner in this thread to approve the travel extension, following "Outside the
 owner's hours". If it is free and inside hours, create both travel holds and
-save their refs into that offer before booking. If saving those refs fails,
-delete both travel holds, queue any failed deletes in `holdCleanup`, leave
-the meeting unbooked, and report the failure to the owner. If either hold
-cannot be created, delete any travel hold already made, leave the meeting
-unbooked, and report the failure to the owner.
+save their refs into that offer before booking. If either hold cannot be
+created, delete any travel hold already made, leave the meeting unbooked, and
+report the failure to the owner.
 
 When a booked meeting changes from an unknown format to in person, do the same
-  calendar check using the booked event id as `--allow-overlap` (ignore that id
+calendar check using the booked event id as `--allow-overlap` (ignore that id
 in `overlaps` as this request's own event), create both travel holds, and save
 them in the offer whose `holdId` is the booked event id. If the format changes
 away from in person, delete that offer's travel holds and clear its `travel[]`;

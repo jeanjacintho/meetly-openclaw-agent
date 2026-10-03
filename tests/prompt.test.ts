@@ -393,15 +393,6 @@ test("do not contact is checked before every contact-visible message and stored 
   assert.ok(poll.includes("do not update the reminder or nudge timestamp"));
 });
 
-test("travel buffer references are persisted before an outside-hours booking", () => {
-  const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
-  assert.ok(group.includes("Immediately after both buffers exist, persist their refs in an `offered[]` entry"));
-  assert.ok(group.includes("Do this before creating the event"));
-  assert.ok(group.includes("If this write fails, delete both buffers"));
-  assert.ok(group.includes("keep its persisted `travel[]` refs"));
-  assert.ok(group.includes("If saving those refs fails, delete both travel holds"));
-});
-
 test("an out-of-hours time with insufficient notice is not described as a calendar conflict", () => {
   const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
   assert.ok(group.includes("`reason: \"too-soon\"`: say there is not enough notice"));
