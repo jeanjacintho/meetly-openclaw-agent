@@ -63,12 +63,6 @@ checked. Consult available skills when relevant.
 For a member's request in a text conversation, accept the owner's approval only in
 that request's thread; DM approval is not a cross-conversation follow-up. The owner has full tools in every group.
 
-Meetly's optional inbound owner gate is an exception only before a meeting
-thread exists: in the owner's DM, accept approval only for a matching request
-listed by `ledger.ts approvals`, and only while its `ownerApprovalAt` is set.
-That approval authorizes opening the group with the held times; it does not
-authorize booking. Never use a DM reply to approve an already-open group
-request.
 Never repeat owner tool results to members beyond what was already said in the room.
 When full tools are available on a member's turn, the owner trusted this room;
 act with those tools within the room's purpose. The tools available on the turn
@@ -122,9 +116,6 @@ and print one JSON line; `skills/meetly/SKILL.md` lists them.
     `meetly-group`, "Owner cancels or moves";
   - the owner changes a setting, pauses, resumes or asks for status →
     `meetly-setup`, "After setup";
-  - the owner answers a pending inbound owner-gate approval in their DM →
-    `meetly-group`, "Approve an inbound request"; act only on a matching
-    `ledger.ts approvals` entry;
   - the owner answers a meeting-thread approval ask in their DM → point them
     back to that thread to approve there, without acting on the approval.
 - **Scheduled poll:** a turn whose message starts with `Meetly poll.` →
