@@ -23,6 +23,8 @@ export type Config = {
   horizonDays: number;
   calendars: Calendar[];
   defaultAccount: string;
+  // Words in the title of a block the owner lets Meetly offer times over.
+  movable?: string[];
   // Minutes to leave free before and after an in-person meeting.
   travelMin?: number;
   // The owner's personal Zoom room; unset means Google Meet.
@@ -35,7 +37,7 @@ export type Config = {
 };
 
 // Every setting the owner can change.
-export const FIELDS = ["ownerName", "timezone", "days", "window", "durationMin", "horizonDays", "calendars", "videoProvider", "minNotice", "defaultFormat"] as const;
+export const FIELDS = ["ownerName", "timezone", "days", "window", "durationMin", "horizonDays", "calendars", "movable", "videoProvider", "minNotice", "defaultFormat"] as const;
 export type Field = (typeof FIELDS)[number];
 
 // What setup cannot start without, in the order it asks: nobody but the owner,
@@ -161,6 +163,14 @@ export function parseField(field: string, value: string): Partial<Config> {
       return { durationMin: integer(value, "the duration in minutes", 15, 240) };
     case "horizonDays":
       return { horizonDays: integer(value, "the number of days", 1, 30) };
+    case "movable": {
+      if (value.trim().toLowerCase() === "none") return { movable: undefined };
+      const words = [...new Set(value.split(",").map((w) => w.trim().toLowerCase()).filter(Boolean))];
+      if (words.length === 0 || words.length > 20 || words.some((w) => w.length < 2 || w.length > 40)) {
+        throw new Error(`movable is 1 to 20 words of 2 to 40 characters from the titles of blocks that may move, separated by commas (or none), got "${value}"`);
+      }
+      return { movable: words };
+    }
     case "travel": {
       const raw = value.trim().toLowerCase();
       if (raw === "none" || raw === "0") return { travelMin: undefined };
@@ -247,6 +257,7 @@ export function validateConfig(partial: Partial<Config>): Config {
     calendars: readableCalendars(p.calendars, p.defaultAccount),
     defaultAccount: p.defaultAccount,
   };
+  if (p.movable !== undefined) config.movable = p.movable;
   if (p.travelMin !== undefined) {
     if (!Number.isInteger(p.travelMin) || p.travelMin < 1 || p.travelMin > 180) {
       throw new Error(`travel must be 1 to 180 minutes, got ${JSON.stringify(p.travelMin)}`);
