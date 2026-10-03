@@ -77,8 +77,9 @@ free there.
    `origin`, `handle` (the intended contact handle), `name`, `sourceRowid`,
    `chatUid` if already known, `topic`, `location`, `durationMin`,
    `constraints`, `allowOverlap`, `format` and `locale` (see "Meeting
-   format"), `attendeeEmail` when contacts has one for them, and `offered[]` with each `start`/`end`/`holdId`/`account`; include `holdCleanup`
-   when earlier deletes failed. `save` creates a request or updates the
+   format"), `attendeeEmail` when contacts has one for them, and `offered[]` with each `start`/`end`/`holdId`/`account`; include `ownerApprovalAt` when the
+   owner gate below applies; include `holdCleanup` when earlier
+   deletes failed. `save` creates a request or updates the
    existing open request for that person, preserving its id and existing
    `chatUid` when the new value is absent. When the request already has a
    `chatUid`, the new times are only staged: its `offered[]` (what the person
@@ -117,9 +118,12 @@ free there.
      to try again in a few minutes. A staged offer left by a turn that died is discarded by the
      cleanup poll after 15 minutes.
    - Otherwise open a group with the person's handle and the opener: run
-     `start-thread.ts --input-file <file>` (JSON `{"members":[<handle>],"body":"<opener>","key":"<key>"}`), with key
-     `request:<saved request id>` for every request, so a retry keeps its key
-     and a later request gets a new one. Never the `plow_start_thread` tool: it
+     `start-thread.ts --input-file <file>` (JSON `{"members":[<handle>],"body":"<opener>","requestId":"<saved request id>"}`),
+     the `request.id` that `save` returned: it refuses any other request, any
+     other person, a request awaiting the owner, and an inbound request the
+     owner has not approved while the gate is on. It derives the idempotency
+     key `request:<id>` itself, so a retry keeps its key and a later request
+     gets a new one. Never the `plow_start_thread` tool: it
      gives Plow 10 s, and a group Plow takes longer to open reads as an
      unknown delivery that withholds the rest of the turn, the owner's reply
      included.
@@ -150,7 +154,7 @@ free there.
      nothing else about delivery: never quote a status code or say you cannot
      confirm anything else. Never resend by another route. Only if the owner
      says the group is not there, or asks you to try again, run
-     `start-thread.ts` again with the same `key` and members. The idempotency
+     `start-thread.ts` again with the same `requestId` and members. The idempotency
      key is based on request identity, so regenerated opener wording still
      resolves to the same group. Link the group it returns as below.
    - After a group opens, run `ledger.ts update --id <saved request id>
@@ -201,19 +205,16 @@ and topic in the approval message; if more than one fits, ask which one.
 - **Yes:** re-read the calendar and run `slots.ts --at <start>` for every
   held time, passing that offer's hold ids with `--allow-overlap`. If the
   times are still free, open the group using the saved offer and its existing
-  holds; do not run "Offer times" or `ledger.ts save` again. Keep
-  `ownerApprovalAt` set while opening it, using the usual key
-  `request:<saved request id>`. After `start-thread.ts` returns either a chat uid or
-  `deliveryUnknown`, write `ownerApprovedAt: <now ISO>` to a JSON file and
-  include `chatUid` only when it returned one; apply the patch in one
-  `ledger.ts update --id <id> --json-file <file>`. This records the owner's
-  approval separately from delivery certainty. If delivery is unknown, leave
-  `chatUid` absent and follow the no-retry rule. If any held time
-  is no longer free, do not send the stale
-  options: clean the old holds (queue failed deletes in `holdCleanup`),
-  calculate fresh options and save them with `ledger.ts save`, passing a new
-  `ownerApprovalAt` in that payload (the ledger replaces a gated offer only
-  with a fresh one), and ask the owner to approve those exact times.
+  holds; do not run "Offer times" or `ledger.ts save` again. First record the
+  approval with `ledger.ts update --id <id> --json '{"ownerApprovedAt":"<now ISO>"}'`:
+  `start-thread.ts` refuses a request that is still waiting. Then open the
+  group with `start-thread.ts --input-file` (its `requestId` is `<id>`) and, when it returns a chat uid,
+  link it with `ledger.ts update --id <id> --json '{"chatUid":"<uid>"}'`. If it
+  returns `deliveryUnknown`, leave `chatUid` absent and follow the no-retry
+  rule: approval is recorded separately from delivery certainty. If any held
+  time is no longer free, do not send the stale options: run "Offer times"
+  again with `ownerApprovalAt` set; that `save` replaces the pending request,
+  queues the old holds for cleanup, and the owner approves those exact times.
 - **No:** delete every hold recorded in `offered[]`, then
   update the request to `{"status":"dropped","ownerApprovalAt":null}`.
   If any delete fails, record that `{holdId, account}` in `holdCleanup` before

@@ -213,6 +213,9 @@ export function addRequest(ledger: Ledger, input: NewRequest, now: number, id: s
   const attendeeEmail = input.attendeeEmail === undefined ? undefined : checkEmail(input.attendeeEmail);
   const open = findOpenByHandle(ledger, input.handle);
   if (open) throw new Error(`open request ${open.id} already exists for this person; update it instead`);
+  if (input.ownerApprovalAt !== undefined && (input.origin !== "inbound" || !isDate(input.ownerApprovalAt))) {
+    throw new Error(`ownerApprovalAt must be a time and only applies to an inbound request, got ${JSON.stringify(input.ownerApprovalAt)}`);
+  }
   const at = new Date(now).toISOString();
   // A new offer is never booked: a booking, its link and its reminder are
   // only ever set through update, where they are validated.
@@ -405,7 +408,21 @@ export function appendLog(ledger: Ledger, id: string, text: string, now: number)
 
 export function expiredRequests(ledger: Ledger, hours: number, now: number): Request[] {
   // A request with an offer being sent is not expired: its send settles first.
-  return ledger.requests.filter((r) => r.status === "offered" && !r.pendingOffer && now - Date.parse(r.offeredAt) >= hours * 3600_000);
+  // An approved request's holds are counted from the approval, so opening the group just after it never races the expiry.
+  return ledger.requests.filter((r) => r.status === "offered" && !r.pendingOffer && now - Date.parse(r.ownerApprovedAt ?? r.offeredAt) >= hours * 3600_000);
+}
+
+// Close, in one locked write, every open request whose holds have run out, and
+// queue its holds for cleanup. The rows returned are the ones
+// this write claimed, as they were: a request that a refresh replaced in the
+// meantime is not expired, and a hold is only ever queued once.
+export function expireRequests(ledger: Ledger, hours: number, now: number): { ledger: Ledger; claimed: Request[] } {
+  const claimed = expiredRequests(ledger, hours, now);
+  const next = claimed.reduce((l, r) => updateRequest(l, r.id, {
+    status: "expired", pendingOwner: null, ownerApprovalAt: null,
+    holdCleanup: mergeRefs(r.holdCleanup ?? [], holdRefs(r.offered)),
+  }, now), ledger);
+  return { ledger: next, claimed };
 }
 
 // Open requests waiting for the owner to confirm an out-of-hours time.
@@ -596,10 +613,12 @@ if (isMain(import.meta.url)) {
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => removeCleanupRef(l, values.id!, ref, now));
         return { request: ledger.requests.find((r) => r.id === values.id) };
       }
-      case "expired": {
+      case "expire": {
         const hours = values.hours !== undefined ? Number(values.hours) : holdHours();
         if (!Number.isFinite(hours) || hours < 0) throw new Error(`--hours must be a number >= 0, got ${values.hours}`);
-        return { requests: expiredRequests(readJson<Ledger>(path, EMPTY), hours, now) };
+        let claimed: Request[] = [];
+        updateJson<Ledger>(path, EMPTY, (l) => { const out = expireRequests(l, hours, now); claimed = out.claimed; return out.ledger; });
+        return { requests: claimed };
       }
       case "log": {
         if (!values.id) throw new Error("usage: ledger.ts log --id X [--text-file F]");
@@ -629,7 +648,7 @@ if (isMain(import.meta.url)) {
         return { requests: dueReminders(readJson<Ledger>(path, EMPTY), now, lead) };
       }
       default:
-        throw new Error("usage: ledger.ts find | add | save | update | promote-offer | discard-offer | cleanup-remove | expired | pending | approvals | pipeline | history | log | cleanup | reminders");
+        throw new Error("usage: ledger.ts find | add | save | update | promote-offer | discard-offer | cleanup-remove | expire | pending | approvals | pipeline | history | log | cleanup | reminders");
     }
   });
 }

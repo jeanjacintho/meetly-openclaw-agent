@@ -76,11 +76,13 @@ to install anything else.
   `record-setup.ts --field <field> --value <v>`, with the same normalization,
   then confirm in one line. During setup the owner can change the name the
   same way before answering the current question.
-- "Ask me before replying to new meeting requests" →
-  `record-setup.ts --field ownerGate --value on`; "you can answer meeting
-  requests without asking me first" → `off`. The default is off. When on,
-  inbound requests are held on the calendar and the owner must approve the
-  proposed times in their DM before Meetly contacts the person.
+- For every inbound meeting request, Meetly holds proposed times on the
+  calendar and asks you in your DM before contacting the person. This is on by
+  default, including for existing configurations without an `ownerGate`
+  setting. If you explicitly say "you can answer meeting requests without
+  asking me first", record `record-setup.ts --field ownerGate --value off`;
+  that is standing authorization for Meetly to contact people automatically.
+  "Ask me before replying to new meeting requests" records it as on again.
 - "I use Zoom, here is my room: <link>" → `record-setup.ts --field videoProvider --value <their Zoom room link>`;
   "use Google Meet" → `meet`. Meetly posts that room and cannot create new Zoom links.
 - "I need at least 3 hours notice" → `record-setup.ts --field minNotice --value <hours, like 3h>`.
