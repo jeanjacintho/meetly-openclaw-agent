@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  addRequest, saveRequest, settleOffer, discardStaleOffers, removeCleanupRef, appendLog, cleanupList, pendingOwnerList, expiredRequests, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, pipeline, stageOf,
+  addRequest, saveRequest, settleOffer, discardStaleOffers, removeCleanupRef, appendLog, cleanupList, pendingOwnerList, expiredRequests, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, monitor, pipeline, stageOf,
   type Ledger, type NewRequest,
 } from "../skills/meetly/scripts/ledger.ts";
 import { cli, tmpHome } from "./helpers.ts";
@@ -68,6 +68,17 @@ test("save replaces a duplicate open offer by normalized handle and preserves it
   assert.deepEqual(saved.requests[0]!.holdCleanup, [{ holdId: "h1", account: offer.account }]);
   assert.equal(saved.requests[0]!.offeredAt, new Date(T0 + HOUR).toISOString());
   assert.equal(findOpenByHandle(saved, "+15551234567")!.id, "r_1");
+});
+
+test("monitor nudges the other person once after a day, and a fresh offer resets that nudge", () => {
+  const offered = addRequest(empty(), input({ chatUid: "chat_1" }), T0, "r_1");
+  assert.equal(monitor(offered, T0 + 23 * HOUR).waitingOnThem.length, 0);
+  assert.equal(monitor(offered, T0 + 24 * HOUR).waitingOnThem.length, 1);
+  const nudged = updateRequest(offered, "r_1", { personNudgedAt: new Date(T0 + 24 * HOUR).toISOString() }, T0 + 24 * HOUR);
+  assert.equal(monitor(nudged, T0 + 25 * HOUR).waitingOnThem.length, 0);
+  const refreshed = saveRequest(nudged, input({ chatUid: "chat_1", offered: [{ ...offer, holdId: "h2" }] }), T0 + 30 * HOUR, "r_2");
+  assert.equal(refreshed.requests[0]!.personNudgedAt, undefined);
+  assert.equal(monitor(refreshed, T0 + 54 * HOUR).waitingOnThem.length, 1);
 });
 
 test("a re-offer to an existing group stays staged until its send succeeds", () => {

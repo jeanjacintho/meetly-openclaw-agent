@@ -279,6 +279,14 @@ test("the poll sends due reminders before reading messages, and marks each once"
   for (const action of ["`send`", "`wait`", "`cancelled`", "`no-link`", "`skip`"]) assert.ok(poll.includes(action), action);
 });
 
+test("the poll checks for a reply before sending one follow-up per offer", () => {
+  const poll = flat(readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8"));
+  assert.ok(poll.includes("For each `waitingOnThem` item, read the latest messages"));
+  assert.ok(poll.includes("If the person has already answered, do not nudge"));
+  assert.ok(poll.includes("personNudgedAt"));
+  assert.ok(poll.includes("eligible after 24 hours"));
+});
+
 test("a Meetly group is trusted but scoped to its meeting, and a group that fails to open is reported, not improvised", () => {
   const p = flat(prompt);
   assert.ok(p.includes("anyone who is not the owner can only arrange this one meeting"));
@@ -367,7 +375,7 @@ test("do not contact is checked before every contact-visible message and stored 
   assert.ok(group.includes("blocklist.ts check --handle <request.handle>"));
   assert.ok(group.includes("blocklist.ts block --handle <phone> --handle <email>"));
   assert.ok(poll.includes("Before each contact-visible poll message, immediately check `blocklist.ts check --handle <request.handle>`"));
-  assert.ok(poll.includes("not update the reminder timestamp"));
+  assert.ok(poll.includes("do not update the reminder or nudge timestamp"));
 });
 
 test("an out-of-hours time with insufficient notice is not described as a calendar conflict", () => {
