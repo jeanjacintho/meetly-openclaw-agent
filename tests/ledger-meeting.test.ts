@@ -6,7 +6,7 @@ import {
   type Ledger, type NewRequest, type Patch,
 } from "../skills/meetly/scripts/ledger.ts";
 import { reminderLeadMin } from "../skills/meetly/scripts/config.ts";
-import { cli, tmpHome } from "./helpers.ts";
+import { cli, tmpHome, writeConfig } from "./helpers.ts";
 
 const T0 = Date.parse("2026-09-28T12:00:00Z");
 const MIN = 60_000;
@@ -179,6 +179,11 @@ test("only a booked meeting with an event and a time is re-read in the window, r
   assert.equal(dueReminders(bookedMeet({ reminder: { at: new Date(T0).toISOString(), outcome: "sent" } }), at, 10).length, 1);
   // Any format is re-read in the window, so an external cancellation is seen; only a Meet gets a reminder.
   assert.equal(dueReminders(bookedMeet({ format: "in_person", meetUrl: null }), at, 10).length, 1);
+  // A booking with travel buffers is re-read from the booking until the meeting ends.
+  const withTravel = bookedMeet({ format: "in_person", meetUrl: null, booked: { ...booked, travel: [{ holdId: "t1", account: "a" }] } });
+  assert.equal(dueReminders(withTravel, START - 3 * 60 * MIN, 10).length, 1);
+  assert.equal(dueReminders(withTravel, START + 20 * MIN, 10).length, 1);
+  assert.equal(dueReminders(withTravel, START + 40 * MIN, 10).length, 0);
 });
 
 test("several meetings: each is due on its own time", () => {
@@ -207,6 +212,7 @@ test("the reminder lead reads MEETLY_REMINDER_LEAD_MIN and falls back to 10", ()
 test("CLI save with a format, book, list due reminders, mark sent", () => {
   const home = tmpHome();
   const env = { MEETLY_HOME: home };
+  writeConfig(home, { ownerGate: false });
   const saved = cli("ledger.ts", ["save", "--json", JSON.stringify(input({ format: "meet", locale: "pt-BR" }))], env);
   assert.equal(saved.status, 0, saved.stderr);
   const id = saved.json.request.id;

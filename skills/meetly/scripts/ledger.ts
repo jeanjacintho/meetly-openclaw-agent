@@ -6,23 +6,25 @@ import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
 import { isEmailAddress } from "./reachable-handle.ts";
-import { DEFAULT_FORMATS, holdHours, reminderLeadMin, type DefaultFormat } from "./config.ts";
+import { DEFAULT_FORMATS, holdHours, loadConfig, reminderLeadMin, type DefaultFormat } from "./config.ts";
 import { isMeetUrl, isZoomRoomUrl } from "./event.ts";
 import { file } from "./paths.ts";
 import { readJson, updateJson } from "./store.ts";
 
 const STATUSES = ["offered", "booked", "dropped", "expired", "cancelled"] as const;
 export type Status = (typeof STATUSES)[number];
-export type Offer = { start: string; end: string; holdId?: string; account: string };
 export type HoldRef = { holdId: string; account: string };
+export type Offer = { start: string; end: string; holdId?: string; account: string; travel?: HoldRef[] };
 // A time outside the owner's days or window that the other person asked for,
 // waiting for the owner's yes or no.
-export type PendingOwner = { start: string; end: string; askedAt: string };
+// `travel`: the buffers held for this time while the owner decides; the booking takes them, anything else queues them for cleanup.
+export type PendingOwner = { start: string; end: string; askedAt: string; travel?: HoldRef[] };
 export type Constraints = { days?: string[]; after?: string; before?: string; from?: string; to?: string };
 // How the meeting happens. `unknown` until the request or an answer says it.
 export type Format = DefaultFormat | "unknown";
 // The booked event's time, and the Google account it lives on.
-export type Booked = { start: string; end: string; account: string };
+// `travel` holds the buffers around it, when it is an in-person meeting that has them.
+export type Booked = { start: string; end: string; account: string; travel?: HoldRef[] };
 // The join-time reminder was handled: sent, or not sent for good.
 export type Reminder = { at: string; outcome: "sent" | "cancelled" | "no-link" };
 
@@ -48,7 +50,14 @@ export type Request = {
   status: Status;
   eventId?: string;
   holdCleanup?: HoldRef[];
+  // The buffers of a move in progress: owned by nobody, and not yet cleanable, until the calendar update succeeds.
+  pendingTravel?: { refs: HoldRef[]; at: string; revision: string; start: string; end: string };
   pendingOwner?: PendingOwner;
+  // Inbound request is held for explicit owner approval before outreach.
+  ownerApprovalAt?: string;
+  // Set only after the owner approves this exact offer, whether or not Plow
+  // returned a chat uid for the attempted delivery.
+  ownerApprovedAt?: string;
   format?: Format;
   locale?: string;
   booked?: Booked;
@@ -59,6 +68,10 @@ export type Request = {
   offeredAt: string;
   // When it stopped being open (dropped, expired, ...), so later bookkeeping does not move it.
   closedAt?: string;
+  // When the owner was last reminded about this request, so a reminder goes out once per ask.
+  nudgedAt?: string;
+  // When the other person was last nudged about this offer.
+  personNudgedAt?: string;
   // What happened and was confirmed, dated, oldest first (the last LOG_MAX).
   log?: LogEntry[];
   createdAt: string;
@@ -72,25 +85,29 @@ const LOG_TEXT_MAX = 300;
 export type Ledger = { requests: Request[] };
 
 export type NewRequest = Omit<Request,
-  "id" | "status" | "eventId" | "pendingOwner" | "booked" | "meetUrl" | "roomUrl" | "reminder" | "offeredAt" | "closedAt" | "log" | "createdAt" | "updatedAt">;
+  "id" | "status" | "eventId" | "pendingOwner" | "ownerApprovedAt" | "booked" | "meetUrl" | "roomUrl" | "reminder" | "offeredAt" | "closedAt" | "nudgedAt" | "personNudgedAt" | "log" | "createdAt" | "updatedAt">;
 export type Patch = Partial<Pick<Request,
   "status" | "chatUid" | "eventId" | "offered" | "holdCleanup" | "name" | "location" | "allowOverlap" | "constraints" | "topic" | "format" | "locale">> & {
   attendeeEmail?: string;
   pendingOwner?: PendingOwner | null;
+  ownerApprovalAt?: string | null;
+  ownerApprovedAt?: string;
   booked?: Booked | null;
   meetUrl?: string | null;
   roomUrl?: string | null;
   reminder?: Reminder | null;
+  nudgedAt?: string;
+  personNudgedAt?: string | null;
 };
 
 const FORMATS: readonly Format[] = [...DEFAULT_FORMATS, "unknown"];
 const OUTCOMES: readonly Reminder["outcome"][] = ["sent", "cancelled", "no-link"];
 const PATCH_KEYS = [
-  "status", "chatUid", "eventId", "offered", "holdCleanup", "name", "location", "allowOverlap", "constraints", "topic", "pendingOwner",
-  "format", "locale", "booked", "meetUrl", "roomUrl", "reminder", "attendeeEmail",
+  "status", "chatUid", "eventId", "offered", "holdCleanup", "name", "location", "allowOverlap", "constraints", "topic", "pendingOwner", "ownerApprovalAt", "ownerApprovedAt",
+  "format", "locale", "booked", "meetUrl", "roomUrl", "reminder", "nudgedAt", "personNudgedAt", "attendeeEmail",
 ];
 // Keys a patch can clear with null.
-const NULLABLE = ["pendingOwner", "booked", "meetUrl", "roomUrl", "reminder"] as const;
+const NULLABLE = ["pendingOwner", "ownerApprovalAt", "booked", "meetUrl", "roomUrl", "reminder", "personNudgedAt"] as const;
 
 const isDate = (t: unknown) => typeof t === "string" && !Number.isNaN(Date.parse(t));
 
@@ -109,6 +126,7 @@ function checkBooked(b: Booked): void {
     || typeof b.account !== "string" || !b.account) {
     throw new Error(`booked needs a valid start, a later end and an account: ${JSON.stringify(b)}`);
   }
+  if (b.travel !== undefined) checkHoldRefs(b.travel, "booked travel");
 }
 
 function checkEmail(email: unknown): string {
@@ -120,6 +138,13 @@ function checkEmail(email: unknown): string {
 function checkReminder(r: Reminder): void {
   if (!r || !isDate(r.at) || !OUTCOMES.includes(r.outcome)) {
     throw new Error(`reminder needs a valid at and an outcome of ${OUTCOMES.join(", ")}: ${JSON.stringify(r)}`);
+  }
+}
+
+function checkHoldRefs(refs: unknown, field: string): asserts refs is HoldRef[] {
+  if (!Array.isArray(refs) || refs.some((h) =>
+    !h || typeof h.holdId !== "string" || !h.holdId.trim() || typeof h.account !== "string" || !h.account.trim())) {
+    throw new Error(`${field} must be a list of hold ids and accounts: ${JSON.stringify(refs)}`);
   }
 }
 
@@ -151,17 +176,21 @@ export function findOpenByHandle(ledger: Ledger, handle: string): Request | unde
   return ledger.requests.find((r) => r.status === "offered" && sameHandle(r.handle, handle));
 }
 
+// An inbound request the owner has not approved yet: no offer reaches the person.
+export const awaitingOwnerApproval = (r: Request): boolean => r.ownerApprovalAt !== undefined && r.ownerApprovedAt === undefined;
+
 export function findByChat(ledger: Ledger, chatUid: string, handle?: string): Request | undefined {
   // Resolve an open request for the sender even when it has not been linked
   // yet. This lets a replacement offer supersede a closed request in the chat.
   if (handle !== undefined) {
     const openForHandle = findOpenByHandle(ledger, handle);
-  if (openForHandle && (openForHandle.chatUid === undefined || openForHandle.chatUid === chatUid)) {
+  if (openForHandle && !awaitingOwnerApproval(openForHandle)
+      && (openForHandle.chatUid === undefined || openForHandle.chatUid === chatUid)) {
       return openForHandle;
     }
   }
   // A chat remains a Meetly group after its request closes.
-  return ledger.requests.findLast((r) => r.chatUid === chatUid && r.status === "offered")
+  return ledger.requests.findLast((r) => r.chatUid === chatUid && r.status === "offered" && !awaitingOwnerApproval(r))
     ?? ledger.requests.findLast((r) => r.chatUid === chatUid);
 }
 
@@ -179,15 +208,9 @@ function checkOffers(offered: unknown): Offer[] {
       throw new Error(`each offer needs a valid start and end: ${JSON.stringify(o)}`);
     }
     if (typeof o.account !== "string" || !o.account) throw new Error(`each offer needs an account: ${JSON.stringify(o)}`);
+    if (o.travel !== undefined) checkHoldRefs(o.travel, "each offer travel");
   }
   return offered as Offer[];
-}
-
-function checkHoldRefs(refs: unknown, field: string): asserts refs is HoldRef[] {
-  if (!Array.isArray(refs) || refs.some((h) =>
-    !h || typeof h.holdId !== "string" || !h.holdId.trim() || typeof h.account !== "string" || !h.account.trim())) {
-    throw new Error(`${field} must be a list of hold ids and accounts: ${JSON.stringify(refs)}`);
-  }
 }
 
 export function addRequest(ledger: Ledger, input: NewRequest, now: number, id: string): Ledger {
@@ -196,23 +219,31 @@ export function addRequest(ledger: Ledger, input: NewRequest, now: number, id: s
   if (typeof input.topic !== "string" || !input.topic.trim()) throw new Error("topic is required");
   if (!Number.isInteger(input.durationMin) || input.durationMin <= 0) throw new Error("durationMin must be a positive whole number");
   checkOffers(input.offered);
+  if (input.holdCleanup !== undefined) checkHoldRefs(input.holdCleanup, "holdCleanup");
   const format = input.format === undefined ? "unknown" : input.format;
   checkFormat(format);
   if (input.locale !== undefined) checkLocale(input.locale);
   const attendeeEmail = input.attendeeEmail === undefined ? undefined : checkEmail(input.attendeeEmail);
   const open = findOpenByHandle(ledger, input.handle);
   if (open) throw new Error(`open request ${open.id} already exists for this person; update it instead`);
+  if (input.ownerApprovalAt !== undefined && (input.origin !== "inbound" || !isDate(input.ownerApprovalAt))) {
+    throw new Error(`ownerApprovalAt must be a time and only applies to an inbound request, got ${JSON.stringify(input.ownerApprovalAt)}`);
+  }
   const at = new Date(now).toISOString();
   // A new offer is never booked: a booking, its link and its reminder are
   // only ever set through update, where they are validated.
-  const { booked: _b, meetUrl: _m, roomUrl: _z, reminder: _r, closedAt: _c, log: _l, ...fields } = input as NewRequest & Partial<Pick<Request, "booked" | "meetUrl" | "roomUrl" | "reminder" | "closedAt"  | "log">>;
+  const { booked: _b, meetUrl: _m, roomUrl: _z, reminder: _r, closedAt: _c, ownerApprovedAt: _oap, nudgedAt: _n, personNudgedAt: _pn, log: _l, ...fields } = input as NewRequest & Partial<Pick<Request, "booked" | "meetUrl" | "roomUrl" | "reminder" | "closedAt" | "ownerApprovedAt" | "nudgedAt" | "personNudgedAt" | "log">>;
+  if (fields.ownerApprovalAt !== undefined && !isDate(fields.ownerApprovalAt)) throw new Error(`ownerApprovalAt must be a time, got ${JSON.stringify(fields.ownerApprovalAt)}`);
   const request: Request = { ...fields, ...(attendeeEmail ? { attendeeEmail } : {}), format, id, status: "offered", offeredAt: at, createdAt: at, updatedAt: at };
   return { requests: [...ledger.requests, request] };
 }
 
-// An offer's holds.
-const holdRefs = (offers: Offer[]): HoldRef[] => offers.flatMap((o) => o.holdId ? [{ holdId: o.holdId, account: o.account }] : []);
-const mergeRefs = (...lists: HoldRef[][]): HoldRef[] => lists.flat()
+// An offer's holds: the meeting hold and its travel blocks.
+export const holdRefs = (offers: Offer[]): HoldRef[] => offers.flatMap((o) => [
+  ...(o.holdId ? [{ holdId: o.holdId, account: o.account }] : []),
+  ...(o.travel ?? []),
+]);
+export const mergeRefs = (...lists: HoldRef[][]): HoldRef[] => lists.flat()
   .filter((hold, i, all) => all.findIndex((h) => h.holdId === hold.holdId && h.account === hold.account) === i);
 const withoutRefs = (refs: HoldRef[], keep: HoldRef[]): HoldRef[] =>
   refs.filter((hold) => !keep.some((h) => h.holdId === hold.holdId && h.account === hold.account));
@@ -227,6 +258,19 @@ const withoutRefs = (refs: HoldRef[], keep: HoldRef[]): HoldRef[] =>
 export function saveRequest(ledger: Ledger, input: NewRequest, now: number, id: string, revision = id): Ledger {
   const existing = findOpenByHandle(ledger, input.handle);
   if (!existing) return addRequest(ledger, input, now, id);
+  // A request already linked to a group is never moved to another chat by a payload: its new times can only go to the
+  // group it has (a different chat uid is a disagreement the owner resolves, not something a save may rewrite).
+  if (existing.chatUid !== undefined && input.chatUid !== undefined && input.chatUid !== existing.chatUid) {
+    throw new Error(`request ${existing.id} is already linked to another group: its times go to that group, not to ${input.chatUid}`);
+  }
+  // The gate is for a request that has no group yet: a re-offer to a linked group goes the send and promote way.
+  if (input.ownerApprovalAt !== undefined && existing.chatUid !== undefined) {
+    throw new Error(`request ${existing.id} already has a group: an owner approval cannot gate a re-offer to it`);
+  }
+  // A gated offer is replaced only by one that carries a fresh approval time (stale options regenerated).
+  if (awaitingOwnerApproval(existing) && !(input.ownerApprovalAt && Date.parse(input.ownerApprovalAt) > Date.parse(existing.ownerApprovalAt!))) {
+    throw new Error(`request ${existing.id} is waiting for owner approval; replace its offer only with a new ownerApprovalAt`);
+  }
 
   // Reuse addRequest's validation and timestamp behavior, then apply its new
   // offer to the existing record. An absent chatUid must not erase the link.
@@ -239,6 +283,7 @@ export function saveRequest(ledger: Ledger, input: NewRequest, now: number, id: 
     // A new offer that does not name a format keeps the one already answered.
     format: validated.format === "unknown" ? existing.format ?? "unknown" : validated.format,
     locale: input.locale ?? existing.locale,
+    ownerApprovedAt: undefined,
     createdAt: existing.createdAt,
     updatedAt: new Date(now).toISOString(),
   };
@@ -255,7 +300,7 @@ export function saveRequest(ledger: Ledger, input: NewRequest, now: number, id: 
     };
   } else {
     const { pendingOffer: _p, ...rest } = fields;
-    replacement = { ...rest, holdCleanup: mergeRefs(existing.holdCleanup ?? [], validated.holdCleanup ?? [], withoutRefs(holdRefs(existing.offered), next)) };
+    replacement = { ...rest, personNudgedAt: undefined, holdCleanup: mergeRefs(existing.holdCleanup ?? [], validated.holdCleanup ?? [], withoutRefs(holdRefs(existing.offered), next)) };
   }
   return { requests: ledger.requests.map((r) => r.id === existing.id ? replacement : r) };
 }
@@ -276,7 +321,7 @@ export function settleOffer(ledger: Ledger, id: string, revision: string, outcom
   const requests = [...ledger.requests];
   requests[index] = {
     ...current,
-    ...(promote ? { offered: pendingOffer.offered, offeredAt: new Date(now).toISOString() } : {}),
+    ...(promote ? { offered: pendingOffer.offered, offeredAt: new Date(now).toISOString(), personNudgedAt: undefined } : {}),
     holdCleanup: mergeRefs(current.holdCleanup ?? [], withoutRefs(holdRefs(loser), holdRefs(winner))),
     updatedAt: new Date(now).toISOString(),
   };
@@ -288,6 +333,111 @@ export function settleOffer(ledger: Ledger, id: string, revision: string, outcom
 export function discardStaleOffers(ledger: Ledger, now: number, maxAgeMs: number): Ledger {
   return ledger.requests.reduce((l, r) => r.pendingOffer && now - Date.parse(r.pendingOffer.offeredAt) > maxAgeMs
     ? settleOffer(l, r.id, r.pendingOffer.revision, "discard", now) : l, ledger);
+}
+
+// Moving a booked meeting that has travel buffers. One move at a time per
+// booking: the new buffers wait in `pendingTravel` (with the target time),
+// which the cleanup poll ignores, and a second stage is refused while one is
+// pending. `commit` makes them the meeting's buffers and queues the old ones,
+// in one write, only after the calendar update succeeded.
+const TRAVEL_STAGE_MAX_MS = 15 * 60_000;
+
+export function stageTravel(ledger: Ledger, id: string, refs: HoldRef[], target: { start: string; end: string }, now: number, revision = id): Ledger {
+  checkHoldRefs(refs, "travel hold");
+  if (![target?.start, target?.end].every(isDate)) throw new Error(`stage-travel needs the target "start" and "end" of the move: ${JSON.stringify(target)}`);
+  const index = ledger.requests.findIndex((r) => r.id === id);
+  if (index < 0) throw new Error(`no request ${id}`);
+  const current = ledger.requests[index]!;
+  if (current.status !== "booked") throw new Error(`request ${id} is not booked`);
+  if (current.pendingTravel) throw new Error(`request ${id} already has a move in progress (or awaiting reconciliation): delete the buffers you just created and try again in a few minutes`);
+  const requests = [...ledger.requests];
+  requests[index] = { ...current, pendingTravel: { refs, at: new Date(now).toISOString(), revision, start: target.start, end: target.end }, updatedAt: new Date(now).toISOString() };
+  return { requests };
+}
+
+// A commit applies only to the stage it was issued for: when the stage was
+// reconciled away meanwhile, the ledger is left untouched and the caller told.
+// The one promotion transition: the stage's target time and buffers become the
+// booking's together (so cancellation polling and the pipeline see the new
+// interval at once), the old buffers are queued, and a reminder that belonged
+// to the old start is cleared. Both commit and reconciliation go through it.
+function promoteTravel(ledger: Ledger, index: number, now: number): Ledger {
+  const { pendingTravel, ...current } = ledger.requests[index]!;
+  const requests = [...ledger.requests];
+  const moved = Date.parse(current.booked!.start) !== Date.parse(pendingTravel!.start);
+  const next: Request = {
+    ...current,
+    booked: { ...current.booked!, start: pendingTravel!.start, end: pendingTravel!.end, travel: pendingTravel!.refs },
+    holdCleanup: mergeRefs(current.holdCleanup ?? [], withoutRefs(current.booked!.travel ?? [], pendingTravel!.refs)),
+    updatedAt: new Date(now).toISOString(),
+  };
+  if (moved) delete next.reminder;
+  requests[index] = next;
+  return { requests };
+}
+
+export function commitTravel(ledger: Ledger, id: string, revision: string, now: number): { ledger: Ledger; committed: boolean } {
+  const index = ledger.requests.findIndex((r) => r.id === id);
+  if (index < 0) throw new Error(`no request ${id}`);
+  const current = ledger.requests[index]!;
+  if (current.status !== "booked" || !current.booked) throw new Error(`request ${id} is not a booked meeting`);
+  if (!current.pendingTravel || current.pendingTravel.revision !== revision) return { ledger, committed: false };
+  return { ledger: promoteTravel(ledger, index, now), committed: true };
+}
+
+// Set the buffers of one offer (open request, by its start) or of the booking
+// (booked request): a targeted write, so a caller never rewrites `offered[]`.
+export function setTravel(ledger: Ledger, id: string, refs: HoldRef[], start: string | undefined, now: number): Ledger {
+  checkHoldRefs(refs, "travel hold");
+  const index = ledger.requests.findIndex((r) => r.id === id);
+  if (index < 0) throw new Error(`no request ${id}`);
+  const current = ledger.requests[index]!;
+  const requests = [...ledger.requests];
+  const updatedAt = new Date(now).toISOString();
+  if (current.status === "booked") {
+    if (!current.booked) throw new Error(`request ${id} has no booking`);
+    const { travel: _t, ...booked } = current.booked;
+    requests[index] = { ...current, booked: refs.length ? { ...booked, travel: refs } : booked, updatedAt };
+    return { requests };
+  }
+  if (current.status !== "offered") throw new Error(`request ${id} is ${current.status}`);
+  // An owner-approved out-of-hours time is no offer: its buffers are held on the pending approval.
+  if (start && current.pendingOwner && Date.parse(current.pendingOwner.start) === Date.parse(start) && !current.offered.some((o) => Date.parse(o.start) === Date.parse(start))) {
+    // A retry that holds a new pair displaces the first: those refs go to cleanup in the same write.
+    const displaced = withoutRefs(current.pendingOwner.travel ?? [], refs);
+    requests[index] = {
+      ...current,
+      pendingOwner: { ...current.pendingOwner, travel: refs },
+      ...(displaced.length ? { holdCleanup: mergeRefs(current.holdCleanup ?? [], displaced) } : {}),
+      updatedAt,
+    };
+    return { requests };
+  }
+  if (!start || !current.offered.some((o) => Date.parse(o.start) === Date.parse(start))) throw new Error(`request ${id} has no offer starting ${start}`);
+  requests[index] = { ...current, offered: current.offered.map((o) => (Date.parse(o.start) === Date.parse(start) ? { ...o, travel: refs } : o)), updatedAt };
+  return { requests };
+}
+
+// A turn that died between the stage and the commit leaves a stage behind. After
+// the stage timeout the poll reads the live event and decides: if the calendar
+// accepted the move (the event is at the target time) the booking takes the new
+// buffers and time; otherwise the staged buffers go to cleanup.
+const staleTravelStage = (r: Request, now: number): boolean =>
+  r.pendingTravel !== undefined && now - Date.parse(r.pendingTravel.at) > TRAVEL_STAGE_MAX_MS;
+
+export function reconcileTravel(ledger: Ledger, id: string, event: { start: string; end: string }, now: number): Ledger {
+  const index = ledger.requests.findIndex((r) => r.id === id);
+  if (index < 0) throw new Error(`no request ${id}`);
+  const stage = ledger.requests[index]!;
+  if (!stage.pendingTravel || !staleTravelStage(stage, now)) return ledger;
+  // The calendar took the move only if both endpoints are the ones the buffers were computed for.
+  if (stage.status === "booked" && stage.booked && Date.parse(event.start) === Date.parse(stage.pendingTravel.start) && Date.parse(event.end) === Date.parse(stage.pendingTravel.end)) {
+    return promoteTravel(ledger, index, now);
+  }
+  const { pendingTravel, ...current } = stage;
+  const requests = [...ledger.requests];
+  requests[index] = { ...current, holdCleanup: mergeRefs(current.holdCleanup ?? [], pendingTravel.refs), updatedAt: new Date(now).toISOString() };
+  return { requests };
 }
 
 export function removeCleanupRef(ledger: Ledger, id: string, ref: HoldRef, now: number): Ledger {
@@ -310,17 +460,22 @@ export function updateRequest(ledger: Ledger, id: string, patch: Patch, now: num
   }
   if (patch.status !== undefined && !STATUSES.includes(patch.status)) throw new Error(`bad status: ${patch.status}`);
   if (patch.offered !== undefined) checkOffers(patch.offered);
+  if (patch.holdCleanup !== undefined) checkHoldRefs(patch.holdCleanup, "holdCleanup");
   const pending = patch.pendingOwner;
   if (pending) {
     if ([pending.start, pending.end, pending.askedAt].some((t) => typeof t !== "string" || Number.isNaN(Date.parse(t)))) {
       throw new Error(`pendingOwner needs valid start, end and askedAt: ${JSON.stringify(pending)}`);
     }
   }
+  if (patch.ownerApprovalAt !== undefined && patch.ownerApprovalAt !== null && !isDate(patch.ownerApprovalAt)) throw new Error(`ownerApprovalAt must be a time, got ${JSON.stringify(patch.ownerApprovalAt)}`);
+  if (patch.ownerApprovedAt !== undefined && !isDate(patch.ownerApprovedAt)) throw new Error(`ownerApprovedAt must be a time, got ${JSON.stringify(patch.ownerApprovedAt)}`);
   if (patch.format !== undefined) checkFormat(patch.format);
   if (patch.locale !== undefined) checkLocale(patch.locale);
   const patched = patch.attendeeEmail !== undefined ? { ...patch, attendeeEmail: checkEmail(patch.attendeeEmail) } : patch;
   if (patch.booked) checkBooked(patch.booked);
   if (patch.reminder) checkReminder(patch.reminder);
+  if (patch.nudgedAt !== undefined && !isDate(patch.nudgedAt)) throw new Error(`nudgedAt must be a time, got ${JSON.stringify(patch.nudgedAt)}`);
+  if (patch.personNudgedAt !== undefined && patch.personNudgedAt !== null && !isDate(patch.personNudgedAt)) throw new Error(`personNudgedAt must be a time, got ${JSON.stringify(patch.personNudgedAt)}`);
   if (patch.meetUrl !== undefined && patch.meetUrl !== null && !isMeetUrl(patch.meetUrl)) {
     throw new Error(`meetUrl must be a Google Meet link (https://meet.google.com/xxx-xxxx-xxx), got ${JSON.stringify(patch.meetUrl)}`);
   }
@@ -330,6 +485,15 @@ export function updateRequest(ledger: Ledger, id: string, patch: Patch, now: num
   const index = ledger.requests.findIndex((r) => r.id === id);
   if (index < 0) throw new Error(`no request ${id}`);
   const currentRequest = ledger.requests[index]!;
+  const approvalPending = awaitingOwnerApproval(currentRequest);
+  if (approvalPending) {
+    if (patch.chatUid !== undefined && patch.ownerApprovedAt === undefined) {
+      throw new Error(`request ${id} is waiting for owner approval; chatUid cannot be linked before owner approval`);
+    }
+    if (patch.status === "booked" || patch.eventId !== undefined || patch.booked !== undefined) {
+      throw new Error(`request ${id} is waiting for owner approval; it cannot be booked or attached to an event`);
+    }
+  }
   const at = new Date(now).toISOString();
   const updated: Request = { ...ledger.requests[index]!, updatedAt: at };
   if (currentRequest.status !== "offered" && currentRequest.status !== "booked" && !currentRequest.closedAt) {
@@ -338,6 +502,18 @@ export function updateRequest(ledger: Ledger, id: string, patch: Patch, now: num
   for (const [key, value] of Object.entries(patched)) {
     if (value === null && (NULLABLE as readonly string[]).includes(key)) delete updated[key as (typeof NULLABLE)[number]];
     else if (value !== undefined) (updated as Record<string, unknown>)[key] = value;
+  }
+  // A booked meeting that closes gives its travel buffers to cleanup in the same write.
+  if (currentRequest.status === "booked" && patch.status !== undefined && patch.status !== "booked") {
+    const owned = [...(currentRequest.booked?.travel ?? []), ...(currentRequest.pendingTravel?.refs ?? [])];
+    if (owned.length) updated.holdCleanup = mergeRefs(updated.holdCleanup ?? [], owned);
+    delete updated.pendingTravel;
+  }
+  // Buffers held for a pending approval that is cleared or replaced without becoming the booking go to cleanup.
+  const heldForOwner = currentRequest.pendingOwner?.travel;
+  if (heldForOwner?.length && (patch.pendingOwner !== undefined || (patch.status !== undefined && patch.status !== "offered"))) {
+    const kept = withoutRefs(heldForOwner, [...(updated.booked?.travel ?? []), ...(updated.pendingOwner?.travel ?? [])]);
+    if (kept.length) updated.holdCleanup = mergeRefs(updated.holdCleanup ?? [], kept);
   }
   // A link belongs to a Meet: moving to another format drops it, and a link
   // is never set on a meeting that is not one.
@@ -377,7 +553,21 @@ export function appendLog(ledger: Ledger, id: string, text: string, now: number)
 
 export function expiredRequests(ledger: Ledger, hours: number, now: number): Request[] {
   // A request with an offer being sent is not expired: its send settles first.
-  return ledger.requests.filter((r) => r.status === "offered" && !r.pendingOffer && now - Date.parse(r.offeredAt) >= hours * 3600_000);
+  // An approved request's holds are counted from the approval, so opening the group just after it never races the expiry.
+  return ledger.requests.filter((r) => r.status === "offered" && !r.pendingOffer && now - Date.parse(r.ownerApprovedAt ?? r.offeredAt) >= hours * 3600_000);
+}
+
+// Close, in one locked write, every open request whose holds have run out, and
+// queue its holds for cleanup. The rows returned are the ones
+// this write claimed, as they were: a request that a refresh replaced in the
+// meantime is not expired, and a hold is only ever queued once.
+export function expireRequests(ledger: Ledger, hours: number, now: number): { ledger: Ledger; claimed: Request[] } {
+  const claimed = expiredRequests(ledger, hours, now);
+  const next = claimed.reduce((l, r) => updateRequest(l, r.id, {
+    status: "expired", pendingOwner: null, ownerApprovalAt: null,
+    holdCleanup: mergeRefs(r.holdCleanup ?? [], holdRefs(r.offered)),
+  }, now), ledger);
+  return { ledger: next, claimed };
 }
 
 // Open requests waiting for the owner to confirm an out-of-hours time.
@@ -385,12 +575,55 @@ export function pendingOwnerList(ledger: Ledger): Request[] {
   return ledger.requests.filter((r) => r.status === "offered" && r.pendingOwner !== undefined);
 }
 
+// The owner's yes, claimed atomically: it succeeds only while the request is
+// still open and waiting, so an expiry that closed it first wins, and once it
+// is claimed the expiry clock restarts from the approval (`expiredRequests`).
+export function approveRequest(ledger: Ledger, id: string, now: number): { ledger: Ledger; approved: boolean } {
+  const r = ledger.requests.find((x) => x.id === id);
+  if (!r || r.status !== "offered") return { ledger, approved: false };
+  if (!awaitingOwnerApproval(r)) return { ledger, approved: false };
+  return { ledger: updateRequest(ledger, id, { ownerApprovedAt: new Date(now).toISOString() }, now), approved: true };
+}
+
+// start-thread.ts verifies this under the ledger lock immediately before the POST: the request must still be the one
+// that was authorized (open, not waiting for approval, the same person, offer and approval), so an offer or
+// approval replaced since validation stops the stale opener. Nothing is marked: an approved request with no chat is
+// an uncertain delivery, recovered only when the owner confirms the group is absent (same idempotency key).
+export function assertDeliverable(
+  ledger: Ledger, id: string, seen: { handle: string; offeredAt: string; ownerApprovedAt?: string },
+): void {
+  const r = ledger.requests.find((x) => x.id === id);
+  if (!r || r.status !== "offered") throw new Error(`request ${id} is no longer open: nothing was sent`);
+  if (awaitingOwnerApproval(r)) throw new Error(`request ${id} is not approved by the owner: nothing was sent`);
+  if (!sameHandle(r.handle, seen.handle) || r.offeredAt !== seen.offeredAt || r.ownerApprovedAt !== seen.ownerApprovedAt) {
+    throw new Error(`request ${id} changed since it was authorized (another offer or approval replaced it): nothing was sent, start again`);
+  }
+}
+
+// The owner's no, in one write: the request closes and every hold goes to the
+// cleanup queue before any is deleted, so an interruption never leaves a pending
+// request pointing at deleted holds.
+export function declineRequest(ledger: Ledger, id: string, now: number): { ledger: Ledger; declined: boolean } {
+  const r = ledger.requests.find((x) => x.id === id);
+  if (!r || r.status !== "offered" || !awaitingOwnerApproval(r)) return { ledger, declined: false };
+  const next = updateRequest(ledger, id, { status: "dropped", ownerApprovalAt: null, holdCleanup: mergeRefs(r.holdCleanup ?? [], holdRefs(r.offered)) }, now);
+  return { ledger: next, declined: true };
+}
+
+export function ownerApprovalList(ledger: Ledger): Request[] {
+  return ledger.requests.filter((r) => r.status === "offered" && awaitingOwnerApproval(r));
+}
+
 // Booked meetings to re-read from the calendar: from `leadMin` before the
-// start until `graceMin` after it, once. A cancellation is caught for any
-// format; only a Meet with a link gets a reminder.
+// start until `graceMin` after it. A cancellation is caught for any format,
+// and, reminded or not, only a Meet with a link gets a reminder. A booking
+// with travel buffers is re-read from the booking until the meeting ends, so
+// a cancelled event, even an in-progress one, queues its buffers.
 export function dueReminders(ledger: Ledger, now: number, leadMin: number, graceMin = 5): Request[] {
   return ledger.requests.filter((r) => {
     if (r.status !== "booked" || !r.eventId || !r.booked) return false;
+    if (staleTravelStage(r, now)) return true;
+    if (r.booked.travel?.length) return now < Date.parse(r.booked.end);
     const start = Date.parse(r.booked.start);
     return now >= start - leadMin * 60_000 && now < start + graceMin * 60_000;
   });
@@ -434,10 +667,14 @@ const NEXT_STEP: Record<Stage, string> = {
   passed: "none, unless the owner wants to meet again",
 };
 
+// When the owner was asked to decide: a time outside their hours (`pendingOwner`), or a gated inbound request waiting for
+// approval. One definition for the stage, the pipeline's waiting time and the monitor's reminders.
+const ownerDecisionAt = (r: Request): string | undefined => r.pendingOwner?.askedAt ?? (awaitingOwnerApproval(r) ? r.ownerApprovalAt : undefined);
+
 export function stageOf(r: Request, now: number): Stage {
   if (r.status === "booked") return "confirmed";
   if (r.status !== "offered") return "passed";
-  if (r.pendingOwner) return "waiting_on_us";
+  if (ownerDecisionAt(r)) return "waiting_on_us";
   if (!r.chatUid) return "delivery_unknown";
   return hoursSince(r.offeredAt, now) >= STALE_HOURS ? "waiting_on_them" : "sent";
 }
@@ -446,16 +683,18 @@ export function stageOf(r: Request, now: number): Stage {
 // delivered (waiting on Meetly), offers the other person has to answer (oldest
 // first), meetings still to come (soonest first; one with no recorded time
 // last), and what closed in the past week.
+const pipelineItem = (r: Request, now: number, extra: Partial<PipelineItem> = {}): PipelineItem => {
+  const stage = stageOf(r, now);
+  const out: PipelineItem = { id: r.id, topic: r.topic, status: r.status, stage, delivery: r.chatUid ? "linked" : "unknown", nextStep: NEXT_STEP[stage], ...extra };
+  if (r.name !== undefined) out.name = r.name;
+  return out;
+};
+
 export function pipeline(ledger: Ledger, now: number, blocked: string[] = []): {
   waitingOnOwner: PipelineItem[]; deliveryUnknown: PipelineItem[]; waitingOnThem: PipelineItem[]; booked: PipelineItem[]; closed: PipelineItem[];
 } {
-  const item = (r: Request, extra: Partial<PipelineItem> = {}): PipelineItem => {
-    const stage = stageOf(r, now);
-    const out: PipelineItem = { id: r.id, topic: r.topic, status: r.status, stage, delivery: r.chatUid ? "linked" : "unknown", nextStep: NEXT_STEP[stage], ...extra };
-    if (r.name !== undefined) out.name = r.name;
-    return out;
-  };
-  const waiting = (r: Request) => ({ hoursWaiting: hoursSince(r.pendingOwner?.askedAt ?? r.offeredAt, now) });
+  const item = (r: Request, extra: Partial<PipelineItem> = {}) => pipelineItem(r, now, extra);
+  const waiting = (r: Request) => ({ hoursWaiting: hoursSince(ownerDecisionAt(r) ?? r.offeredAt, now) });
   const requests = ledger.requests.filter((r) => !blocked.some((b) => sameHandle(b, r.handle)));
   const open = requests.filter((r) => r.status === "offered");
   const upcoming = requests.filter((r) => r.status === "booked" && (!r.booked || Date.parse(r.booked.start) >= now));
@@ -471,6 +710,34 @@ export function pipeline(ledger: Ledger, now: number, blocked: string[] = []): {
   };
 }
 
+export const OWNER_NUDGE_HOURS = 4;
+export const DELIVERY_UNKNOWN_NOTICE_HOURS = 1;
+export const PERSON_NUDGE_HOURS = 24;
+
+// What waits on the owner or on Meetly for too long, to be reminded once per
+// ask. The other person is nudged once per offer; replacing an offer resets it.
+export function monitor(ledger: Ledger, now: number): {
+  ownerWaiting: (PipelineItem & { chatUid?: string; handle: string })[]; deliveryUnknown: PipelineItem[]; waitingOnThem: (PipelineItem & { chatUid: string; handle: string })[];
+} {
+  const asked = ownerDecisionAt;
+  const due = (r: Request, since: string, hours: number) =>
+    hoursSince(since, now) >= hours && (!r.nudgedAt || Date.parse(r.nudgedAt) < Date.parse(since));
+  const personDue = (r: Request) => hoursSince(r.offeredAt, now) >= PERSON_NUDGE_HOURS &&
+    (!r.personNudgedAt || Date.parse(r.personNudgedAt) < Date.parse(r.offeredAt));
+  const view = (r: Request, since: string): PipelineItem => pipelineItem(r, now, { hoursWaiting: hoursSince(since, now) });
+  const open = ledger.requests.filter((r) => r.status === "offered");
+  return {
+    ownerWaiting: open.filter((r) => stageOf(r, now) === "waiting_on_us" && asked(r) && due(r, asked(r)!, OWNER_NUDGE_HOURS))
+      .map((r) => ({ ...view(r, asked(r)!), handle: r.handle, ...(r.chatUid !== undefined ? { chatUid: r.chatUid } : {}) }))
+      .sort((a, b) => b.hoursWaiting! - a.hoursWaiting!),
+    deliveryUnknown: open.filter((r) => stageOf(r, now) === "delivery_unknown" && due(r, r.offeredAt, DELIVERY_UNKNOWN_NOTICE_HOURS))
+      .map((r) => view(r, r.offeredAt)).sort((a, b) => b.hoursWaiting! - a.hoursWaiting!),
+    waitingOnThem: open.filter((r) => stageOf(r, now) === "waiting_on_them" && r.chatUid && !r.pendingOffer && personDue(r))
+      .map((r) => ({ ...view(r, r.offeredAt), chatUid: r.chatUid!, handle: r.handle }))
+      .sort((a, b) => b.hoursWaiting! - a.hoursWaiting!),
+  };
+}
+
 // Everything the ledger holds for one person, newest first: what the meeting
 // was for, how it was to happen, where, for how long.
 export function historyFor(ledger: Ledger, handle: string): Pick<Request, "id" | "status" | "name" | "topic" | "format" | "location" | "durationMin" | "createdAt">[] {
@@ -482,6 +749,13 @@ export function historyFor(ledger: Ledger, handle: string): Pick<Request, "id" |
 }
 
 const EMPTY: Ledger = { requests: [] };
+
+// The approval state is written only by save (derived from the configuration), approve, decline and expire; never by a model-supplied payload.
+function refuseApprovalKeys(value: Record<string, unknown>): void {
+  for (const key of ["ownerApprovalAt", "ownerApprovedAt"]) {
+    if (key in value) throw new Error(`${key} is written only by ledger.ts save, approve, decline and expire`);
+  }
+}
 
 function jsonArg(values: { json?: string; "json-file"?: string }): any {
   const text = values.json ?? (values["json-file"] !== undefined ? readFileSync(values["json-file"], "utf8") : undefined);
@@ -526,21 +800,46 @@ if (isMain(import.meta.url)) {
         throw new Error("usage: ledger.ts find --handles-file F | --chat U | --event E --account A");
       }
       case "add": {
+        // The atomic create-or-refuse for an owner's own request (the existing-group flow). An inbound request has to go
+        // through `save`, which applies the owner gate, so it can never be created here without the pending marker.
         const input = jsonArg(values);
+        refuseApprovalKeys(input);
+        if (input.origin !== "owner") throw new Error("add is only for the owner's own requests; save an inbound request with ledger.ts save (it applies the owner gate)");
         const id = `r_${randomBytes(4).toString("hex")}`;
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => addRequest(l, input, now, id));
         return { request: ledger.requests.find((r) => r.id === id) };
       }
       case "save": {
         const input = jsonArg(values);
+        refuseApprovalKeys(input);
         const id = `r_${randomBytes(4).toString("hex")}`;
         const revision = randomBytes(4).toString("hex");
-        const ledger = updateJson<Ledger>(path, EMPTY, (l) => saveRequest(l, input, now, id, revision));
+        // The owner gate is decided here, in the locked write, from the configuration and the current request: an
+        // inbound offer that has no group yet waits for the owner's approval; the caller never supplies the marker.
+        // Known limit: `origin` is written by the model, and no runtime-provided signal says whether this turn is the
+        // unattended poll (guest text) or the owner's own, so a turn fully driven by a prompt injection could claim
+        // `owner`. Closing that needs that signal from the platform; no script-side state (the poll cursor included)
+        // is a trustworthy substitute, and using it wrongly gates the owner's own requests.
+        const gateOn = loadConfig().ownerGate === true;
+        const ledger = updateJson<Ledger>(path, EMPTY, (l) => {
+          // "Already has a group" is judged from the ledger, never from the payload: a `chatUid` the model supplies counts only
+          // when the ledger already linked that chat to a request of the same person. A made-up uid, or another contact's
+          // group, is dropped and the request is gated like any other, so neither can skip the owner's approval or send
+          // this person's times into someone else's chat.
+          const knownChat = input.chatUid !== undefined && l.requests.some((r) => r.chatUid === input.chatUid && sameHandle(r.handle, input.handle));
+          const hasGroup = findOpenByHandle(l, input.handle)?.chatUid !== undefined || knownChat;
+          if (gateOn && input.origin === "inbound" && !hasGroup) {
+            input.ownerApprovalAt = new Date(now).toISOString();
+            delete input.chatUid;
+          }
+          return saveRequest(l, input, now, id, revision);
+        });
         return { request: ledger.requests.find((r) => sameHandle(r.handle, input.handle) && r.status === "offered") };
       }
       case "update": {
         if (!values.id) throw new Error("usage: ledger.ts update --id X --json '<patch>'");
         const patch = jsonArg(values);
+        refuseApprovalKeys(patch);
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => updateRequest(l, values.id!, patch, now));
         return { request: ledger.requests.find((r) => r.id === values.id) };
       }
@@ -563,10 +862,36 @@ if (isMain(import.meta.url)) {
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => removeCleanupRef(l, values.id!, ref, now));
         return { request: ledger.requests.find((r) => r.id === values.id) };
       }
-      case "expired": {
+      case "set-travel": {
+        if (!values.id) throw new Error(`usage: ledger.ts set-travel --id X --json-file F ({"start":"<offer start>","travel":[{holdId,account},…]})`);
+        const { start, travel } = jsonArg(values) as { start?: string; travel: HoldRef[] };
+        const ledger = updateJson<Ledger>(path, EMPTY, (l) => setTravel(l, values.id!, travel, start, now));
+        return { request: ledger.requests.find((r) => r.id === values.id) };
+      }
+      case "stage-travel": {
+        if (!values.id) throw new Error(`usage: ledger.ts stage-travel --id X --json-file F ({"travel":[{holdId,account},…],"start":"<new start>","end":"<new end>"})`);
+        const { travel } = jsonArg(values) as { travel: HoldRef[] };
+        const revision = randomBytes(4).toString("hex");
+        const { start, end } = jsonArg(values) as { start: string; end: string };
+        const ledger = updateJson<Ledger>(path, EMPTY, (l) => stageTravel(l, values.id!, travel, { start, end }, now, revision));
+        return { request: ledger.requests.find((r) => r.id === values.id), revision };
+      }
+      case "commit-travel": {
+        if (!values.id || !values.revision) throw new Error("usage: ledger.ts commit-travel --id X --revision R");
+        let committed = false;
+        const ledger = updateJson<Ledger>(path, EMPTY, (l) => {
+          const out = commitTravel(l, values.id!, values.revision!, now);
+          committed = out.committed;
+          return out.ledger;
+        });
+        return { request: ledger.requests.find((r) => r.id === values.id), committed };
+      }
+      case "expire": {
         const hours = values.hours !== undefined ? Number(values.hours) : holdHours();
         if (!Number.isFinite(hours) || hours < 0) throw new Error(`--hours must be a number >= 0, got ${values.hours}`);
-        return { requests: expiredRequests(readJson<Ledger>(path, EMPTY), hours, now) };
+        let claimed: Request[] = [];
+        updateJson<Ledger>(path, EMPTY, (l) => { const out = expireRequests(l, hours, now); claimed = out.claimed; return out.ledger; });
+        return { requests: claimed };
       }
       case "log": {
         if (!values.id) throw new Error("usage: ledger.ts log --id X [--text-file F]");
@@ -578,6 +903,8 @@ if (isMain(import.meta.url)) {
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => appendLog(l, values.id!, readFileSync(values["text-file"]!, "utf8").trim(), now));
         return { log: ledger.requests.find((r) => r.id === values.id)!.log };
       }
+      case "monitor":
+        return monitor(readJson<Ledger>(path, EMPTY), now);
       case "pipeline":
         return pipeline(readJson<Ledger>(path, EMPTY), now, readJson<{ handle: string }[]>(file("blocked.json"), []).map((b) => b.handle));
       case "history": {
@@ -586,6 +913,28 @@ if (isMain(import.meta.url)) {
       }
       case "pending":
         return { requests: pendingOwnerList(readJson<Ledger>(path, EMPTY)) };
+      case "approve": {
+        if (!values.id) throw new Error("usage: ledger.ts approve --id X");
+        let approved = false;
+        const ledger = updateJson<Ledger>(path, EMPTY, (l) => {
+          const out = approveRequest(l, values.id!, now);
+          approved = out.approved;
+          return out.ledger;
+        });
+        return { approved, request: ledger.requests.find((r) => r.id === values.id) ?? null };
+      }
+      case "decline": {
+        if (!values.id) throw new Error("usage: ledger.ts decline --id X");
+        let declined = false;
+        const ledger = updateJson<Ledger>(path, EMPTY, (l) => {
+          const out = declineRequest(l, values.id!, now);
+          declined = out.declined;
+          return out.ledger;
+        });
+        return { declined, request: ledger.requests.find((r) => r.id === values.id) ?? null };
+      }
+      case "approvals":
+        return { requests: ownerApprovalList(readJson<Ledger>(path, EMPTY)) };
       case "cleanup":
         return { requests: cleanupList(updateJson<Ledger>(path, EMPTY, (l) => discardStaleOffers(l, now, 15 * 60_000))).map((r) => ({ id: r.id, holdCleanup: r.holdCleanup })) };
       case "reminders": {
@@ -594,7 +943,7 @@ if (isMain(import.meta.url)) {
         return { requests: dueReminders(readJson<Ledger>(path, EMPTY), now, lead) };
       }
       default:
-        throw new Error("usage: ledger.ts find | add | save | update | promote-offer | discard-offer | cleanup-remove | expired | pending | pipeline | history | log | cleanup | reminders");
+        throw new Error("usage: ledger.ts find | add | save | update | promote-offer | discard-offer | cleanup-remove | set-travel | stage-travel | commit-travel | expire | approve | decline | pending | approvals | pipeline | monitor | history | log | cleanup | reminders");
     }
   });
 }

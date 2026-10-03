@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { block, isBlocked, unblock } from "../skills/meetly/scripts/blocklist.ts";
 import { startThread } from "../skills/meetly/scripts/start-thread.ts";
 import { writeJson } from "../skills/meetly/scripts/store.ts";
-import { cli, tmpHome } from "./helpers.ts";
+import { cli, seedRequest, tmpHome } from "./helpers.ts";
 
 const T0 = Date.parse("2026-10-01T12:00:00Z");
 
@@ -55,12 +55,13 @@ test("a group is never opened with someone on the list, and nothing is posted", 
   const home = tmpHome();
   const saved = process.env.MEETLY_HOME;
   process.env.MEETLY_HOME = home;
+  seedRequest(home);
   try {
     writeJson(join(home, "blocked.json"), [{ handle: "+15551234567", at: new Date(T0).toISOString() }]);
     let calls = 0;
     const fetch = (async () => { calls++; return new Response("{}"); }) as typeof globalThis.fetch;
     await assert.rejects(
-      startThread({ members: ["+15551234567"], body: "Hi", key: "k", fetch, base: "https://api.plow.test/", token: "t" }),
+      startThread({ members: ["+15551234567"], body: "Hi", requestId: "r_1", fetch, base: "https://api.plow.test/", token: "t" }),
       /do not contact/,
     );
     assert.equal(calls, 0);
@@ -74,6 +75,7 @@ test("a block added while identity is being read stops the group-open POST", asy
   const home = tmpHome();
   const saved = process.env.MEETLY_HOME;
   process.env.MEETLY_HOME = home;
+  seedRequest(home);
   try {
     let calls = 0;
     const fetch = (async (url: string | URL | Request) => {
@@ -90,7 +92,7 @@ test("a block added while identity is being read stops the group-open POST", asy
       }
       return new Response('{"uid":"unexpected"}', { status: 201 });
     }) as typeof globalThis.fetch;
-    await assert.rejects(startThread({ members: ["+15551234567"], body: "Hi", key: "k", fetch, base: "https://api.plow.test/", token: "t" }), /do not contact/);
+    await assert.rejects(startThread({ members: ["+15551234567"], body: "Hi", requestId: "r_1", fetch, base: "https://api.plow.test/", token: "t" }), /do not contact/);
     assert.equal(calls, 1);
   } finally {
     if (saved === undefined) delete process.env.MEETLY_HOME;
@@ -103,6 +105,7 @@ test("a block issued during a slow opener waits for the POST instead of failing"
   const saved = process.env.MEETLY_HOME;
   process.env.MEETLY_HOME = home;
   try {
+    seedRequest(home);
     const aliases = join(home, "ana.json");
     writeFileSync(aliases, JSON.stringify(["+15551234567"]));
     const events: string[] = [];
@@ -121,7 +124,7 @@ test("a block issued during a slow opener waits for the POST instead of failing"
       events.push("post");
       return new Response('{"uid":"c1"}');
     }) as typeof globalThis.fetch;
-    await startThread({ members: ["+15551234567"], body: "Hi", key: "request:r_1", fetch, base: "https://api.plow.test/", token: "t" });
+    await startThread({ members: ["+15551234567"], body: "Hi", requestId: "r_1", fetch, base: "https://api.plow.test/", token: "t" });
     assert.equal(await child, 0);
     assert.deepEqual(events, ["post", "block"]);
   } finally {

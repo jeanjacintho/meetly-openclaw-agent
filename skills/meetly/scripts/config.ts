@@ -23,6 +23,12 @@ export type Config = {
   horizonDays: number;
   calendars: Calendar[];
   defaultAccount: string;
+  // When enabled, inbound requests wait for owner approval before contacting the person.
+  ownerGate?: boolean;
+  // Words in the title of a block the owner lets Meetly offer times over.
+  movable?: string[];
+  // Minutes to leave free before and after an in-person meeting.
+  travelMin?: number;
   // The owner's personal Zoom room; unset means Google Meet.
   zoomRoomUrl?: string;
   // Minutes of notice a time needs before it is offered; unset means MIN_NOTICE_MIN.
@@ -33,7 +39,7 @@ export type Config = {
 };
 
 // Every setting the owner can change.
-export const FIELDS = ["ownerName", "timezone", "days", "window", "durationMin", "horizonDays", "calendars", "videoProvider", "minNotice", "defaultFormat"] as const;
+export const FIELDS = ["ownerName", "timezone", "days", "window", "durationMin", "horizonDays", "calendars", "ownerGate", "movable", "travel", "videoProvider", "minNotice", "defaultFormat"] as const;
 export type Field = (typeof FIELDS)[number];
 
 // What setup cannot start without, in the order it asks: nobody but the owner,
@@ -48,6 +54,8 @@ export const DEFAULTS = {
   windowEnd: "18:00",
   durationMin: 30,
   horizonDays: 14,
+  // Inbound contacts never receive an offer until the owner approves it.
+  ownerGate: true,
 };
 
 export const QUESTIONS: Record<RequiredField, string> = {
@@ -159,6 +167,34 @@ export function parseField(field: string, value: string): Partial<Config> {
       return { durationMin: integer(value, "the duration in minutes", 15, 240) };
     case "horizonDays":
       return { horizonDays: integer(value, "the number of days", 1, 30) };
+    case "ownerGate": {
+      const v = value.trim().toLowerCase();
+      if (["on", "yes", "true", "enabled"].includes(v)) return { ownerGate: true };
+      if (["off", "no", "false", "disabled"].includes(v)) return { ownerGate: false };
+      throw new Error(`ownerGate must be on or off, got "${value}"`);
+    }
+    case "movable": {
+      if (value.trim().toLowerCase() === "none") return { movable: undefined };
+      const words = [...new Set(value.split(",").map((w) => w.trim().toLowerCase()).filter(Boolean))];
+      if (words.length === 0 || words.length > 20 || words.some((w) => w.length < 2 || w.length > 40)) {
+        throw new Error(`movable is 1 to 20 words of 2 to 40 characters from the titles of blocks that may move, separated by commas (or none), got "${value}"`);
+      }
+      return { movable: words };
+    }
+    case "travel": {
+      const raw = value.trim().toLowerCase();
+      if (raw === "none" || raw === "0") return { travelMin: undefined };
+      let minutes: number;
+      const hours = /^(\d+(?:\.\d+)?)\s*h$/.exec(raw);
+      const mins = /^(\d+)\s*(?:min(?:ute)?s?)?$/.exec(raw);
+      if (hours) minutes = Number(hours[1]) * 60;
+      else if (mins) minutes = Number(mins[1]);
+      else throw new Error(`travel must be 1 to 180 minutes (or hours), or none, got "${value}"`);
+      if (!Number.isInteger(minutes) || minutes < 1 || minutes > 180) {
+        throw new Error(`travel must be 1 to 180 minutes, got "${value}"`);
+      }
+      return { travelMin: minutes };
+    }
     case "videoProvider": {
       const v = value.trim();
       if (v === "meet") return { zoomRoomUrl: undefined };
@@ -228,20 +264,36 @@ export function validateConfig(partial: Partial<Config>): Config {
     windowEnd: p.windowEnd,
     durationMin: p.durationMin,
     horizonDays: p.horizonDays,
-    calendars: readableCalendars(p.calendars, p.defaultAccount),
+    calendars: p.calendars,
     defaultAccount: p.defaultAccount,
   };
+  if (p.ownerGate !== undefined && typeof p.ownerGate !== "boolean") throw new Error("ownerGate must be true or false");
+  config.ownerGate = p.ownerGate;
+  if (p.movable !== undefined) config.movable = p.movable;
+  if (p.travelMin !== undefined) {
+    if (!Number.isInteger(p.travelMin) || p.travelMin < 1 || p.travelMin > 180) {
+      throw new Error(`travel must be 1 to 180 minutes, got ${JSON.stringify(p.travelMin)}`);
+    }
+    config.travelMin = p.travelMin;
+  }
   if (p.zoomRoomUrl !== undefined) config.zoomRoomUrl = p.zoomRoomUrl;
   if (p.minNoticeMin !== undefined) config.minNoticeMin = p.minNoticeMin;
   if (p.defaultFormat !== undefined) config.defaultFormat = p.defaultFormat;
   if (p.setupDoneAt !== undefined) config.setupDoneAt = p.setupDoneAt;
   if (p.paused !== undefined) config.paused = p.paused;
-  return config;
+  return normalizeConfig(config);
+}
+
+export function normalizeConfig(config: Config): Config {
+  return {
+    ...config,
+    ownerGate: config.ownerGate ?? DEFAULTS.ownerGate,
+    calendars: readableCalendars(config.calendars, config.defaultAccount),
+  };
 }
 
 export function loadConfig(): Config {
   const config = readJson<Config | null>(file("config.json"), null);
   if (!config?.setupDoneAt) throw new Error("Meetly is not set up yet");
-  // A config saved before readableCalendars may still list `primary`.
-  return { ...config, calendars: readableCalendars(config.calendars, config.defaultAccount) };
+  return normalizeConfig(config);
 }

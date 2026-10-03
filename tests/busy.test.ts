@@ -138,3 +138,34 @@ test("the CLI's --fetch writes tmp/busy.json for slots.ts and prints only a shor
   assert.deepEqual(r.json, { file: join(home, "tmp", "busy.json"), busy: 0, degraded: ["owner@example.com"] });
   assert.deepEqual(JSON.parse(readFileSync(join(home, "tmp", "busy.json"), "utf8")), { busy: [], degraded: ["owner@example.com"] });
 });
+
+test("a block the owner created and nobody else is invited to, whose title has an owner-listed word, is movable; no title leaves the script", () => {
+  const own = { creator: { email: "owner@example.com" } };
+  const items = [
+    { id: "p1", account: "owner@example.com", summary: "Hold, prayer time", startLocal: "2026-09-28T07:00:00-03:00", endLocal: "2026-09-28T08:00:00-03:00", ...own },
+    { id: "m1", account: "owner@example.com", summary: "Board meeting", startLocal: "2026-09-28T09:00:00-03:00", endLocal: "2026-09-28T10:00:00-03:00", ...own },
+    { id: "s1", account: "owner@example.com", summary: "Sprint planning", startLocal: "2026-09-28T10:00:00-03:00", endLocal: "2026-09-28T11:00:00-03:00", ...own },
+    { id: "p2", account: "owner@example.com", summary: "Project Prayer Sync", startLocal: "2026-09-28T11:00:00-03:00", endLocal: "2026-09-28T12:00:00-03:00", ...own },
+    // An invitation (Latch lists the others by address; the raw shape lists objects) never becomes movable by its title.
+    { id: "x1", account: "owner@example.com", summary: "Prayer: urgent", startLocal: "2026-09-28T12:00:00-03:00", endLocal: "2026-09-28T13:00:00-03:00", attendees: ["boss@example.com"], ...own },
+    { id: "x2", account: "owner@example.com", summary: "Prayer: urgent", startLocal: "2026-09-28T13:00:00-03:00", endLocal: "2026-09-28T14:00:00-03:00", attendees: [{ email: "boss@example.com" }, { self: true, responseStatus: "accepted" }], ...own },
+    // Meetly's own hold carries the topic and no guests: never movable, whatever the topic says.
+    { id: "h1", account: "owner@example.com", summary: "Hold: Prayer group with Ana", startLocal: "2026-09-28T15:00:00-03:00", endLocal: "2026-09-28T16:00:00-03:00", ...own },
+    // Only the owner (and a room) on it, created by the owner: their own block. Case of the address does not matter.
+    { id: "p3", account: "owner@example.com", summary: "Gym", startLocal: "2026-09-28T14:00:00-03:00", endLocal: "2026-09-28T15:00:00-03:00", attendees: [{ self: true, responseStatus: "accepted" }, { resource: true }], creator: { email: "Owner@Example.com" } },
+    // Not proven: a collaborator wrote it onto the owner's calendar (Google still says organizer.self and creator.self are true),
+    // an invitation's creator, and an old listing that names no creator at all.
+    { id: "collab", account: "owner@example.com", summary: "Prayer", startLocal: "2026-09-28T17:00:00-03:00", endLocal: "2026-09-28T18:00:00-03:00", creator: { email: "collab@example.com", self: true }, organizer: { email: "owner@example.com", self: true } },
+    { id: "invite", account: "owner@example.com", summary: "Prayer", startLocal: "2026-09-28T18:00:00-03:00", endLocal: "2026-09-28T19:00:00-03:00", creator: { email: "boss@example.com" } },
+    { id: "legacy", account: "owner@example.com", summary: "Prayer", startLocal: "2026-09-28T19:00:00-03:00", endLocal: "2026-09-28T20:00:00-03:00" },
+  ];
+  const r = toBusy([{ items }], { tz: TZ, max: 100, movable: ["prayer", "gym"] });
+  assert.deepEqual(r.busy.map((b) => [b.id, b.movable]), [
+    ["p1", true], ["m1", undefined], ["s1", undefined], ["p2", true], ["x1", undefined], ["x2", undefined], ["p3", true], ["h1", undefined],
+    ["collab", undefined], ["invite", undefined], ["legacy", undefined],
+  ]);
+  assert.equal(JSON.stringify(r).includes("prayer"), false);
+  assert.equal(JSON.stringify(r).includes("Board"), false);
+  assert.equal(toBusy([{ items }], opts).busy.some((b) => b.movable), false);
+});
+

@@ -69,7 +69,9 @@ test("every script the prompt or a skill names exists", () => {
 
 test("the poll message is what the prompt keys on", () => {
   assert.ok(POLL_MESSAGE.startsWith("Meetly poll."));
-  assert.ok(readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8").includes("start-thread.ts"));
+  const poll = readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8");
+  assert.ok(!poll.includes("Open the group with `start-thread.ts`"));
+  assert.ok(flat(poll).includes("`meetly-group` alone decides whether to ask the owner first or open the group"));
 });
 
 test("Meetly introduces itself as Meetly, never by the configured name, as the owner or as a Plow assistant", () => {
@@ -96,7 +98,7 @@ test("setup fills the owner's name and time zone by itself and asks only when th
 
 test("every Meetly group is opened with start-thread.ts, never the base's 10-second tool", () => {
   const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
-  assert.ok(group.includes("`request:<saved request id>` for every request"));
+  assert.ok(group.includes("derives the idempotency key `request:<id>` itself"));
   assert.ok(group.includes("run `reachable-handle.ts --handles-file <file with each phone and email>` and use the `handle` it returns"));
   assert.ok(group.includes("Never the `plow_start_thread` tool"));
   assert.ok(flat(prompt).includes("Meetly opens its groups with `start-thread.ts`"));
@@ -104,7 +106,7 @@ test("every Meetly group is opened with start-thread.ts, never the base's 10-sec
   assert.ok(group.includes("Plow did not confirm it"));
   assert.ok(group.includes("the holds are kept and the request is saved"));
   assert.ok(group.includes("never quote a status code or say you cannot confirm anything else"));
-  assert.ok(group.includes("Only if the owner says the group is not there, or asks you to try again, run `start-thread.ts` again with the same `key` and members"));
+  assert.ok(group.includes("Only if the owner says the group is not there, or asks you to try again, run `start-thread.ts` again with the same `requestId` and members"));
 });
 
 test("group requests without a matching ledger entry get a safe owner escalation", () => {
@@ -148,6 +150,16 @@ test("routine meeting notifications stay in the group and pre-thread gate approv
   assert.ok(group.includes("Ask the owner in this thread"));
   assert.ok(group.includes("A yes in the owner's DM does not approve the request"));
   assert.ok(group.includes("The group confirmation also notifies the owner"));
+  assert.ok(group.includes("when `origin` is `inbound`, `config.ownerGate` is true and the request has no `chatUid` yet"));
+  assert.ok(group.includes("first claim the approval with `ledger.ts approve --id <id>`"));
+  assert.ok(group.includes("passing that offer's hold ids and every id in its `travel[]` with `--allow-overlap` (and `--travel` for an in-person offer"));
+  assert.ok(group.includes("Create the fresh holds first and save them"));
+  assert.ok(group.includes("run `ledger.ts decline --id <id>`: in one write it closes the request and queues every hold"));
+  assert.ok(group.includes("an approved request that gets no group, whether the turn died or Plow refused, is an uncertain delivery"));
+  assert.ok(flat(prompt).includes("The pre-thread inbound owner gate is the one exception"));
+  assert.ok(group.includes("The configured pre-thread owner gate is the exception"));
+  assert.ok(group.includes("Approval authorizes only sending the displayed times"));
+  assert.ok(flat(prompt).includes("matching `ledger.ts approvals` entry"));
   assert.ok(!/owner in their DM|and to the owner|then tell the owner/.test(group));
   assert.ok(!flat(prompt).includes("send the owner its specified brief alert in the owner's DM"));
   // A new offer for an open group goes there by the route that reaches it, is reported only once sent, and a failed send restores the last delivered offer.
@@ -213,7 +225,7 @@ test("closed request responses are limited to scheduling intent, not acknowledge
   assert.ok(group.includes("For a conversational acknowledgement or other message unrelated to scheduling"));
   assert.ok(group.includes("do not reply and do not alert the owner"));
   assert.ok(group.includes("decline, cancel or give up"));
-  assert.ok(group.includes("**They decline or give up:** delete the holds"));
+  assert.ok(group.includes("**They decline or give up:** delete the meeting and travel holds"));
   assert.ok(group.includes("use this only when a scheduling-related message tries to choose, change or resume the request, or asks its status"));
 });
 
@@ -302,6 +314,21 @@ test("the poll sends due reminders before reading messages, and marks each once"
   for (const action of ["`send`", "`wait`", "`cancelled`", "`no-link`", "`skip`"]) assert.ok(poll.includes(action), action);
 });
 
+test("the poll's follow-ups read before nudging, reach the owner once, and make no claims", () => {
+  const poll = flat(readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8"));
+  for (const [rule, snippet] of [
+    ["read before follow-up", "For each `waitingOnThem` item, read the latest messages"],
+    ["skip answered contacts", "If the person has already answered, do not nudge"],
+    ["one nudge per offer", "personNudgedAt"],
+    ["replacement offer", "eligible after 24 hours"],
+    ["monitor", "Run `ledger.ts monitor`"],
+    ["do-not-contact first", "first run `blocklist.ts check --handles-file <file with item.handle>`; if blocked, skip it"],
+    ["owner reminder once", "then run `ledger.ts update --id <id> --json '{\"nudgedAt\":\"<now ISO>\"}'` so it is sent once"],
+    ["no claims", "cannot confirm whether the group offer arrived"],
+    ["no second group", "Do not open another group or send another offer"],
+  ]) assert.ok(poll.includes(snippet), rule);
+});
+
 test("a Meetly group is trusted but scoped to its meeting, and a group that fails to open is reported, not improvised", () => {
   const p = flat(prompt);
   assert.ok(p.includes("anyone who is not the owner can only arrange this one meeting"));
@@ -338,7 +365,7 @@ test("an owner who cancels or moves a booked meeting has Meetly tell the other p
   assert.ok(group.includes("tell them in their group (the request's `chatUid`) with `plow_reply_to`"));
   assert.ok(group.includes("A Google cancellation email is not a message from Meetly"));
   // A failed step after the calendar change is retried, the group still hears, and the owner learns what is left.
-  assert.ok(group.includes("If the delete fails, change nothing else, tell the owner and send nothing to the group"));
+  assert.ok(group.includes("If the event delete fails, change nothing else, tell the owner and send nothing to the group"));
   assert.ok(group.includes("retry it once in this turn, and still send the group message"));
   assert.ok(group.includes("tell the owner exactly which steps are left"));
   assert.ok(group.includes("For `cancelled`, say the owner cancelled that meeting and ask the owner to follow up here"));
@@ -383,6 +410,23 @@ test("Meetly re-proposes fresh times when the other person says none of the opti
   assert.ok(group.includes("never claim a slot is free from an earlier calendar read"));
 });
 
+test("inbound offers require owner DM approval by default", () => {
+  const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
+  const setup = flat(readFileSync(join(SKILLS, "meetly-setup", "SKILL.md"), "utf8"));
+  const poll = flat(readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8"));
+  assert.ok(group.includes("ledger.ts approvals"));
+  assert.ok(group.includes("do not open a group or send any proposed time"));
+  assert.ok(group.includes("`ledger.ts save` decides this itself: when `origin` is `inbound`"));
+  assert.ok(!group.includes("--gate"));
+  assert.ok(flat(readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8")).includes("send that saved ask again"));
+  assert.ok(flat(prompt).includes("except when it has `ownerApprovalAt` and no `ownerApprovedAt`: never link that request"));
+  assert.ok(setup.includes("This is on by default"));
+  assert.ok(setup.includes("that is standing authorization"));
+  assert.ok(flat(prompt).includes("inbound owner gate, enabled by default"));
+  assert.ok(!flat(prompt).includes("for them without waiting"));
+  assert.ok(poll.includes("Never contact the other person before approval"));
+});
+
 test("do not contact is checked before every contact-visible message and stored for all aliases", () => {
   const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
   const poll = flat(readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8"));
@@ -390,7 +434,22 @@ test("do not contact is checked before every contact-visible message and stored 
   assert.ok(group.includes("blocklist.ts check --handles-file <file>"));
   assert.ok(group.includes("blocklist.ts block --handles-file <file>"));
   assert.ok(poll.includes("Before each contact-visible poll message, immediately check `blocklist.ts check --handles-file <file>`"));
-  assert.ok(poll.includes("not update the reminder timestamp"));
+  assert.ok(poll.includes("do not update the reminder or nudge timestamp"));
+});
+
+test("travel buffer references are persisted before an outside-hours booking", () => {
+  const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
+  // A booked meeting becomes in person only once its buffers are held; a failed check or hold leaves the prior format.
+  assert.ok(group.includes("record `in_person` (\"Meeting format\") only once both are held"));
+  assert.ok(group.includes("keep the prior format, say the meeting cannot switch to in person without another time"));
+  assert.ok(group.includes("Only then record `in_person`, and save the holds on the booking with `ledger.ts set-travel"));
+  assert.ok(group.includes("persist their refs with `ledger.ts set-travel --id <id> --json-file <file>`"));
+  assert.ok(group.includes("the ledger keeps them in `pendingOwner.travel` (a retry that holds a new pair queues the displaced refs for cleanup in the same write)"));
+  assert.ok(group.includes("Do this before creating the event"));
+  assert.ok(group.includes("If this write fails, delete both buffers"));
+  assert.ok(group.includes("copies that offer's `travel[]` refs into the booking (`booked.travel`)"));
+  assert.ok(group.includes("save their refs on that offer (for a time that is an offer) with `ledger.ts set-travel` before booking"));
+  assert.ok(group.includes("If saving those refs fails, delete both travel holds"));
 });
 
 test("an out-of-hours time with insufficient notice is not described as a calendar conflict", () => {
@@ -398,6 +457,15 @@ test("an out-of-hours time with insufficient notice is not described as a calend
   assert.ok(group.includes("`reason: \"too-soon\"`: say there is not enough notice"));
   assert.ok(group.includes("do not call it a calendar conflict"));
   assert.ok(group.includes("`reason: \"busy\"`: say the owner has an existing commitment"));
+});
+
+test("a group opens only for a saved request, and expiry is one locked ledger transition", () => {
+  const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
+  const poll = flat(readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8"));
+  assert.ok(group.includes('"requestId":"<saved request id>"'));
+  assert.ok(group.includes("group with `start-thread.ts --input-file` (its `requestId` is `<id>`)"));
+  assert.ok(poll.includes("Run `ledger.ts expire`: in one locked write it closes every request whose holds ran out"));
+  assert.ok(!poll.includes("ledger.ts expired"));
 });
 
 test("an owner request in an existing group stays inside what is safe to share and reach", () => {
@@ -412,4 +480,30 @@ test("a blocked person gets no calendar notice either, and the do-not-contact en
   assert.ok(group.includes("Run the same check before any calendar command that notifies the person (`--send-updates all`"));
   assert.ok(group.includes("use `--send-updates none` and send no group message"));
   assert.ok(!group.includes("--name <name>"));
+});
+
+test("travel: one exact-time check, cancel and move handle the buffers, and a pick reaches the travel path", () => {
+  const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
+  assert.ok(group.includes("and every id in the chosen offer's `travel[]`, its own buffer holds"));
+  assert.ok(group.includes("for each id in the chosen offer's `travel[]` (the offer's own buffer holds are not conflicts)"));
+  assert.ok(group.includes("**Exact-time check.** Read the calendar (`busy.ts --fetch`), then run `slots.ts --in /var/lib/plow/meetly/tmp/busy.json --at <start>"));
+  assert.ok(group.includes("the buffers are `slot.travel.before` and `slot.travel.after`"));
+  assert.ok(group.includes("the ledger queues the booking's travel buffers for the cleanup poll in that same write"));
+  // Pick deletes the hold set record-booking queued, and removes each from the queue so the poll does not retry gone events.
+  assert.ok(group.includes("so after each successful delete run `ledger.ts cleanup-remove` (or leave the deletion to the cleanup poll)"));
+  assert.ok(group.includes("first run the exact-time check (\"Travel time\") at the new time") || group.includes("With it set, first run the exact-time check (\"Travel time\") at the new time"));
+  // Buffers follow the current setting: created when enabled after booking, released with `travel: []` when cleared, kept on a location answer.
+  for (const rule of ["the buffers follow the current `config.travelMin`, not what the booking happens to hold", "also when the booking has none because the setting was turned on after it was booked", "stage `{\"travel\":[],…}` so the move releases the old ones atomically", "needs no new check and no new holds: keep them", "`record-booking.ts` already queued them in `holdCleanup` in the booking write"])
+    assert.ok(group.includes(rule), rule);
+  for (const rule of ["`ledger.ts stage-travel --id <id> --json-file F`", "Only after it succeeds, run `ledger.ts commit-travel --id <id> --revision <that revision>`", "the booking takes the new buffers and the target time in that same write", "If it prints `committed: false`, the poll already settled this move from the live event", "reading the calendar fresh first (if `degraded` is not empty, stop", "If it refuses because another move is in progress, delete the buffers you just created", "every id in `booked.travel` (if any) in `--allow-overlap`", "repeating `--allow-overlap` for each id in the request's `allowOverlap`"])
+    assert.ok(group.includes(rule), rule);
+  assert.ok(group.includes("the picked offer has no `travel[]`, follow \"Travel time\" before booking"));
+  assert.ok(group.includes("`record-booking.ts` records the booking, clears `pendingOwner` and, in that same write"));
+});
+
+test("a pick re-checks the calendar before it converts a hold, so a movable overlap is never trusted from the offer", () => {
+  const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
+  assert.ok(group.includes("read the calendar again (`busy.ts --fetch`) and run `slots.ts --in /var/lib/plow/meetly/tmp/busy.json --at <the chosen start> --duration <the request's durationMin> --allow-overlap <the chosen hold id>`"));
+  assert.ok(group.includes("a hard conflict appeared since the offer, so do not book"));
+  assert.ok(group.includes("Use this fresh result's `overlaps` for `--confirm-conflict`, also on the fallback `create`"));
 });

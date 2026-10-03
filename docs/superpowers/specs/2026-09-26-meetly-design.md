@@ -2,6 +2,13 @@
 
 Date: 2026-09-26 · Status: approved by the owner; reviewed before the plan
 
+**Inbound approval update (#56):** The original inbound sequence below is
+superseded by `skills/meetly-group/SKILL.md`, "Approve an inbound request".
+Hold the times, persist the pending request and ask the owner privately before
+opening a group. `ownerGate` defaults on, including for existing configurations
+without that setting; only explicit owner authorization disables it. An
+owner-authored scheduling request already authorizes outreach.
+
 **Contextual request update (#58):** The original unmatched-group and public
 detail-question rules below are superseded by `meetly-group`, "Owner request
 in an existing group" and "Meeting format". An explicit owner request can
@@ -103,7 +110,7 @@ meetly-openclaw-agent/
       record-setup.ts      CLI: saves a setup answer; --done finalizes
       owner-chat.ts        CLI: prints the owner's DM chat uid (/v1/agents/me)
       cursor.ts            CLI: get | set | fail | ok
-      ledger.ts            CLI: find | add | update | expired | cleanup
+      ledger.ts            CLI: find | add | update | expire | cleanup
       busy.ts              normalizes plow-gog output into busy intervals
       slots.ts             CLI: available times from busy + config + constraints
       cron-backend.ts      wrapper for `openclaw cron` (list/add/edit/rm/enable/disable)
@@ -196,9 +203,10 @@ prompt only says to load the `meetly-poll` skill and follow it:
    first message and stop—the next run resumes from there. On success, also
    clear `failingSince` (`cursor.ts ok`).
 7. Maintenance:
-   - `ledger.ts expired --hours 48` → for each request: delete its holds
-     (2.5), run `ledger.ts update --status expired`, tell the group the times
-     have been released, and notify the owner.
+   - `ledger.ts expire` → in one locked write it closes every request whose
+     holds ran out and queues their holds for cleanup, and returns the closed
+     requests; for each one, tell the group the times have been released and
+     notify the owner.
    - `ledger.ts cleanup` → retry deleting holds that previously failed.
 8. Nothing new and nothing expired → exit without sending a message.
 
