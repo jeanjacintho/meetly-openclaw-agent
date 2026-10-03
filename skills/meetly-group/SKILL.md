@@ -488,7 +488,7 @@ offer.
      hold only from this request's `offered[]`. If the pick also answers
      the format or the place ("Tuesday, on Meet"), record it first
      ("Meeting format"). Then read the calendar again (`busy.ts --fetch`) and
-     run `slots.ts --at <the chosen start> --allow-overlap <the chosen hold id>`
+     run `slots.ts --in /var/lib/plow/meetly/tmp/busy.json --at <the chosen start> --duration <the request's durationMin> --allow-overlap <the chosen hold id>`
      (plus the request's `allowOverlap`): if `free` is false a hard conflict
      appeared since the offer, so do not book; say the time is no longer free
      and offer new times. Use this fresh result's `overlaps` for
