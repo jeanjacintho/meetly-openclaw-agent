@@ -382,7 +382,7 @@ test("do not contact is checked before every contact-visible message and stored 
   assert.ok(group.includes("blocklist.ts check --handle <request.handle>"));
   assert.ok(group.includes("blocklist.ts block --handle <phone> --handle <email>"));
   assert.ok(poll.includes("Before each contact-visible poll message, immediately check `blocklist.ts check --handle <request.handle>`"));
-  assert.ok(poll.includes("do not update the reminder or nudge timestamp"));
+  assert.ok(poll.includes("not update the reminder timestamp"));
 });
 
 test("an out-of-hours time with insufficient notice is not described as a calendar conflict", () => {

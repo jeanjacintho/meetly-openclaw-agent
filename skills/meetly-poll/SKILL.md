@@ -18,7 +18,7 @@ meeting's `chatUid`); the owner is in that thread. For an operational warning
 with no meeting thread, use `owner-chat.ts` and target the printed `chatUid`.
 Before each contact-visible poll message, immediately check
 `blocklist.ts check --handle <request.handle>`. If blocked, skip it and do
-not update the reminder or nudge timestamp; private owner notifications may
+not update the reminder timestamp; private owner notifications may
 still explain why no contact message was sent.
 
 1. Run `setup-status.ts`. If it is not `READY`, or `config.paused` is true, end.
@@ -92,19 +92,6 @@ still explain why no contact message was sent.
      `ownerApprovedAt` is set but there is no `chatUid`, tell the owner the
      delivery is unknown, the holds expired and they must check Messages; do
      not resend. Never contact the other person before approval.
-   - Run `ledger.ts monitor`: it lists what waits on the owner or on Meetly
-     too long. For each `ownerWaiting` item with a `chatUid`, remind the
-     owner in that meeting thread (`message`, that chat uid as its target), in
-     one line and in their language, that the time they were asked about is
-     still waiting for their yes or no, with its `nextStep`. For each
-     `ownerWaiting` item without a `chatUid`, remind
-     the owner in their DM (`owner-chat.ts`) which person's held options await
-     approval. For each
-     `deliveryUnknown` item, tell the owner in their DM that Meetly cannot
-     confirm whether the group offer arrived, ask them to check Messages
-     manually, and explicitly say never to resend. Do not open another group
-     or send another offer. After the warning run `ledger.ts update --id <id>
-     --json '{"nudgedAt":"<now ISO>"}'` so it is sent once.
    - For each request from `ledger.ts cleanup`: retry each delete, and after
      each successful one write `{ "holdId": "...", "account": "..." }` to a
      JSON file and run `ledger.ts cleanup-remove --id <id> --json-file <file>`.
