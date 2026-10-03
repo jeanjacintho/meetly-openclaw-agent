@@ -22,13 +22,15 @@ export type Config = {
   horizonDays: number;
   calendars: Calendar[];
   defaultAccount: string;
+  // Minutes of notice a time needs before it is offered; unset means MIN_NOTICE_MIN.
+  minNoticeMin?: number;
   defaultFormat?: DefaultFormat;
   setupDoneAt?: string;
   paused?: boolean;
 };
 
 // Every setting the owner can change.
-export const FIELDS = ["ownerName", "timezone", "days", "window", "durationMin", "horizonDays", "calendars", "defaultFormat"] as const;
+export const FIELDS = ["ownerName", "timezone", "days", "window", "durationMin", "horizonDays", "calendars", "minNotice", "defaultFormat"] as const;
 export type Field = (typeof FIELDS)[number];
 
 // What setup cannot start without, in the order it asks: nobody but the owner,
@@ -52,6 +54,7 @@ export const QUESTIONS: Record<RequiredField, string> = {
 };
 
 export const MIN_NOTICE_MIN = 120;
+const MAX_NOTICE_MIN = 72 * 60;
 export const STEP_MIN = 30;
 export const SLOT_COUNT = 3;
 
@@ -153,6 +156,16 @@ export function parseField(field: string, value: string): Partial<Config> {
       return { durationMin: integer(value, "the duration in minutes", 15, 240) };
     case "horizonDays":
       return { horizonDays: integer(value, "the number of days", 1, 30) };
+    case "minNotice": {
+      const raw = value.trim().toLowerCase();
+      if (raw === "default") return { minNoticeMin: undefined };
+      const m = /^(\d+(?:\.\d+)?)\s*(h|hr|hrs|hour|hours|m|min|mins|minute|minutes)?$/.exec(raw);
+      const minutesAhead = m ? Math.round(Number(m[1]) * (m[2] && m[2].startsWith("m") ? 1 : 60)) : NaN;
+      if (!(minutesAhead >= 0 && minutesAhead <= MAX_NOTICE_MIN)) {
+        throw new Error(`the notice must be 0 to ${MAX_NOTICE_MIN / 60} hours, like 3h or 90 min (or default), got "${value}"`);
+      }
+      return { minNoticeMin: minutesAhead };
+    }
     case "defaultFormat": {
       const format = value.trim();
       if (format === "ask") return { defaultFormat: undefined };
@@ -180,8 +193,7 @@ export function parseField(field: string, value: string): Partial<Config> {
   }
 }
 
-function has(draft: Partial<Config>, field: Field): boolean {
-  if (field === "window") return draft.windowStart !== undefined && draft.windowEnd !== undefined;
+function has(draft: Partial<Config>, field: RequiredField): boolean {
   if (field === "calendars") return draft.calendars !== undefined && draft.defaultAccount !== undefined;
   return draft[field] !== undefined;
 }
@@ -210,6 +222,7 @@ export function validateConfig(partial: Partial<Config>): Config {
     calendars: readableCalendars(p.calendars, p.defaultAccount),
     defaultAccount: p.defaultAccount,
   };
+  if (p.minNoticeMin !== undefined) config.minNoticeMin = p.minNoticeMin;
   if (p.defaultFormat !== undefined) config.defaultFormat = p.defaultFormat;
   if (p.setupDoneAt !== undefined) config.setupDoneAt = p.setupDoneAt;
   if (p.paused !== undefined) config.paused = p.paused;

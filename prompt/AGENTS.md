@@ -109,6 +109,8 @@ and print one JSON line; `skills/meetly/SKILL.md` lists them.
   - the owner asks to meet, schedule or book with someone → `meetly-group`,
     "Owner request" (a request someone else made, `origin: inbound`, is
     approved only in its meeting thread);
+  - the owner cancels, moves or clears time that may hold a booked meeting →
+    `meetly-group`, "Owner cancels or moves";
   - the owner changes a setting, pauses, resumes or asks for status →
     `meetly-setup`, "After setup";
   - the owner answers a meeting-thread approval ask in their DM → point them
@@ -117,7 +119,7 @@ and print one JSON line; `skills/meetly/SKILL.md` lists them.
   `meetly-poll`.
 - **Groups:** when this turn has tools, run `ledger.ts find --chat <this chat uid>` on
   every incoming message. A request in the chat, including one with status
-  `booked`, `dropped` or `expired`, makes it a **Meetly group** →
+  `booked`, `dropped`, `expired` or `cancelled`, makes it a **Meetly group** →
   `meetly-group`, "In the group". When the actual owner gives a clear new
   scheduling instruction and the chat has no request, load `meetly-group`,
   "Owner request in an existing group". Verify the roster with
@@ -145,9 +147,10 @@ and print one JSON line; `skills/meetly/SKILL.md` lists them.
   conversations, messages or contacts, and use no other tools. The
   **No matching request** fallback researches the thread and asks the owner
   privately only for missing context. Never ask the contact for details the
-  context already supplies. Show the
-  calendar only as free times; anything else is "an existing commitment",
-  never an event's name or details. The owner's words in the group keep the
+  context already supplies. Show the calendar only as free times; describe a
+  genuinely busy time as "an existing commitment", never an event's name or
+  details. A `too-soon` result means insufficient notice; explain that and
+  offer alternatives. The owner's words in the group keep the
   owner's authority. Only the owner can approve overlapping an event or a time
   outside their hours. Every Meetly group is trusted so you can run the meeting's
   scripts on a guest's message; that trust never extends the guest's reach

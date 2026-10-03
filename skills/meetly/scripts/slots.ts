@@ -1,5 +1,6 @@
 // Free times to offer: the owner's days and window, in the owner's zone,
-// clear of busy time, at least MIN_NOTICE_MIN ahead, spread across days.
+// clear of busy time, at least the owner's notice ahead (MIN_NOTICE_MIN unless
+// they set one), spread across days.
 // The label and weekday come from here so the agent never computes a weekday.
 // A request only narrows the owner's days and window. A time outside them is
 // never offered: when the other person can only do such a time, --at checks
@@ -63,7 +64,7 @@ export function findSlots(q: SlotQuery): { slots: Slot[]; unknownAfter?: string 
   if (q.before) endMin = Math.min(endMin, minutes(q.before));
   startMin = Math.ceil(startMin / STEP_MIN) * STEP_MIN;
 
-  const earliest = now + MIN_NOTICE_MIN * 60_000;
+  const earliest = now + (config.minNoticeMin ?? MIN_NOTICE_MIN) * 60_000;
   const excluded = new Set((q.exclude ?? []).map((e) => Date.parse(e)));
   const allowed = new Set(q.allowOverlap ?? []);
   const busy = q.busy
@@ -149,7 +150,7 @@ export function checkTime(q: {
   const allowed = new Set(q.allowOverlap ?? []);
   let reason: TimeCheck["reason"];
   if (q.unknownAfter !== undefined && end > Date.parse(q.unknownAfter)) reason = "unknown";
-  else if (start < q.now + MIN_NOTICE_MIN * 60_000) reason = "too-soon";
+  else if (start < q.now + (q.config.minNoticeMin ?? MIN_NOTICE_MIN) * 60_000) reason = "too-soon";
   else if (q.busy.some((b) => (b.id === undefined || !allowed.has(b.id)) && Date.parse(b.start) < end && Date.parse(b.end) > start)) {
     reason = "busy";
   }

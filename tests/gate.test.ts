@@ -47,7 +47,7 @@ test("once the name and zone are known the gate does not ask: it reads the calen
   assert.match(context, /carry out what the owner asked in this same turn/);
   // The one line that introduces Meetly says what it does and the defaults it starts with.
   assert.match(context, /you are Meetly, their AI scheduling assistant/);
-  assert.match(context, /mon,tue,wed,thu,fri, 09:00-18:00, 30-minute meetings, up to 14 days ahead/);
+  assert.match(context, /mon,tue,wed,thu,fri, 09:00-18:00, 30-minute meetings up to 14 days ahead, with times at least 2 hours ahead/);
   assert.match(context, /change any of it by saying so/);
   assert.doesNotMatch(context, /a few questions/);
 });
