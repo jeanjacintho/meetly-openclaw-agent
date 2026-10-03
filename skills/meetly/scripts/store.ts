@@ -87,12 +87,12 @@ export function withLock<R>(path: string, fn: () => R, opts: LockOptions = {}): 
   return result;
 }
 
-export function updateJson<T>(path: string, fallback: T, fn: (v: T) => T): T {
+export function updateJson<T>(path: string, fallback: T, fn: (v: T) => T, opts: LockOptions = {}): T {
   return withLock(path, () => {
     const next = fn(readJson(path, fallback));
     writeJson(path, next);
     return next;
-  });
+  }, opts);
 }
 
 export function removeFile(path: string): void {

@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { block, isBlocked, unblock } from "../skills/meetly/scripts/blocklist.ts";
@@ -29,19 +30,23 @@ test("a person is on the do-not-contact list however their number is written, an
   assert.throws(() => block([], [""], T0), /handle/);
 });
 
-test("the CLI blocks, checks, lists and unblocks", () => {
+test("the CLI blocks, checks, lists and unblocks from a handles file, never the command line", () => {
   const env = { MEETLY_HOME: tmpHome() };
-  assert.deepEqual(cli("blocklist.ts", ["check", "--handle", "+15551234567"], env).json, { blocked: false });
-  cli("blocklist.ts", ["block", "--handle", "+15551234567", "--handle", "ana@example.com"], env);
-  assert.deepEqual(cli("blocklist.ts", ["check", "--handle", "5551234567"], env).json, { blocked: true });
-  assert.deepEqual(cli("blocklist.ts", ["check", "--handle", "+15559999999", "--handle", "ana@example.com"], env).json, { blocked: true });
-  // Contact-derived aliases come from a file, never the command line.
-  const aliases = join(env.MEETLY_HOME, "aliases.json");
-  writeFileSync(aliases, JSON.stringify(["+15559990000", "x@example.com; touch pwned"]));
-  assert.equal(cli("blocklist.ts", ["block", "--handles-file", aliases], env).status, 0);
-  assert.deepEqual(cli("blocklist.ts", ["check", "--handles-file", aliases], env).json, { blocked: true });
-  cli("blocklist.ts", ["unblock", "--handles-file", aliases], env);
-  cli("blocklist.ts", ["unblock", "--handle", "+15551234567", "--handle", "ana@example.com"], env);
+  const filed = (name: string, handles: string[]) => {
+    const path = join(env.MEETLY_HOME, name);
+    writeFileSync(path, JSON.stringify(handles));
+    return path;
+  };
+  const ana = filed("ana.json", ["+15551234567", "ana@example.com"]);
+  const payload = filed("payload.json", ["+15559990000", "x@example.com; touch pwned"]);
+  assert.deepEqual(cli("blocklist.ts", ["check", "--handles-file", ana], env).json, { blocked: false });
+  cli("blocklist.ts", ["block", "--handles-file", ana], env);
+  assert.deepEqual(cli("blocklist.ts", ["check", "--handles-file", filed("n.json", ["5551234567"])], env).json, { blocked: true });
+  assert.deepEqual(cli("blocklist.ts", ["check", "--handles-file", filed("m.json", ["+15559999999", "ana@example.com"])], env).json, { blocked: true });
+  assert.equal(cli("blocklist.ts", ["block", "--handles-file", payload], env).status, 0);
+  assert.deepEqual(cli("blocklist.ts", ["check", "--handles-file", payload], env).json, { blocked: true });
+  cli("blocklist.ts", ["unblock", "--handles-file", payload], env);
+  cli("blocklist.ts", ["unblock", "--handles-file", ana], env);
   assert.deepEqual(cli("blocklist.ts", ["list"], env).json, { blocked: [] });
   assert.notEqual(cli("blocklist.ts", ["block"], env).status, 0);
 });
@@ -87,6 +92,38 @@ test("a block added while identity is being read stops the group-open POST", asy
     }) as typeof globalThis.fetch;
     await assert.rejects(startThread({ members: ["+15551234567"], body: "Hi", key: "k", fetch, base: "https://api.plow.test/", token: "t" }), /do not contact/);
     assert.equal(calls, 1);
+  } finally {
+    if (saved === undefined) delete process.env.MEETLY_HOME;
+    else process.env.MEETLY_HOME = saved;
+  }
+});
+
+test("a block issued during a slow opener waits for the POST instead of failing", async () => {
+  const home = tmpHome();
+  const saved = process.env.MEETLY_HOME;
+  process.env.MEETLY_HOME = home;
+  try {
+    const aliases = join(home, "ana.json");
+    writeFileSync(aliases, JSON.stringify(["+15551234567"]));
+    const events: string[] = [];
+    let child: Promise<number | null> | undefined;
+    const fetch = (async (url: string | URL | Request) => {
+      if (String(url).endsWith("/v1/agents/me")) {
+        return new Response(JSON.stringify({ line: { uid: "l" }, chats: [{ uid: "dm", status: "active", participants: [
+          { type: "agent", relationship: "self", line: { uid: "l" } }, { type: "member", role: "owner", provider_key: "+5511999990000" }] }] }));
+      }
+      // The block starts while the POST holds the lock, and must outlast the old 10 s wait's worth of patience.
+      child = new Promise((resolve) => {
+        const proc = spawn(process.execPath, [join(import.meta.dirname, "..", "skills", "meetly", "scripts", "blocklist.ts"), "block", "--handles-file", aliases], { env: { ...process.env, MEETLY_HOME: home } });
+        proc.on("close", (code) => { events.push("block"); resolve(code); });
+      });
+      await new Promise((r) => setTimeout(r, 1500));
+      events.push("post");
+      return new Response('{"uid":"c1"}');
+    }) as typeof globalThis.fetch;
+    await startThread({ members: ["+15551234567"], body: "Hi", key: "request:r_1", fetch, base: "https://api.plow.test/", token: "t" });
+    assert.equal(await child, 0);
+    assert.deepEqual(events, ["post", "block"]);
   } finally {
     if (saved === undefined) delete process.env.MEETLY_HOME;
     else process.env.MEETLY_HOME = saved;

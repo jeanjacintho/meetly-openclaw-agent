@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { startThread } from "../skills/meetly/scripts/start-thread.ts";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { cli, tmpHome } from "./helpers.ts";
 
 // The opener takes the blocklist lock, so each test file works in its own data dir.
@@ -83,11 +85,17 @@ test("a refused request, bad phones or no owner handle fail loudly", async () =>
   await assert.rejects(startThread({ ...args, fetch: fakeFetch(() => new Response("{}"), [], { line: { uid: "x" }, chats: [] }), base, token: "t" }), /has not texted/);
 });
 
-test("the CLI needs a key and the Plow env", () => {
-  const r = cli("start-thread.ts", ["--member", "+15551234567", "--body", "hi"], { PLOW_API_BASE: "http://127.0.0.1:9", PLOW_AGENT_TOKEN: "t" });
+test("the CLI reads its input from a file, needs a key and the Plow env", () => {
+  const dir = tmpHome();
+  const input = (extra: object) => {
+    const path = join(dir, `in-${Math.random()}.json`);
+    writeFileSync(path, JSON.stringify({ members: ["+15551234567"], body: "hi; $(touch pwned)", ...extra }));
+    return path;
+  };
+  const r = cli("start-thread.ts", ["--input-file", input({})], { PLOW_API_BASE: "http://127.0.0.1:9", PLOW_AGENT_TOKEN: "t" });
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /--key/);
-  const noEnv = cli("start-thread.ts", ["--member", "+15551234567", "--body", "hi", "--key", "k"], { PLOW_API_BASE: "", PLOW_AGENT_TOKEN: "" });
+  assert.match(r.stderr, /key/);
+  const noEnv = cli("start-thread.ts", ["--input-file", input({ key: "k" })], { PLOW_API_BASE: "", PLOW_AGENT_TOKEN: "" });
   assert.equal(noEnv.status, 1);
   assert.match(noEnv.stderr, /PLOW_API_BASE/);
 });

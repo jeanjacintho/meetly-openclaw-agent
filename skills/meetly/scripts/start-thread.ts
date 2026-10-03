@@ -9,6 +9,7 @@
 // it reports { chatUid: null, deliveryUnknown: true } rather than failing:
 // the caller records the request without a chat uid and never resends.
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
 import { isBlocked, loadBlocked } from "./blocklist.ts";
@@ -76,11 +77,12 @@ export async function startThread(opts: ApiOptions & { members: string[]; body: 
 
 if (isMain(import.meta.url)) {
   run(() => {
-    const { values } = parseArgs({
-      options: { member: { type: "string", multiple: true }, body: { type: "string" }, key: { type: "string" } },
-    });
-    if (!values.key) throw new Error("pass --key (e.g. request:<the saved request id>) so a retry cannot open a second group");
-    if (values.body === undefined) throw new Error("pass --body");
-    return startThread({ members: values.member ?? [], body: values.body, key: values.key });
+    // Members and body come from the conversation, so they never go on the command line.
+    const { values } = parseArgs({ options: { "input-file": { type: "string" } } });
+    if (!values["input-file"]) throw new Error('pass --input-file F (JSON {"members":[…],"body":"…","key":"request:<the saved request id>"})');
+    const input = JSON.parse(readFileSync(values["input-file"], "utf8")) as { members?: string[]; body?: string; key?: string };
+    if (!input.key) throw new Error("the input needs a key (request:<the saved request id>) so a retry cannot open a second group");
+    if (input.body === undefined) throw new Error("the input needs a body");
+    return startThread({ members: input.members ?? [], body: input.body, key: input.key });
   });
 }

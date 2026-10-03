@@ -17,9 +17,9 @@ with `message` (action `send`, channel `plow`, accountId `chat`, target the
 meeting's `chatUid`); the owner is in that thread. For an operational warning
 with no meeting thread, use `owner-chat.ts` and target the printed `chatUid`.
 Before each contact-visible poll message, immediately check
-`blocklist.ts check --handles-file <file>` (the `write` tool saves the
-handle as a JSON array in `/var/lib/plow/meetly/tmp/handles.json`; a handle
-never goes on the command line, since an email can carry shell syntax). If blocked, skip it and do
+`blocklist.ts check --handles-file <file>` (a JSON array with the handle, written to
+`/var/lib/plow/meetly/tmp/handles-<request id or sender rowid>.json`; never a
+shared name, and never on the command line). If blocked, skip it and do
 not update the reminder timestamp; private owner notifications may
 still explain why no contact message was sent.
 
@@ -77,7 +77,7 @@ still explain why no contact message was sent.
    6. Follow `meetly-group` "Offer times" with `origin: inbound`,
       `sourceRowid` = the request's rowid, the topic, any times they
       proposed, the format if their words say it (`meetly-group` "Meeting
-      format", which also applies the owner's default), and their `locale`. Open the group with `start-thread.ts` (key
+      format", which also applies the owner's default), and their `locale`. Open the group with `start-thread.ts --input-file` (key
       `request:<saved request id>`), not `plow_start_thread`.
    7. If that fails before the group started, stop processing senders. Run
       `cursor.ts set <the rowid just below this sender's first row in the

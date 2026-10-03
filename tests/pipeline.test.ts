@@ -93,7 +93,9 @@ test("the CLI prints the pipeline and a person's history", () => {
   assert.equal(h.json.requests[0].topic, "coffee");
   assert.notEqual(cli("ledger.ts", ["history"], env).status, 0);
   // A blocked person is not in the owner's pipeline.
-  cli("blocklist.ts", ["block", "--handle", "5550000001"], env);
+  const blockFile = join(env.MEETLY_HOME, "block.json");
+  writeFileSync(blockFile, JSON.stringify(["5550000001"]));
+  cli("blocklist.ts", ["block", "--handles-file", blockFile], env);
   assert.equal(cli("ledger.ts", ["pipeline"], env).json.deliveryUnknown.length, 0);
 });
 

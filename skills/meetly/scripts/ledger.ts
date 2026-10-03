@@ -390,7 +390,7 @@ export function pendingOwnerList(ledger: Ledger): Request[] {
 // format; only a Meet with a link gets a reminder.
 export function dueReminders(ledger: Ledger, now: number, leadMin: number, graceMin = 5): Request[] {
   return ledger.requests.filter((r) => {
-    if (r.status !== "booked" || !r.eventId || !r.booked || r.reminder) return false;
+    if (r.status !== "booked" || !r.eventId || !r.booked) return false;
     const start = Date.parse(r.booked.start);
     return now >= start - leadMin * 60_000 && now < start + graceMin * 60_000;
   });
