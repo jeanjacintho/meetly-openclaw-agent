@@ -32,7 +32,9 @@ export function recordBooking(ledger: Ledger, id: string, event: EventInfo, acco
   };
   // A first booking takes the buffers made with its offer; an already-booked request (a move, whose buffers
   // were just committed) keeps the booking's own, never a stale offer's.
-  const travel = request.status === "booked" ? request.booked?.travel : request.offered.find((o) => Date.parse(o.start) === Date.parse(event.start))?.travel;
+  const forStart = <T extends { start: string }>(x: T | undefined) => (x && Date.parse(x.start) === Date.parse(event.start) ? x : undefined);
+  const travel = request.status === "booked" ? request.booked?.travel
+    : request.offered.find((o) => forStart(o))?.travel ?? forStart(request.pendingOwner)?.travel;
   if (travel?.length) patch.booked = { ...patch.booked!, travel };
   // A reminder belongs to one start time: a moved meeting gets a new one.
   if (request.booked && Date.parse(request.booked.start) !== Date.parse(event.start)) patch.reminder = null;

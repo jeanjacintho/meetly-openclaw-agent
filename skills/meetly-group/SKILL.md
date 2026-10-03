@@ -58,8 +58,10 @@ free there.
 2. Read the calendar.
 3. Run `slots.ts --in /var/lib/plow/meetly/tmp/busy.json --locale <their
    locale>`, with the request's constraints: `--days`, `--after`, `--before`,
-   `--from`/`--to`, `--duration`, `--allow-overlap`. Slots stay inside the
-   owner's days and window; constraints only narrow them.
+   `--from`/`--to`, `--duration`, `--allow-overlap`. For an in-person meeting,
+   run `slots.ts` with `--travel` when `config.travelMin` is
+   set. Slots stay inside the owner's days and window; constraints only
+   narrow them.
    - **No slots.** For an owner request, tell the owner which constraint
      blocks it and suggest loosening it; stop. For an inbound request with
      proposed times, run again without them and say those times don't work.
@@ -68,22 +70,27 @@ free there.
    - **`degraded` is not empty:** never claim the owner is free on those
      accounts. Tell the owner which account could not be read.
    - **`unknownAfter` is set:** offer only what came back.
-4. Hold each slot ("Holds"). Drop a slot whose hold is refused for a
-   conflict. If none are left, tell the owner and stop.
+4. Hold each slot ("Holds"), including both travel blocks when the slot has
+   them. If any hold for a slot fails, delete every hold already created for
+   that slot, collect failed deletes for `holdCleanup`, then drop the slot.
+   If no slot survives and cleanup refs remain, save a request with the failed
+   slot's times and those refs, mark it `dropped`, and stop without opening a
+   group. Otherwise, if none survive, tell the owner and stop.
 5. Persist the offer immediately after the holds exist, before sending or
    opening a group. Run `ledger.ts save --json-file <file>` (the request, written with the `write` tool) with every field:
    `origin`, `handle` (the intended contact handle), `name`, `sourceRowid`,
    `chatUid` if already known, `topic`, `location`, `durationMin`,
    `constraints`, `allowOverlap`, `format` and `locale` (see "Meeting
-   format"), `attendeeEmail` when contacts has one for them, and `offered[]` with each `start`/`end`/`holdId`/`account`; include `holdCleanup`
-   when earlier deletes failed. `save` creates a request or updates the
+   format"), `attendeeEmail` when contacts has one for them, and `offered[]` with each `start`/`end`/`holdId`/`account` and
+   created travel hold refs in `travel[]`; include `holdCleanup` when earlier
+   deletes failed. `save` creates a request or updates the
    existing open request for that person, preserving its id and existing
    `chatUid` when the new value is absent. When the request already has a
    `chatUid`, the new times are only staged: its `offered[]` (what the person
    last saw) and their holds stay current, and the result carries
    `pendingOffer.revision`. Otherwise holds from the replaced offer are moved
    to `holdCleanup` automatically so the cleanup poll can delete them.
-   If it fails, delete each hold just
+   If it fails, delete each meeting and travel hold just
    created, stop and report the ledger error to the owner; do not send an
    offer. If any deletion fails, report those hold ids too.
 6. Deliver the times:
@@ -125,8 +132,9 @@ free there.
      can find.
    - If `start-thread.ts` fails, tell the owner what it printed and stop:
      never fall back to `plow_start_thread` and never edit a script. Delete
-     the new holds and mark the saved request `dropped`; if a hold cannot be
-     deleted, record its id and account in `holdCleanup` so cleanup can retry.
+     the new meeting and travel holds and mark the saved request `dropped`; if
+     a hold cannot be deleted, record its id and account in `holdCleanup` so
+     cleanup can retry.
    - In a normal (untrusted) chat, guest turns are reply-only: do not run
      scripts or use the owner's calendar. Explain in the thread that the
      owner must approve there. If full guest tools are needed, the owner
@@ -264,25 +272,23 @@ lunch with Ana", "remove all my appointments today", "move the call to 3pm"):
    - **Cancel:** `plow-gog calendar delete <calendarId> <eventId> --send-updates
      all --force --account <account>`. Then `ledger.ts update --id <id>
      --json '{"status":"cancelled","pendingOwner":null}'` (the ledger queues the
-     booking's travel buffers for the cleanup poll in that same write). If the delete
+     booking's travel buffers for the cleanup poll in that same write). If the event delete
      fails, change nothing else, tell the owner and send nothing to the
      group.
-   - **Move:** when the booking has travel buffers (`request.booked.travel`),
-     first check the new time with `slots.ts --in /var/lib/plow/meetly/tmp/busy.json
-     --at <new start> --duration <the request's durationMin> --travel`, passing the event id and every id in
-     `booked.travel` with `--allow-overlap` (and the request's `allowOverlap`);
-     if it is not free, tell the owner and do not move. Create both buffers
-     at the new time and stage them with `ledger.ts stage-travel --id <id>
-     --json-file F` (`{"travel":[…]}`; it prints a `revision`). Then `plow-gog calendar update
-     <calendarId> <eventId> --from <start> --to <end> --send-updates all
-     --account <account> --json`. Only after it succeeds run `ledger.ts
-     commit-travel --id <id> --revision <that revision>` (the new buffers become the
-     booking's, the old ones are queued for cleanup), then record the move as
-     in "Book the event" steps 1 and 2. If it prints `committed: false`, a newer
-     move replaced this one (its buffers are already queued for cleanup): read
-     the event again and record what the calendar now shows, changing nothing else. If the update fails, run nothing more: the staged buffers
-     are cleaned up after 15 minutes and the old ones stay. Without buffers,
-     just update the event and record it.
+   - **Move:** for an in-person meeting with travel buffers (`request.booked.travel`), first run the
+     exact-time check ("Travel time") at the new time with the event id and
+     every id in `booked.travel` in `--allow-overlap`; if it
+     is not free, tell the owner and do not move. Otherwise create both
+     buffers at the new time and stage them with `ledger.ts stage-travel --id
+     <id> --json-file F` (`{"travel":[…]}`; it prints a `revision`); the cleanup poll leaves staged buffers alone. Then `plow-gog calendar update <calendarId> <eventId>
+     --from <start> --to <end> --send-updates all --account <account> --json`.
+     Only after it succeeds, run `ledger.ts commit-travel --id <id> --revision <that revision>`
+     (the new buffers become the booking's, the old ones are queued for cleanup),
+     and record the move as in "Book the event" steps 1 and 2. If it prints
+     `committed: false`, a newer move replaced this one (its buffers are already
+     queued for cleanup): read the event again and record what the calendar now
+     shows, changing nothing else. If the update fails, run nothing more: the old
+     buffers stay and the staged ones are cleaned up after 15 minutes.
    - If a step after the calendar change fails, retry it once in this turn,
      and still send the group message (step 4). If it still fails, tell the
      owner exactly which steps are left and for which meeting. A deleted
@@ -404,7 +410,8 @@ owner's days or window:
 
 1. Run `slots.ts --in /var/lib/plow/meetly/tmp/busy.json --at <their time,
    as YYYY-MM-DDTHH:MM in the owner's zone> --duration <the request's>
-   --locale <their locale>`.
+   --locale <their locale>`, with `--travel` when the
+   request is in person and that setting is configured.
 2. If `free` is false:
    - `reason: "busy"`: say the owner has an existing commitment then and
      offer the current times again.
@@ -430,14 +437,29 @@ A yes in the owner's DM does not approve the request: point them back to
 the meeting thread to answer there, and make no calendar changes.
 
 - **Yes:**
-  1. Re-check with `slots.ts --at <pendingOwner.start>`.
-  2. If it is still free, create the event with `plow-gog calendar create
+  1. Re-check with the exact-time check ("Travel time") at
+     `<pendingOwner.start>` for an in-person request when `config.travelMin`
+     is set; for any other request run `slots.ts --in` and `--at` without `--travel`.
+  2. If an in-person time needs travel buffers, create both travel holds
+     before the meeting event. If either cannot be created, delete any buffer
+     already made, keep failed deletes in `holdCleanup`, and do not book.
+     Immediately after both buffers exist, persist their refs with
+     `ledger.ts set-travel --id <id> --json-file <file>`
+     (`{"start":"<pendingOwner.start>","travel":[<before>,<after>]}`, written
+     with the `write` tool). This time is no offer, so the ledger keeps them in
+     `pendingOwner.travel` (a retry that holds a new pair queues the displaced
+     refs for cleanup in the same write); `record-booking.ts` moves them to the
+     booking, or, if the approval is cleared first, the cleanup queue takes them. Do this before creating the event. If this write fails, delete both buffers, queue any
+     failed deletes in `holdCleanup`, and do not book.
+  3. If it is still free, create the event with `plow-gog calendar create
      primary` using the final details ("Pick" step 1), following "Book the
-     event". That records the booking and clears `pendingOwner`.
-  3. Delete all the request's holds.
-  4. If the format is still `unknown`, ask it in the group, once.
-  5. Confirm once in the group for both the owner and guest.
-  6. If it is no longer free, explain in the group, and offer new
+     event". `record-booking.ts` records the booking, clears `pendingOwner`
+     and, in that same write, copies that offer's `travel[]` refs into the
+     booking (`booked.travel`).
+  4. Delete all the request's other meeting and travel holds.
+  5. If the format is still `unknown`, ask it in the group, once.
+  6. Confirm once in the group for both the owner and guest.
+  7. If it is no longer free, explain in the group, and offer new
      times.
 - **No:** clear it with `{"pendingOwner":null}`. Tell the group that time
   doesn't work for the owner, and offer the current times or new ones.
@@ -492,13 +514,16 @@ offer.
      request** and do not use `ledger.ts pending` as a substitute. Select the
      hold only from this request's `offered[]`. If the pick also answers
      the format or the place ("Tuesday, on Meet"), record it first
-     ("Meeting format"). Then run
+     ("Meeting format"). If the request is `in_person`, `config.travelMin` is
+     set and the picked offer has no `travel[]`, follow "Travel time" before
+     booking. Then run
      `plow-gog calendar update primary <holdId> --account <account>` with
      the final title (the topic and the person's name, without "Hold:"), the
      location, and the person's `attendeeEmail` as an attendee when there is one,
      following "Book the event". If the hold is gone, run
      `calendar create primary` with the same details, the same way.
-  2. Only then delete the other holds.
+  2. Only then delete the other holds and their travel blocks. Keep the picked
+     offer's travel blocks for the booked in-person meeting.
   3. Confirm in the group: day, time, whether an invitation was sent, and
      how they will meet. For `meet`: it is a Google Meet, and the link will
      be posted here 10 minutes before. Do not paste the link now. For
@@ -527,7 +552,7 @@ offer.
   a decline. Use any availability or date range they gave to narrow the next
   search; when they gave no new constraint, keep the request's original
   constraints and search the remaining configured horizon. Re-read the
-  calendar, find and hold up to three fresh slots,
+  calendar, find and hold up to three fresh slots (including travel buffers),
   save them through the normal "Offer times" flow, then send the new options
   in this thread. The old holds are queued for cleanup once the new times were sent. If
   there are no fresh slots, tell them and ask for a date range; never claim a
@@ -540,7 +565,7 @@ offer.
   event's id is in `allowOverlap`, repeat the full original command with
   `--confirm-conflict` and mention the overlap to the owner. Any other
   conflict: never override; offer new times.
-- **They decline or give up:** delete the holds, run `ledger.ts update` with
+- **They decline or give up:** delete the meeting and travel holds, run `ledger.ts update` with
   `{"status":"dropped","pendingOwner":null}`, and tell the owner.
 - **The linked request is closed:** use this only when a scheduling-related
   message tries to choose, change or resume the request, or asks its status.
@@ -578,14 +603,54 @@ People in the group never can.
   "Hold: <topic> with <name>" --from <slot.start> --to <slot.end>
   --send-updates none --account <config.defaultAccount> --json`, with no
   attendees. Record the returned event id as the slot's `holdId`.
+- When a slot includes `travel.before` and `travel.after`, create one calendar
+  hold for each interval, with no attendees and a summary such as
+  `Travel buffer: <topic> with <name>`. Record their `{holdId, account}` refs,
+  in before-then-after order, in that offer's `travel[]`.
 - Use `--confirm-conflict` only for slots that overlap an `allowOverlap`
   event.
-- Delete only ids that the ledger records as this request's holds, never
-  any other event: `plow-gog calendar delete primary <holdId> --send-updates
+- Delete only ids that the ledger records as this request's meeting or travel
+  holds, never any other event: `plow-gog calendar delete primary <holdId> --send-updates
   none --force --account <account>`. `--force` is required: without it gog
   refuses every delete in a non-interactive run.
 - If a delete fails, add `{holdId, account}` to the request's `holdCleanup`.
   The poll retries it.
+
+## Travel time
+
+**Exact-time check.** Read the calendar (`busy.ts --fetch`), then run
+`slots.ts --in /var/lib/plow/meetly/tmp/busy.json --at <start> --duration
+<the request's> --travel --allow-overlap <the booked or chosen hold id>`,
+repeating `--allow-overlap` for each id in the request's `allowOverlap`. It prints `{slot, free, reason?, outsideHours}`;
+the buffers are `slot.travel.before` and `slot.travel.after`. Every place that
+says "the exact-time check" means this command.
+
+The owner may set `travelMin` in setup. It defaults to no buffer and applies
+only to in-person meetings. Each returned slot has a `travel.before` and
+`travel.after` interval. Both must be free, within the owner's working window,
+and at least the minimum notice ahead. Hold both intervals along with the
+meeting hold, and record both in the offer's `travel[]`.
+
+When the format is still unknown while times are offered, or an in-person offer
+has no travel refs because the setting changed later, do not book yet. Run
+the exact-time check at the chosen start before booking. If it is not free, explain that travel time
+does not fit and offer new times.
+If `outsideHours` is true, save the picked time in `pendingOwner` and ask the
+owner in this thread to approve the travel extension, following "Outside the
+owner's hours". If it is free and inside hours, create both travel holds and
+save their refs on that offer (for a time that is an offer) with `ledger.ts set-travel` before booking. If saving those refs fails,
+delete both travel holds, queue any failed deletes in `holdCleanup`, leave
+the meeting unbooked, and report the failure to the owner. If either hold
+cannot be created, delete any travel hold already made, leave the meeting
+unbooked, and report the failure to the owner.
+
+When a booked meeting changes from an unknown format to in person, do the same
+  calendar check using the booked event id as `--allow-overlap` (ignore that id
+in `overlaps` as this request's own event), create both travel holds, and save
+them on the booking with `ledger.ts set-travel --id <id> --json-file <file>`
+(`{"travel":[…]}`, no `start`). If the format changes away from in person,
+delete the booking's travel holds and clear them with `{"travel":[]}`;
+record any failed deletes in `holdCleanup`.
 
 ## Examples
 
