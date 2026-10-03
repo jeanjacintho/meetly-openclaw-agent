@@ -425,3 +425,10 @@ test("travel: one exact-time check, cancel and move handle the buffers, and a pi
   assert.ok(group.includes("the picked offer has no `travel[]`, follow \"Travel time\" before booking"));
   assert.ok(group.includes("`record-booking.ts` records the booking, clears `pendingOwner` and, in that same write"));
 });
+
+test("a pick re-checks the calendar before it converts a hold, so a movable overlap is never trusted from the offer", () => {
+  const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
+  assert.ok(group.includes("read the calendar again (`busy.ts --fetch`) and run `slots.ts --in /var/lib/plow/meetly/tmp/busy.json --at <the chosen start> --duration <the request's durationMin> --allow-overlap <the chosen hold id>`"));
+  assert.ok(group.includes("a hard conflict appeared since the offer, so do not book"));
+  assert.ok(group.includes("Use this fresh result's `overlaps` for `--confirm-conflict`, also on the fallback `create`"));
+});

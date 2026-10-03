@@ -109,6 +109,13 @@ test("an unknown time zone fails through the CLI", () => {
 });
 
 test("durations and horizons are bounded integers", () => {
+  // Movable blocks are title words the owner lists: lowercased, deduplicated, bounded; none clears them.
+  assert.deepEqual(parseField("movable", " Prayer, GYM ,prayer "), { movable: ["prayer", "gym"] });
+  assert.deepEqual(parseField("movable", "none"), { movable: undefined });
+  assert.throws(() => parseField("movable", "a"), /movable/);
+  assert.throws(() => parseField("movable", "x".repeat(41)), /movable/);
+  assert.throws(() => parseField("movable", Array.from({ length: 21 }, (_, i) => `word${i}`).join(",")), /movable/);
+  assert.throws(() => parseField("movable", " , "), /movable/);
   // Travel time around an in-person meeting: minutes (or an hour), 0 to 180, none clears it.
   for (const [value, min] of [["30", 30], ["45 min", 45], ["1h", 60], ["1.5h", 90], ["0", undefined], ["none", undefined]] as const) {
     assert.deepEqual(parseField("travel", value), { travelMin: min }, value);
@@ -219,6 +226,10 @@ test("editing a field after setup updates config.json and keeps setupDoneAt", ()
     assert.equal(readJson<Config | null>(join(home, "config.json"), null)!.travelMin, 30);
     record("travel", "none");
     assert.equal("travelMin" in readJson<object>(join(home, "config.json"), {}), false);
+    record("movable", "prayer, gym");
+    assert.deepEqual(readJson<Config | null>(join(home, "config.json"), null)!.movable, ["prayer", "gym"]);
+    record("movable", "none");
+    assert.equal("movable" in readJson<object>(join(home, "config.json"), {}), false);
     record("videoProvider", "https://zoom.us/j/123456789");
     assert.equal(readJson<Config | null>(join(home, "config.json"), null)!.zoomRoomUrl, "https://zoom.us/j/123456789");
     record("videoProvider", "meet");

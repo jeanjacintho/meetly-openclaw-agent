@@ -13,8 +13,9 @@ import { loadConfig, MIN_NOTICE_MIN, minutes, parseTime, SLOT_COUNT, STEP_MIN, t
 import type { Busy } from "./busy.ts";
 import { addDays, DAYS, localIso, wallParts, zonedToUtc, type Day } from "./time.ts";
 
+// `overlaps`: ids of the blocks this time sits over because the request allows them or the owner marked them movable.
 type TravelWindow = { start: string; end: string };
-export type Slot = { start: string; end: string; dayOfWeek: Day; label: string; travel?: { before: TravelWindow; after: TravelWindow } };
+export type Slot = { start: string; end: string; dayOfWeek: Day; label: string; overlaps?: string[]; travel?: { before: TravelWindow; after: TravelWindow } };
 
 export type SlotQuery = {
   now: number;
@@ -54,6 +55,12 @@ function label(ms: number, tz: string, format?: Intl.DateTimeFormat): string {
   return `${p.weekday} ${p.d}/${p.m} ${pad(p.hh)}:${pad(p.mm)}`;
 }
 
+// A block the owner lets a meeting overlap: listed as movable, or named in the request.
+const softBusy = (ids: string[] = []) => {
+  const allowed = new Set(ids);
+  return (b: Busy) => b.movable === true || (b.id !== undefined && allowed.has(b.id));
+};
+
 // The travel blocks around a meeting, as UTC instants, when a buffer is set.
 const travelWindow = (start: number, end: number, travelMin: number) => {
   if (travelMin === 0) return {};
@@ -82,21 +89,21 @@ export function findSlots(q: SlotQuery): { slots: Slot[]; unknownAfter?: string 
 
   const earliest = now + ((config.minNoticeMin ?? MIN_NOTICE_MIN) + travelMin) * 60_000;
   const excluded = new Set((q.exclude ?? []).map((e) => Date.parse(e)));
-  const allowed = new Set(q.allowOverlap ?? []);
-  const busy = q.busy
-    .filter((b) => b.id === undefined || !allowed.has(b.id))
-    .map((b) => ({ start: Date.parse(b.start), end: Date.parse(b.end) }));
+  const isSoft = softBusy(q.allowOverlap);
+  const ranges = (list: Busy[]) => list.map((b) => ({ start: Date.parse(b.start), end: Date.parse(b.end), id: b.id }));
+  const busy = ranges(q.busy.filter((b) => !isSoft(b)));
+  const soft = ranges(q.busy.filter(isSoft));
   const unknownAfter = q.unknownAfter !== undefined ? Date.parse(q.unknownAfter) : undefined;
 
   const today = wallParts(now, tz);
-  const perDay: { start: number; end: number; day: Day }[][] = [];
+  const perDay: { start: number; end: number; day: Day; overlaps: string[] }[][] = [];
   scan: for (let i = 0; i <= config.horizonDays; i++) {
     const { y, m, d } = addDays(today.y, today.m, today.d, i);
     const date = `${y}-${pad(m)}-${pad(d)}`;
     if ((q.from && date < q.from) || (q.to && date > q.to)) continue;
     const day = wallParts(zonedToUtc(y, m, d, 12, 0, tz), tz).weekday;
     if (!days.includes(day)) continue;
-    const found: { start: number; end: number; day: Day }[] = [];
+    const found: { start: number; end: number; day: Day; overlaps: string[] }[] = [];
     for (let t = startMin; t + duration <= endMin; t += STEP_MIN) {
       const start = zonedToUtc(y, m, d, Math.floor(t / 60), t % 60, tz);
       const end = start + duration * 60_000;
@@ -108,7 +115,7 @@ export function findSlots(q: SlotQuery): { slots: Slot[]; unknownAfter?: string 
       }
       if (start < earliest || excluded.has(start)) continue;
       if (busy.some((b) => b.start < bufferEnd && b.end > bufferStart)) continue;
-      found.push({ start, end, day });
+      found.push({ start, end, day, overlaps: [...new Set(soft.filter((b) => b.start < bufferEnd && b.end > bufferStart && b.id !== undefined).map((b) => b.id!))] });
     }
     perDay.push(found);
   }
@@ -127,6 +134,7 @@ export function findSlots(q: SlotQuery): { slots: Slot[]; unknownAfter?: string 
     end: localIso(c.end, tz),
     dayOfWeek: c.day,
     label: label(c.start, tz, format),
+    ...(c.overlaps.length > 0 ? { overlaps: c.overlaps } : {}),
     ...travelWindow(c.start, c.end, travelMin),
   }));
   return q.unknownAfter !== undefined ? { slots, unknownAfter: q.unknownAfter } : { slots };
@@ -137,6 +145,7 @@ export type TimeCheck = {
   free: boolean;
   reason?: "busy" | "too-soon" | "unknown";
   outsideHours: boolean;
+  overlaps?: string[];
 };
 
 // Checks one exact time the other person asked for. free: clear of busy time
@@ -171,19 +180,20 @@ export function checkTime(q: {
   const sameDay = bs.y === be.y && bs.m === be.m && bs.d === be.d;
   const outsideHours = !q.config.days.includes(bs.weekday) || !sameDay ||
     bs.hh * 60 + bs.mm < minutes(q.config.windowStart) || be.hh * 60 + be.mm > minutes(q.config.windowEnd);
-  const allowed = new Set(q.allowOverlap ?? []);
+  const isSoft = softBusy(q.allowOverlap);
+  const overlapping = q.busy.filter((b) => Date.parse(b.start) < bufferEnd && Date.parse(b.end) > bufferStart);
+  const overlaps = [...new Set(overlapping.filter((b) => isSoft(b) && b.id !== undefined).map((b) => b.id!))];
   let reason: TimeCheck["reason"];
   if (q.unknownAfter !== undefined && bufferEnd > Date.parse(q.unknownAfter)) reason = "unknown";
   else if (bufferStart < q.now + (q.config.minNoticeMin ?? MIN_NOTICE_MIN) * 60_000) reason = "too-soon";
-  else if (q.busy.some((b) => (b.id === undefined || !allowed.has(b.id)) && Date.parse(b.start) < bufferEnd && Date.parse(b.end) > bufferStart)) {
-    reason = "busy";
-  }
+  else if (overlapping.some((b) => !isSoft(b))) reason = "busy";
   const format = q.locale !== undefined ? localeFormatter(q.locale, tz) : undefined;
   const slot: Slot = {
     start: localIso(start, tz), end: localIso(end, tz), dayOfWeek: s.weekday, label: label(start, tz, format),
     ...travelWindow(start, end, travelMin),
   };
-  return reason ? { slot, free: false, reason, outsideHours } : { slot, free: true, outsideHours };
+  const soft = overlaps.length > 0 ? { overlaps } : {};
+  return reason ? { slot, free: false, reason, outsideHours, ...soft } : { slot, free: true, outsideHours, ...soft };
 }
 
 function positiveInt(raw: string, flag: string): number {
@@ -236,7 +246,9 @@ if (isMain(import.meta.url)) {
       if (values.travel) check.travel = true;
       if (values["allow-overlap"]) check.allowOverlap = values["allow-overlap"];
       if (values.locale !== undefined) check.locale = values.locale;
-      return { ...checkTime(check), degraded };
+      const result = checkTime(check);
+      // An account that could not be read may hold a hard conflict: never call the time free.
+      return degraded.length ? { ...result, free: false, reason: "unknown", degraded } : { ...result, degraded };
     }
     const q: SlotQuery = { now, config, busy: input.busy };
     if (input.unknownAfter !== undefined) q.unknownAfter = input.unknownAfter;

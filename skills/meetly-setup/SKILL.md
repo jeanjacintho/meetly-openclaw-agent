@@ -79,6 +79,9 @@ to install anything else.
 - "Leave an hour for travel around in-person meetings" →
   `record-setup.ts --field travel --value <minutes>`; accept minutes or hours
   from 1 minute to 3 hours. `none` clears the buffer. The default is no buffer.
+- "My prayer time and gym can move" → `record-setup.ts --field movable --value <words from the titles>`
+  (for example `prayer, gym`); "nothing can move" → `none`. Meetly then offers
+  times over those blocks, and never repeats their titles to anyone.
 - "I use Zoom, here is my room: <link>" → `record-setup.ts --field videoProvider --value <their Zoom room link>`;
   "use Google Meet" → `meet`. Meetly posts that room and cannot create new Zoom links.
 - "I need at least 3 hours notice" → `record-setup.ts --field minNotice --value <hours, like 3h>`.
@@ -93,4 +96,5 @@ to install anything else.
   default meeting type (or "ask each time" when `config.defaultFormat` is
   unset), travel buffer when set, calendars, and whether it is paused.
   unset), video provider (Google Meet, or Zoom when
-  `config.zoomRoomUrl` is set), calendars, and whether it is paused.
+  `config.zoomRoomUrl` is set), the movable title phrases (`config.movable`, or
+  "none"), calendars, and whether it is paused.
