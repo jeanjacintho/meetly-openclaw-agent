@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  addRequest, moveTravel, saveRequest, settleOffer, discardStaleOffers, removeCleanupRef, appendLog, cleanupList, pendingOwnerList, expiredRequests, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, pipeline, stageOf,
+  addRequest, commitTravel, discardStaleTravel, saveRequest, setTravel, stageTravel, settleOffer, discardStaleOffers, removeCleanupRef, appendLog, cleanupList, pendingOwnerList, expiredRequests, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, pipeline, stageOf,
   type Ledger, type NewRequest,
 } from "../skills/meetly/scripts/ledger.ts";
-import { cli, tmpHome } from "./helpers.ts";
+import { cli, tmpHome, handlesFile } from "./helpers.ts";
 
 const T0 = Date.parse("2026-09-28T12:00:00Z");
 const HOUR = 3600_000;
@@ -85,21 +85,45 @@ test("an offer's travel blocks are holds: validated, and queued for deletion whe
   assert.deepEqual(kept.requests[0]!.holdCleanup!.map((h) => h.holdId).sort(), ["h1", "t2"]);
 });
 
-test("moving a meeting with travel buffers stages the new ones and swaps ownership only on commit", () => {
+test("moving a meeting stages the new buffers out of reach of cleanup and swaps ownership only on commit", () => {
   const acct = "jean@example.com";
   const oldTravel = [{ holdId: "t1", account: acct }, { holdId: "t2", account: acct }];
   const newTravel = [{ holdId: "t3", account: acct }, { holdId: "t4", account: acct }];
-  let l = addRequest(empty(), input({ offered: [{ ...offer, travel: oldTravel }] }), T0, "r_1");
-  l = updateRequest(l, "r_1", { status: "booked", eventId: offer.holdId, booked: { start: offer.start, end: offer.end, account: acct } }, T0);
-  // Staged: the old buffers stay owned and the new ones wait in the cleanup queue, so a failed update loses nothing.
-  const staged = moveTravel(l, "r_1", "stage", newTravel, T0);
-  assert.deepEqual(staged.requests[0]!.offered[0]!.travel, oldTravel);
-  assert.deepEqual(staged.requests[0]!.holdCleanup!.map((h) => h.holdId), ["t3", "t4"]);
-  // Committed: the new buffers are owned, the old ones queued, none queued twice.
-  const done = moveTravel(staged, "r_1", "commit", newTravel, T0);
-  assert.deepEqual(done.requests[0]!.offered[0]!.travel, newTravel);
+  let l = addRequest(empty(), input(), T0, "r_1");
+  l = updateRequest(l, "r_1", { status: "booked", eventId: offer.holdId, booked: { start: offer.start, end: offer.end, account: acct, travel: oldTravel } }, T0);
+  // Staged: the old buffers stay owned, the new ones are in neither the booking nor the cleanup queue.
+  const staged = stageTravel(l, "r_1", newTravel, T0);
+  assert.deepEqual(staged.requests[0]!.booked!.travel, oldTravel);
+  assert.deepEqual(staged.requests[0]!.pendingTravel!.refs, newTravel);
+  assert.deepEqual(cleanupList(staged), []);
+  // Committed: the new buffers are owned, the old ones queued, nothing pending.
+  const done = commitTravel(staged, "r_1", T0);
+  assert.deepEqual(done.requests[0]!.booked!.travel, newTravel);
   assert.deepEqual(done.requests[0]!.holdCleanup!.map((h) => h.holdId).sort(), ["t1", "t2"]);
-  assert.throws(() => moveTravel(empty(), "nope", "stage", newTravel, T0), /no request/);
+  assert.equal(done.requests[0]!.pendingTravel, undefined);
+  // A turn that died before the commit: after the timeout the staged buffers go to cleanup and the commit refuses.
+  const stale = discardStaleTravel(staged, T0 + 20 * 60_000, 15 * 60_000);
+  assert.deepEqual(stale.requests[0]!.holdCleanup!.map((h) => h.holdId).sort(), ["t3", "t4"]);
+  assert.throws(() => commitTravel(stale, "r_1", T0), /no staged/);
+  assert.deepEqual(discardStaleTravel(staged, T0 + 60_000, 15 * 60_000), staged);
+  assert.throws(() => stageTravel(empty(), "nope", newTravel, T0), /no request/);
+  // A booked meeting that closes (the owner cancels it) queues its buffers in the same write.
+  const cancelled = updateRequest(done, "r_1", { status: "cancelled" }, T0);
+  assert.deepEqual(cancelled.requests[0]!.holdCleanup!.map((h) => h.holdId).sort(), ["t1", "t2", "t3", "t4"]);
+});
+
+test("set-travel writes only the buffers of one offer or of the booking", () => {
+  const acct = "jean@example.com";
+  const travel = [{ holdId: "t1", account: acct }, { holdId: "t2", account: acct }];
+  const l = addRequest(empty(), input(), T0, "r_1");
+  const set = setTravel(l, "r_1", travel, offer.start, T0);
+  assert.deepEqual(set.requests[0]!.offered[0]!.travel, travel);
+  assert.throws(() => setTravel(l, "r_1", travel, "2031-01-01T10:00:00Z", T0), /no offer starting/);
+  assert.throws(() => setTravel(l, "r_1", [{ holdId: "" } as never], offer.start, T0), /travel hold/);
+  const booked = updateRequest(l, "r_1", { status: "booked", eventId: "e1", booked: { start: offer.start, end: offer.end, account: acct } }, T0);
+  const withTravel = setTravel(booked, "r_1", travel, undefined, T0);
+  assert.deepEqual(withTravel.requests[0]!.booked!.travel, travel);
+  assert.equal("travel" in setTravel(withTravel, "r_1", [], undefined, T0).requests[0]!.booked!, false);
 });
 
 test("a re-offer to an existing group stays staged until its send succeeds", () => {
@@ -180,7 +204,7 @@ test("CLI sender-aware chat lookup prefers open request over closed chat history
   const old = cli("ledger.ts", ["find", "--chat", "c1"], env).json.request;
   cli("ledger.ts", ["update", "--id", old.id, "--json", '{"status":"dropped"}'], env);
   const replacement = cli("ledger.ts", ["add", "--json", JSON.stringify(input({ offered: [{ ...offer, holdId: "h2" }] }))], env).json.request;
-  const current = cli("ledger.ts", ["find", "--chat", "c1", "--handle", "+15551234567"], env);
+  const current = cli("ledger.ts", ["find", "--chat", "c1", "--handles-file", handlesFile("+15551234567")], env);
   assert.equal(current.status, 0, current.stderr);
   assert.equal(current.json.request.id, replacement.id);
 });
@@ -193,7 +217,7 @@ test("CLI combined lookup returns a closed chat request when the sender has no o
     const request = created.json.request;
     cli("ledger.ts", ["update", "--id", request.id, "--json", JSON.stringify({ status })], env);
 
-    const result = cli("ledger.ts", ["find", "--chat", "c1", "--handle", "+15551234567"], env);
+    const result = cli("ledger.ts", ["find", "--chat", "c1", "--handles-file", handlesFile("+15551234567")], env);
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.json.request.id, request.id);
     assert.equal(result.json.request.status, status);
@@ -280,8 +304,8 @@ test("CLI add, find, update, expired and cleanup round-trip", () => {
   assert.equal(added.status, 0, added.stderr);
   const id = added.json.request.id;
   assert.match(id, /^r_[0-9a-f]{8}$/);
-  assert.equal(cli("ledger.ts", ["find", "--handle", "5551234567"], env).json.request.id, id);
-  assert.deepEqual(cli("ledger.ts", ["find", "--handle", "+15550000000"], env).json, { request: null });
+  assert.equal(cli("ledger.ts", ["find", "--handles-file", handlesFile("5551234567")], env).json.request.id, id);
+  assert.deepEqual(cli("ledger.ts", ["find", "--handles-file", handlesFile("+15550000000")], env).json, { request: null });
   const patch = join(home, "patch.json");
   writeFileSync(patch, JSON.stringify({ chatUid: "chat_1" }));
   assert.equal(cli("ledger.ts", ["update", "--id", id, "--json-file", patch], env).json.request.chatUid, "chat_1");
@@ -340,7 +364,7 @@ test("CLI add, find, update, expired and cleanup round-trip", () => {
 test("a corrupt ledger.json fails loudly", () => {
   const home = tmpHome();
   writeFileSync(join(home, "ledger.json"), "[oops");
-  const r = cli("ledger.ts", ["find", "--handle", "+15551234567"], { MEETLY_HOME: home });
+  const r = cli("ledger.ts", ["find", "--handles-file", handlesFile("+15551234567")], { MEETLY_HOME: home });
   assert.equal(r.status, 1);
   assert.match(r.stderr, /ledger\.json/);
 });

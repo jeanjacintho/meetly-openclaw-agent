@@ -147,7 +147,7 @@ test("routine meeting notifications stay in the group and pre-thread gate approv
 test("a group pick re-reads the current request and never substitutes pending", () => {
   const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
   assert.ok(group.includes("re-read the ledger in this turn before interpreting it"));
-  assert.ok(group.includes("Re-run both `ledger.ts find --chat <this chat uid>` and `ledger.ts find --handle <sender handle>` now"));
+  assert.ok(group.includes("Re-run both `ledger.ts find --chat <this chat uid>` and `ledger.ts find --handles-file <file with sender handle>` now"));
   assert.ok(group.includes("A closed chat request does not count as a disagreement"));
   assert.ok(group.includes("both lookups identify different open requests"));
   assert.ok(group.includes("follow **No matching request** and do not use `ledger.ts pending` as a substitute"));
@@ -163,7 +163,7 @@ test("an owner booking with no time named takes the announced first option, thro
     "the first option because no time was named",
     "A time the other person already picked, or the owner names, is the time",
     "request of theirs that is already open (`origin: owner`), with no time, resolve it in",
-    "`ledger.ts find --handle <contact handle>`. Re-read it",
+    "`ledger.ts find --handles-file <file with contact handle>`. Re-read it",
     "Book its first current offered time through **Owner request pick** below",
     "Send the booking confirmation to the request's `chatUid`",
     "A request someone else made (`origin: inbound`) is approved only in its meeting thread: point the owner there and book nothing",
@@ -347,7 +347,7 @@ test("setup asks only what nobody can infer, and the rest starts at defaults", (
 test("Meetly researches the current thread, contact history and relevant messages before proposing", () => {
   const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
   assert.ok(group.includes("## Research before proposing"));
-  assert.ok(group.includes("ledger.ts history --handle <their handle>"));
+  assert.ok(group.includes("ledger.ts history --handles-file <file with their handle>"));
   assert.ok(group.includes("search the owner's relevant email and Plow messages"));
   assert.ok(group.includes("ask the owner privately before contacting the other person"));
 });
@@ -372,10 +372,11 @@ test("do not contact is checked before every contact-visible message and stored 
 
 test("travel buffer references are persisted before an outside-hours booking", () => {
   const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
-  assert.ok(group.includes("Immediately after both buffers exist, persist their refs in an `offered[]` entry"));
+  assert.ok(group.includes("persist their refs on the offer for this start with `ledger.ts set-travel --id <id> --json-file <file>`"));
   assert.ok(group.includes("Do this before creating the event"));
   assert.ok(group.includes("If this write fails, delete both buffers"));
-  assert.ok(group.includes("while keeping its `travel[]` refs"));
+  assert.ok(group.includes("copies that offer's `travel[]` refs into the booking (`booked.travel`)"));
+  assert.ok(group.includes("save their refs on that offer with `ledger.ts set-travel` before booking"));
   assert.ok(group.includes("If saving those refs fails, delete both travel holds"));
 });
 
@@ -394,14 +395,13 @@ test("a blocked person gets no calendar notice either, and the do-not-contact en
 });
 
 test("travel: one exact-time check, cancel and move handle the buffers, and a pick reaches the travel path", () => {
-  const moveGroup = groupSkill();
-  for (const rule of ["`ledger.ts stage-travel --id <id> --json-file F`", "Only after it succeeds, run `ledger.ts commit-travel`", "every hold id in the booked offer's `travel[]` in `--allow-overlap`"])
-    assert.ok(moveGroup.includes(rule), rule);
   const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
   assert.ok(group.includes("**Exact-time check.** Read the calendar (`busy.ts --fetch`), then run `slots.ts --in /var/lib/plow/meetly/tmp/busy.json --at <start>"));
   assert.ok(group.includes("the buffers are `slot.travel.before` and `slot.travel.after`"));
-  assert.ok(group.includes("Then delete the travel holds in the booked offer's `travel[]`"));
+  assert.ok(group.includes("the ledger queues the booking's travel buffers for the cleanup poll in that same write"));
   assert.ok(group.includes("first run the exact-time check (\"Travel time\") at the new time"));
+  for (const rule of ["`ledger.ts stage-travel --id <id> --json-file F`", "Only after it succeeds, run `ledger.ts commit-travel --id <id>`", "every id in `booked.travel` in `--allow-overlap`", "repeating `--allow-overlap` for each id in the request's `allowOverlap`"])
+    assert.ok(group.includes(rule), rule);
   assert.ok(group.includes("the picked offer has no `travel[]`, follow \"Travel time\" before booking"));
   assert.ok(group.includes("`record-booking.ts` records the booking, clears `pendingOwner` and, in that same write"));
 });

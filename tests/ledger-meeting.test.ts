@@ -180,7 +180,7 @@ test("only a booked meeting with an event and a time is re-read in the window, r
   // Any format is re-read in the window, so an external cancellation is seen; only a Meet gets a reminder.
   assert.equal(dueReminders(bookedMeet({ format: "in_person", meetUrl: null }), at, 10).length, 1);
   // A booking with travel buffers is re-read from the booking until the meeting ends.
-  const withTravel = bookedMeet({ format: "in_person", meetUrl: null, offered: [{ ...offer, travel: [{ holdId: "t1", account: "a" }] }] });
+  const withTravel = bookedMeet({ format: "in_person", meetUrl: null, booked: { ...booked, travel: [{ holdId: "t1", account: "a" }] } });
   assert.equal(dueReminders(withTravel, START - 3 * 60 * MIN, 10).length, 1);
   assert.equal(dueReminders(withTravel, START + 20 * MIN, 10).length, 1);
   assert.equal(dueReminders(withTravel, START + 40 * MIN, 10).length, 0);

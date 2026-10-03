@@ -59,8 +59,8 @@ free there.
 3. Run `slots.ts --in /var/lib/plow/meetly/tmp/busy.json --locale <their
    locale>`, with the request's constraints: `--days`, `--after`, `--before`,
    `--from`/`--to`, `--duration`, `--allow-overlap`. For an in-person meeting,
-   run `slots.ts` with `--travel <config.travelMin>` when that setting is
-   configured. Slots stay inside the owner's days and window; constraints only
+   run `slots.ts` with `--travel` when `config.travelMin` is
+   set. Slots stay inside the owner's days and window; constraints only
    narrow them.
    - **No slots.** For an owner request, tell the owner which constraint
      blocks it and suggest loosening it; stop. For an inbound request with
@@ -77,7 +77,7 @@ free there.
    slot's times and those refs, mark it `dropped`, and stop without opening a
    group. Otherwise, if none survive, tell the owner and stop.
 5. Persist the offer immediately after the holds exist, before sending or
-   opening a group. Run `ledger.ts save --json '<request>'` with every field:
+   opening a group. Run `ledger.ts save --json-file <file>` (the request, written with the `write` tool) with every field:
    `origin`, `handle` (the intended contact handle), `name`, `sourceRowid`,
    `chatUid` if already known, `topic`, `location`, `durationMin`,
    `constraints`, `allowOverlap`, `format` and `locale` (see "Meeting
@@ -170,7 +170,7 @@ In the owner's DM:
 3. Find those events by name in the calendar read (every instance, if
    recurring) and pass each id as `--allow-overlap`. If none is found, tell
    the owner and continue without it.
-4. If `ledger.ts find --handle <handle>` has an open request, reuse its group
+4. If `ledger.ts find --handles-file <file with handle>` has an open request, reuse its group
    ("Offer times" step 5).
 5. Follow "Offer times" with `origin: owner`.
 6. Only after the group opened or the send succeeded, reply to the owner in
@@ -181,7 +181,7 @@ In the owner's DM:
    takes the first option, or name another.
 7. When the owner's message only tells you to book or schedule a request of
    theirs that is already open (`origin: owner`), with no time, resolve it in
-   the owner's DM with `ledger.ts find --handle <contact handle>`. Re-read it
+   the owner's DM with `ledger.ts find --handles-file <file with contact handle>`. Re-read it
    now and require `status: offered` and `origin: owner`; do not look up the
    owner's DM using `find --chat` or use a request retained in context. Book
    its first current offered time through **Owner request pick** below. A
@@ -232,7 +232,7 @@ around a `do not contact` result.
 Before proposing times, establish the topic, purpose, attendees, location,
 duration and meeting format from the current conversation and the owner's
 request. Then check the contact card (`contacts`, `contact.ts`), this person's
-recent Plow message thread, and `ledger.ts history --handle <their handle>`.
+recent Plow message thread, and `ledger.ts history --handles-file <file with their handle>`.
 For an owner request, also search the owner's relevant email and Plow messages
 for the contact and topic, following the Mac's `google-workspace` and
 `plow-messages` skills for their exact commands. Keep searches narrow to this
@@ -270,25 +270,23 @@ lunch with Ana", "remove all my appointments today", "move the call to 3pm"):
 3. For each booked request, with `<account>` and `<calendarId>` those the
    event was read from (never assume `primary`):
    - **Cancel:** `plow-gog calendar delete <calendarId> <eventId> --send-updates
-     all --force --account <account>`. Then delete the travel holds in the
-     booked offer's `travel[]` (the offer whose `holdId` is the event id),
-     queueing any failed delete in `holdCleanup`, and run `ledger.ts update --id
-     <id> --json '{"status":"cancelled","pendingOwner":null}'`. If the event
-     delete fails, change nothing else, tell the owner and send nothing to the
+     all --force --account <account>`. Then `ledger.ts update --id <id>
+     --json '{"status":"cancelled","pendingOwner":null}'` (the ledger queues the
+     booking's travel buffers for the cleanup poll in that same write). If the event delete
+     fails, change nothing else, tell the owner and send nothing to the
      group.
-   - **Move:** for an in-person meeting with travel buffers, first run the
+   - **Move:** for an in-person meeting with travel buffers (`request.booked.travel`), first run the
      exact-time check ("Travel time") at the new time with the event id and
-     every hold id in the booked offer's `travel[]` in `--allow-overlap`; if it
+     every id in `booked.travel` in `--allow-overlap`; if it
      is not free, tell the owner and do not move. Otherwise create both
      buffers at the new time and stage them with `ledger.ts stage-travel --id
-     <id> --json-file F` (`{"travel":[…]}`), so they are cleaned up if the move
-     never completes. Then `plow-gog calendar update <calendarId> <eventId>
+     <id> --json-file F` (`{"travel":[…]}`); the cleanup poll leaves staged buffers alone. Then `plow-gog calendar update <calendarId> <eventId>
      --from <start> --to <end> --send-updates all --account <account> --json`.
-     Only after it succeeds, run `ledger.ts commit-travel` with the same file
-     (the new buffers become `travel[]`, the old ones are queued for cleanup),
+     Only after it succeeds, run `ledger.ts commit-travel --id <id>`
+     (the new buffers become the booking's, the old ones are queued for cleanup),
      and record the move as in "Book the event" steps 1 and 2. If the update
-     fails, run nothing more: the old buffers stay and the cleanup poll deletes
-     the staged ones.
+     fails, run nothing more: the old buffers stay and the staged ones are
+     cleaned up after 15 minutes.
    - If a step after the calendar change fails, retry it once in this turn,
      and still send the group message (step 4). If it still fails, tell the
      owner exactly which steps are left and for which meeting. A deleted
@@ -332,7 +330,7 @@ Pass `locale` with every save: the other person's language tag, the same one
 used for `slots.ts --locale`.
 
 An answer that arrives before booking is recorded with
-`ledger.ts update --id <id> --json '{"format":"<format>","location":"<place>"}'`
+`ledger.ts update --id <id> --json-file <file>` (`{"format":"<format>","location":"<place>"}`)
 (drop `location` when there is none). A later answer replaces an earlier
 one. Never ask about the format twice in a row: once in the opener, and once
 after booking if the pick did not answer it.
@@ -410,7 +408,7 @@ owner's days or window:
 
 1. Run `slots.ts --in /var/lib/plow/meetly/tmp/busy.json --at <their time,
    as YYYY-MM-DDTHH:MM in the owner's zone> --duration <the request's>
-   --locale <their locale>`, with `--travel <config.travelMin>` when the
+   --locale <their locale>`, with `--travel` when the
    request is in person and that setting is configured.
 2. If `free` is false:
    - `reason: "busy"`: say the owner has an existing commitment then and
@@ -443,16 +441,16 @@ the meeting thread to answer there, and make no calendar changes.
   2. If an in-person time needs travel buffers, create both travel holds
      before the meeting event. If either cannot be created, delete any buffer
      already made, keep failed deletes in `holdCleanup`, and do not book.
-     Immediately after both buffers exist, persist their refs in an `offered[]`
-     entry for this start and end using `ledger.ts update --id <id>
-     --json-file <file>`; write the JSON with the `write` tool. Do this before
-     creating the event. If this write fails, delete both buffers, queue any
+     Immediately after both buffers exist, persist their refs on the offer for
+     this start with `ledger.ts set-travel --id <id> --json-file <file>`
+     (`{"start":"<pendingOwner.start>","travel":[<before>,<after>]}`, written
+     with the `write` tool). Do this before creating the event. If this write fails, delete both buffers, queue any
      failed deletes in `holdCleanup`, and do not book.
   3. If it is still free, create the event with `plow-gog calendar create
      primary` using the final details ("Pick" step 1), following "Book the
      event". `record-booking.ts` records the booking, clears `pendingOwner`
-     and, in that same write, gives the `offered[]` entry for this start the
-     event's `holdId` and `account` while keeping its `travel[]` refs.
+     and, in that same write, copies that offer's `travel[]` refs into the
+     booking (`booked.travel`).
   4. Delete all the request's other meeting and travel holds.
   5. If the format is still `unknown`, ask it in the group, once.
   6. Confirm once in the group for both the owner and guest.
@@ -465,7 +463,7 @@ the meeting thread to answer there, and make no calendar changes.
 waiting for the owner's answer to an out-of-hours time. It does not find a
 contact's open offer. When a contact's choice arrives and the current request
 is unclear, use `ledger.ts find --chat <this chat uid>` and
-`ledger.ts find --handle <contact handle>`; the handle lookup returns the
+`ledger.ts find --handles-file <file with contact handle>`; the handle lookup returns the
 current open (`offered`) request. Never use `pending` to look up a contact's
 offer.
 
@@ -479,7 +477,7 @@ offer.
   and do not alert the owner. Only handle scheduling-related messages below.
 - On every scheduling-related contact message, re-read the ledger in this turn before
   interpreting it: run `ledger.ts find --chat <this chat uid>` and
-  `ledger.ts find --handle <sender handle>`. A previous turn's request object
+  `ledger.ts find --handles-file <file with sender handle>`. A previous turn's request object
   or status is stale. A request with status `booked`, `dropped`, `expired` or `cancelled`
   linked to this chat still makes it a Meetly group. Prefer the open
   (`offered`) handle match as the current request, even when the chat lookup
@@ -504,7 +502,7 @@ offer.
   create, change, or delete holds until the request is identified.
 - **Pick** (a time, or "the first one works"):
   1. Re-run both `ledger.ts find --chat <this chat uid>` and
-     `ledger.ts find --handle <sender handle>` now, even if either command
+     `ledger.ts find --handles-file <file with sender handle>` now, even if either command
      already ran earlier in this turn. Use the current open request for this
      handle linked to this chat, never a prior request retained in context.
      If neither lookup identifies that request, follow **No matching
@@ -617,8 +615,8 @@ People in the group never can.
 
 **Exact-time check.** Read the calendar (`busy.ts --fetch`), then run
 `slots.ts --in /var/lib/plow/meetly/tmp/busy.json --at <start> --duration
-<the request's> --travel <config.travelMin> --allow-overlap <the booked or
-chosen hold id>`. It prints `{slot, free, reason?, outsideHours}`;
+<the request's> --travel --allow-overlap <the booked or chosen hold id>`,
+repeating `--allow-overlap` for each id in the request's `allowOverlap`. It prints `{slot, free, reason?, outsideHours}`;
 the buffers are `slot.travel.before` and `slot.travel.after`. Every place that
 says "the exact-time check" means this command.
 
@@ -635,7 +633,7 @@ does not fit and offer new times.
 If `outsideHours` is true, save the picked time in `pendingOwner` and ask the
 owner in this thread to approve the travel extension, following "Outside the
 owner's hours". If it is free and inside hours, create both travel holds and
-save their refs into that offer before booking. If saving those refs fails,
+save their refs on that offer with `ledger.ts set-travel` before booking. If saving those refs fails,
 delete both travel holds, queue any failed deletes in `holdCleanup`, leave
 the meeting unbooked, and report the failure to the owner. If either hold
 cannot be created, delete any travel hold already made, leave the meeting
@@ -644,8 +642,9 @@ unbooked, and report the failure to the owner.
 When a booked meeting changes from an unknown format to in person, do the same
   calendar check using the booked event id as `--allow-overlap` (ignore that id
 in `overlaps` as this request's own event), create both travel holds, and save
-them in the offer whose `holdId` is the booked event id. If the format changes
-away from in person, delete that offer's travel holds and clear its `travel[]`;
+them on the booking with `ledger.ts set-travel --id <id> --json-file <file>`
+(`{"travel":[…]}`, no `start`). If the format changes away from in person,
+delete the booking's travel holds and clear them with `{"travel":[]}`;
 record any failed deletes in `holdCleanup`.
 
 ## Examples

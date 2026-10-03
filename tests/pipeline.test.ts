@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { addRequest, appendLog, historyFor, pipeline, updateRequest, type Ledger, type NewRequest } from "../skills/meetly/scripts/ledger.ts";
-import { cli, tmpHome } from "./helpers.ts";
+import { cli, tmpHome, handlesFile } from "./helpers.ts";
 
 const ROOT = join(import.meta.dirname, "..");
 const flat = (path: string) => readFileSync(join(ROOT, path), "utf8").replace(/\s+/g, " ");
@@ -89,7 +89,7 @@ test("the CLI prints the pipeline and a person's history", () => {
   assert.equal(p.status, 0, p.stderr);
   assert.deepEqual(Object.keys(p.json), ["waitingOnOwner", "deliveryUnknown", "waitingOnThem", "booked", "closed"]);
   assert.equal(p.json.deliveryUnknown[0].name, "Ana");
-  const h = cli("ledger.ts", ["history", "--handle", "+15550000001"], env);
+  const h = cli("ledger.ts", ["history", "--handles-file", handlesFile("+15550000001")], env);
   assert.equal(h.json.requests[0].topic, "coffee");
   assert.notEqual(cli("ledger.ts", ["history"], env).status, 0);
   // A blocked person is not in the owner's pipeline.
@@ -110,7 +110,7 @@ test("the owner can ask who they are waiting on, and Meetly looks before it asks
   assert.ok(group.includes("Write only what the calendar or the chat confirmed, never a plan or a guess"));
   assert.ok(group.includes("`start-thread.ts` checks the list again immediately before its POST"));
   assert.ok(group.includes("## Travel time"));
-  assert.ok(group.includes("run `slots.ts` with `--travel <config.travelMin>`"));
+  assert.ok(group.includes("run `slots.ts` with `--travel` when `config.travelMin` is set"));
   assert.ok(group.includes("record both in the offer's `travel[]`"));
   assert.ok(group.includes("delete the other holds and their travel blocks"));
   assert.ok(flat("skills/meetly-setup/SKILL.md").includes("`record-setup.ts --field travel --value <minutes>`"));
@@ -121,10 +121,10 @@ test("the owner can ask who they are waiting on, and Meetly looks before it asks
   assert.ok(flat("README.md").includes("give Meetly your personal room link"));
   assert.ok(flat("skills/meetly-poll/SKILL.md").includes("`blocklist.ts check --handles-file <file with the sender>` says `blocked`, skip"));
   assert.ok(group.includes("## Research before proposing"));
-  assert.ok(group.includes("and `ledger.ts history --handle <their handle>`"));
+  assert.ok(group.includes("and `ledger.ts history --handles-file <file with their handle>`"));
   assert.ok(group.includes("Never ask the other person for something these sources answer"));
   assert.ok(flat("prompt/AGENTS.md").includes("the owner asks who they are waiting on, or how their meetings stand → `meetly-group`, \"Pipeline\""));
-  assert.ok(flat("skills/meetly/SKILL.md").includes("`pipeline` \\| `history --handle H`"));
+  assert.ok(flat("skills/meetly/SKILL.md").includes("`pipeline` \\| `history --handles-file F`"));
 });
 
 test("a request keeps a dated log of what happened, newest last, bounded, and read back on its own", () => {
