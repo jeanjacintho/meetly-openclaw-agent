@@ -161,6 +161,12 @@ test("update resets offeredAt with new offers and rejects unknown keys", () => {
   assert.throws(() => updateRequest(l, "r_1", { handle: "x" } as never, T0), /unknown key/);
   assert.throws(() => updateRequest(l, "r_1", { status: "lost" } as never, T0), /status/);
   assert.throws(() => updateRequest(l, "nope", { status: "dropped" }, T0), /no request/);
+  // The attendee email is kept in the request, lowercased and validated, and a new offer does not erase it.
+  const withEmail = updateRequest(l, "r_1", { attendeeEmail: " Ana@Example.com " }, T0);
+  assert.equal(withEmail.requests[0]!.attendeeEmail, "ana@example.com");
+  assert.throws(() => updateRequest(l, "r_1", { attendeeEmail: "ana" }, T0), /email/);
+  assert.equal(saveRequest(withEmail, input({ offered: [{ ...offer, holdId: "h7" }] }), T0, "r_x").requests[0]!.attendeeEmail, "ana@example.com");
+  assert.throws(() => updateRequest(withEmail, "r_1", { attendeeEmail: null } as never, T0), /email/);
 });
 
 test("expired: 48 hours after the offer, open requests only", () => {
