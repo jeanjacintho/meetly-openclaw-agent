@@ -6,7 +6,7 @@ import {
   addRequest, saveRequest, settleOffer, discardStaleOffers, removeCleanupRef, appendLog, cleanupList, pendingOwnerList, ownerApprovalList, expiredRequests, expireRequests, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, pipeline, stageOf,
   type Ledger, type NewRequest,
 } from "../skills/meetly/scripts/ledger.ts";
-import { cli, tmpHome } from "./helpers.ts";
+import { cli, tmpHome, handlesFile } from "./helpers.ts";
 
 const T0 = Date.parse("2026-09-28T12:00:00Z");
 const HOUR = 3600_000;
@@ -148,7 +148,7 @@ test("CLI sender-aware chat lookup prefers open request over closed chat history
   const old = cli("ledger.ts", ["find", "--chat", "c1"], env).json.request;
   cli("ledger.ts", ["update", "--id", old.id, "--json", '{"status":"dropped"}'], env);
   const replacement = cli("ledger.ts", ["add", "--json", JSON.stringify(input({ offered: [{ ...offer, holdId: "h2" }] }))], env).json.request;
-  const current = cli("ledger.ts", ["find", "--chat", "c1", "--handle", "+15551234567"], env);
+  const current = cli("ledger.ts", ["find", "--chat", "c1", "--handles-file", handlesFile("+15551234567")], env);
   assert.equal(current.status, 0, current.stderr);
   assert.equal(current.json.request.id, replacement.id);
 });
@@ -161,7 +161,7 @@ test("CLI combined lookup returns a closed chat request when the sender has no o
     const request = created.json.request;
     cli("ledger.ts", ["update", "--id", request.id, "--json", JSON.stringify({ status })], env);
 
-    const result = cli("ledger.ts", ["find", "--chat", "c1", "--handle", "+15551234567"], env);
+    const result = cli("ledger.ts", ["find", "--chat", "c1", "--handles-file", handlesFile("+15551234567")], env);
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.json.request.id, request.id);
     assert.equal(result.json.request.status, status);
@@ -322,8 +322,8 @@ test("CLI add, find, update and cleanup round-trip", () => {
   assert.equal(added.status, 0, added.stderr);
   const id = added.json.request.id;
   assert.match(id, /^r_[0-9a-f]{8}$/);
-  assert.equal(cli("ledger.ts", ["find", "--handle", "5551234567"], env).json.request.id, id);
-  assert.deepEqual(cli("ledger.ts", ["find", "--handle", "+15550000000"], env).json, { request: null });
+  assert.equal(cli("ledger.ts", ["find", "--handles-file", handlesFile("5551234567")], env).json.request.id, id);
+  assert.deepEqual(cli("ledger.ts", ["find", "--handles-file", handlesFile("+15550000000")], env).json, { request: null });
   const patch = join(home, "patch.json");
   writeFileSync(patch, JSON.stringify({ chatUid: "chat_1" }));
   assert.equal(cli("ledger.ts", ["update", "--id", id, "--json-file", patch], env).json.request.chatUid, "chat_1");
@@ -385,7 +385,7 @@ test("CLI add, find, update and cleanup round-trip", () => {
 test("a corrupt ledger.json fails loudly", () => {
   const home = tmpHome();
   writeFileSync(join(home, "ledger.json"), "[oops");
-  const r = cli("ledger.ts", ["find", "--handle", "+15551234567"], { MEETLY_HOME: home });
+  const r = cli("ledger.ts", ["find", "--handles-file", handlesFile("+15551234567")], { MEETLY_HOME: home });
   assert.equal(r.status, 1);
   assert.match(r.stderr, /ledger\.json/);
 });

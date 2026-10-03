@@ -19,6 +19,13 @@ export function seedRequest(home: string, over: Record<string, unknown> = {}): v
   writeFileSync(join(home, "ledger.json"), JSON.stringify({ requests: [request] }));
 }
 
+// A handle reaches a script only through a JSON array file, never the command line.
+export function handlesFile(...handles: string[]): string {
+  const path = join(tmpHome(), "handles.json");
+  writeFileSync(path, JSON.stringify(handles));
+  return path;
+}
+
 export type CliResult = { status: number | null; stdout: string; stderr: string; json: any };
 
 export function cli(script: string, args: string[], env: Record<string, string>, input?: string): CliResult {
