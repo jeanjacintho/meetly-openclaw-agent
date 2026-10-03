@@ -186,13 +186,19 @@ test("meeting details use explicit words and context, with private clarification
   const group = groupSkill();
   assert.ok(group.includes("## Meeting format"));
   assert.ok(group.includes("Use explicit words and clear context"));
-  assert.ok(group.includes("Anything else is `unknown`, including \"call\", \"ligação\""));
+  assert.ok(group.includes("otherwise `unknown`, including \"call\", \"ligação\""));
   assert.ok(group.includes("A request to have lunch together also indicates `in_person`, unless the context explicitly says virtual"));
   assert.ok(group.includes("never invent a venue"));
   assert.ok(group.includes("never ask again for something this context answers"));
   assert.ok(group.includes("Do not add a public format or venue question"));
   assert.ok(group.includes("Never ask about the format twice in a row"));
   assert.ok(pollSkill().includes("the format if their words say it"));
+  // The owner's default fills in only what neither side said, in the poll too, and a default of in_person still asks where.
+  assert.ok(group.includes("Anything else is `config.defaultFormat` when the owner set one, otherwise `unknown`"));
+  assert.ok(group.includes("always wins over `config.defaultFormat`"));
+  assert.ok(group.includes("A default of `in_person` still needs a place: clarify it with the owner privately"));
+  assert.ok(pollSkill().includes("which also applies the owner's default"));
+  assert.ok(flat(readFileSync(join(ROOT, "skills/meetly-setup/SKILL.md"), "utf8")).includes("`record-setup.ts --field defaultFormat --value meet|in_person|phone`"));
 });
 
 test("every booking goes through Book the event: --with-meet, --json and record-booking.ts", () => {

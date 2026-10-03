@@ -50,7 +50,8 @@ signed as Meetly.
 - **Researches before asking.** Meetly uses the thread, known contact details
   and relevant prior context. Lunch together implies in person unless the
   conversation says virtual. A necessary detail that remains unclear is asked
-  privately of you, rather than publicly of the contact.
+  privately of you, rather than publicly of the contact. A default meeting type
+  you set fills in only what neither side said.
 - **Posts only the Meet link it created.** The link comes from the event on
   your calendar, read again just before it is sent: move the meeting and the
   link goes out at the new time; delete it and nothing is sent. A link
@@ -89,6 +90,10 @@ Everything else starts at these defaults:
 - hours: 09:00 to 18:00,
 - meeting length: 30 minutes,
 - offers up to 14 days ahead.
+
+One more setting has no default: your default meeting type (online, in person
+or phone). Say "always online" and Meetly stops asking how to meet; whatever a
+request says still wins.
 
 Change any of it later in plain words ("make my window 10 to 17", "I don't
 take meetings on Fridays"), or say "pause Meetly" / "resume Meetly".

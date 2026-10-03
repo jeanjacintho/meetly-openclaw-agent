@@ -181,10 +181,15 @@ context from the current thread or the owner's researched request:
   together also indicates `in_person`, unless the context explicitly says
   virtual. Put a known place in `location`; never invent a venue.
 - `phone`: "by phone", "por telefone", "call me at <number>".
-- Anything else is `unknown`, including "call", "ligação", "a quick chat",
-  and "coffee" with no clarifying context. A Zoom
-  or other link someone sends is not `meet`: leave the format `unknown` and
-  put what they said in `location`.
+- Anything else is `config.defaultFormat` when the owner set one, otherwise
+  `unknown`, including "call", "ligação", "a quick chat", and "coffee" with no
+  clarifying context. A Zoom or other link someone sends is not `meet`: leave
+  the format `unknown` and put what they said in `location`.
+
+What the owner or the other person says about the format always wins over
+`config.defaultFormat`. A default of `meet` or `phone` needs nothing more. A
+default of `in_person` still needs a place: clarify it with the owner
+privately.
 
 Pass `locale` with every save: the other person's language tag, the same one
 used for `slots.ts --locale`.
