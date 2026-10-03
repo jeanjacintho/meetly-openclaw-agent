@@ -11,9 +11,10 @@ import { status } from "./setup-status.ts";
 import { writeJson } from "./store.ts";
 import { zonedToUtc } from "./time.ts";
 
-// `movable`: the owner listed a word from the title of a block the owner
-// organized (`organizer.self`: an invited or shared event could carry any title),
-// so Meetly may offer times over it. The title itself never leaves this script.
+// `movable`: the owner listed a word from the title of a block nobody else is
+// invited to (an invitation always carries its organizer, so a title alone from
+// someone else never qualifies), so Meetly may offer times over it. The title
+// itself never leaves this script.
 export type Busy = { start: string; end: string; id?: string; account?: string; movable?: true };
 export type BusyResult = { busy: Busy[]; unknownAfter?: string; degraded: string[] };
 
@@ -31,8 +32,8 @@ export type CalEvent = {
   transparency?: string;
   declined?: boolean;
   status?: string;
-  attendees?: { self?: boolean; responseStatus?: string }[];
-  organizer?: { self?: boolean; email?: string };
+  // Latch lists only the others invited, by address; the raw Google shape lists everyone as objects.
+  attendees?: (string | { self?: boolean; resource?: boolean; responseStatus?: string })[];
 };
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
@@ -64,7 +65,7 @@ function eventsOf(result: unknown): { events: CalEvent[]; degraded: unknown[]; a
 
 function skipped(e: CalEvent): boolean {
   if (e.transparency === "transparent" || e.declined === true || e.status === "cancelled") return true;
-  return (e.attendees ?? []).some((a) => a?.self === true && a.responseStatus === "declined");
+  return (e.attendees ?? []).some((a) => typeof a !== "string" && a?.self === true && a.responseStatus === "declined");
 }
 
 export function toBusy(results: unknown[], opts: { tz: string; max: number; movable?: string[] }): BusyResult {
@@ -98,7 +99,7 @@ export function toBusy(results: unknown[], opts: { tz: string; max: number; mova
       const b: Busy = { start: new Date(start).toISOString(), end: new Date(end).toISOString() };
       if (e.id !== undefined) b.id = e.id;
       if (e.account !== undefined) b.account = e.account;
-      if (e.organizer?.self === true && e.summary && opts.movable?.some((w) => titleHasWordOrPhrase(e.summary!, w))) b.movable = true;
+      if (!hasOthers(e) && e.summary && opts.movable?.some((w) => titleHasWordOrPhrase(e.summary!, w))) b.movable = true;
       busy.push(b);
     }
     for (const { count, last } of perAccount.values()) {
@@ -110,6 +111,10 @@ export function toBusy(results: unknown[], opts: { tz: string; max: number; mova
   if (unknownAfter !== undefined) out.unknownAfter = new Date(unknownAfter).toISOString();
   return out;
 }
+
+// Anyone besides the owner on the event: Latch's list of other addresses, or the raw objects that are not the owner or a room.
+const hasOthers = (e: CalEvent): boolean =>
+  (e.attendees ?? []).some((a) => typeof a === "string" || (a?.self !== true && a?.resource !== true));
 
 function titleHasWordOrPhrase(title: string, configured: string): boolean {
   const normalize = (value: string) => value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/g, " ");
