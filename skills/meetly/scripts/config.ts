@@ -1,4 +1,5 @@
 // The owner's scheduling config: types, answer parsing and validation.
+import { isZoomRoomUrl } from "./event.ts";
 import { file } from "./paths.ts";
 import { readJson } from "./store.ts";
 import { DAYS, type Day } from "./time.ts";
@@ -24,6 +25,8 @@ export type Config = {
   defaultAccount: string;
   // When enabled, inbound requests wait for owner approval before contacting the person.
   ownerGate?: boolean;
+  // The owner's personal Zoom room; unset means Google Meet.
+  zoomRoomUrl?: string;
   // Minutes of notice a time needs before it is offered; unset means MIN_NOTICE_MIN.
   minNoticeMin?: number;
   defaultFormat?: DefaultFormat;
@@ -32,7 +35,7 @@ export type Config = {
 };
 
 // Every setting the owner can change.
-export const FIELDS = ["ownerName", "timezone", "days", "window", "durationMin", "horizonDays", "calendars", "ownerGate", "minNotice", "defaultFormat"] as const;
+export const FIELDS = ["ownerName", "timezone", "days", "window", "durationMin", "horizonDays", "calendars", "ownerGate", "videoProvider", "minNotice", "defaultFormat"] as const;
 export type Field = (typeof FIELDS)[number];
 
 // What setup cannot start without, in the order it asks: nobody but the owner,
@@ -164,6 +167,12 @@ export function parseField(field: string, value: string): Partial<Config> {
       if (["off", "no", "false", "disabled"].includes(v)) return { ownerGate: false };
       throw new Error(`ownerGate must be on or off, got "${value}"`);
     }
+    case "videoProvider": {
+      const v = value.trim();
+      if (v === "meet") return { zoomRoomUrl: undefined };
+      if (!isZoomRoomUrl(v)) throw new Error(`the video provider is meet, or your Zoom room link (https://zoom.us/j/... or /my/...), got "${value}"`);
+      return { zoomRoomUrl: v };
+    }
     case "minNotice": {
       const raw = value.trim().toLowerCase();
       if (raw === "default") return { minNoticeMin: undefined };
@@ -234,6 +243,7 @@ export function validateConfig(partial: Partial<Config>): Config {
     if (typeof p.ownerGate !== "boolean") throw new Error("ownerGate must be true or false");
     config.ownerGate = p.ownerGate;
   }
+  if (p.zoomRoomUrl !== undefined) config.zoomRoomUrl = p.zoomRoomUrl;
   if (p.minNoticeMin !== undefined) config.minNoticeMin = p.minNoticeMin;
   if (p.defaultFormat !== undefined) config.defaultFormat = p.defaultFormat;
   if (p.setupDoneAt !== undefined) config.setupDoneAt = p.setupDoneAt;

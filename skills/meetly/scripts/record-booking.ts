@@ -10,6 +10,8 @@ import { updateJson } from "./store.ts";
 
 export type Recorded = { ledger: Ledger; meetUrl: string | null; warning?: "no-meet-link" };
 
+// The event is the one snapshot: a video meeting keeps the Zoom room that the
+// event's own location shows (the owner's room), else the event's Meet link.
 export function recordBooking(ledger: Ledger, id: string, event: EventInfo, account: string, now: number): Recorded {
   const request = ledger.requests.find((r) => r.id === id);
   if (!request) throw new Error(`no request ${id}`);
@@ -24,14 +26,15 @@ export function recordBooking(ledger: Ledger, id: string, event: EventInfo, acco
     status: "booked",
     eventId: event.id,
     booked: { start: event.start, end: event.end, account },
-    meetUrl: isMeet ? event.meetUrl : null,
+    meetUrl: isMeet && !event.roomUrl ? event.meetUrl : null,
+    roomUrl: isMeet ? event.roomUrl : null,
     pendingOwner: null,
   };
   // A reminder belongs to one start time: a moved meeting gets a new one.
   if (request.booked && Date.parse(request.booked.start) !== Date.parse(event.start)) patch.reminder = null;
   const next = updateRequest(ledger, id, patch, now);
   const meetUrl = (next.requests.find((r) => r.id === id) as Request).meetUrl ?? null;
-  return { ledger: next, meetUrl, ...(isMeet && !meetUrl ? { warning: "no-meet-link" as const } : {}) };
+  return { ledger: next, meetUrl, ...(isMeet && !event.roomUrl && !meetUrl ? { warning: "no-meet-link" as const } : {}) };
 }
 
 if (isMain(import.meta.url)) {

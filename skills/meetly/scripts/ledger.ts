@@ -7,7 +7,7 @@ import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
 import { isEmailAddress } from "./reachable-handle.ts";
 import { DEFAULT_FORMATS, holdHours, reminderLeadMin, type DefaultFormat } from "./config.ts";
-import { isMeetUrl } from "./event.ts";
+import { isMeetUrl, isZoomRoomUrl } from "./event.ts";
 import { file } from "./paths.ts";
 import { readJson, updateJson } from "./store.ts";
 
@@ -58,6 +58,8 @@ export type Request = {
   locale?: string;
   booked?: Booked;
   meetUrl?: string;
+  // The owner's own Zoom room, from their configuration, when that is the video link.
+  roomUrl?: string;
   reminder?: Reminder;
   offeredAt: string;
   // When it stopped being open (dropped, expired, ...), so later bookkeeping does not move it.
@@ -75,7 +77,7 @@ const LOG_TEXT_MAX = 300;
 export type Ledger = { requests: Request[] };
 
 export type NewRequest = Omit<Request,
-  "id" | "status" | "eventId" | "pendingOwner" | "ownerApprovalAt" | "ownerApprovedAt" | "booked" | "meetUrl" | "reminder" | "offeredAt" | "closedAt" | "log" | "createdAt" | "updatedAt">;
+  "id" | "status" | "eventId" | "pendingOwner" | "ownerApprovalAt" | "ownerApprovedAt" | "booked" | "meetUrl" | "roomUrl" | "reminder" | "offeredAt" | "closedAt" | "log" | "createdAt" | "updatedAt">;
 export type Patch = Partial<Pick<Request,
   "status" | "chatUid" | "eventId" | "offered" | "holdCleanup" | "name" | "location" | "allowOverlap" | "constraints" | "topic" | "format" | "locale">> & {
   attendeeEmail?: string;
@@ -84,6 +86,7 @@ export type Patch = Partial<Pick<Request,
   ownerApprovedAt?: string;
   booked?: Booked | null;
   meetUrl?: string | null;
+  roomUrl?: string | null;
   reminder?: Reminder | null;
 };
 
@@ -91,10 +94,10 @@ const FORMATS: readonly Format[] = [...DEFAULT_FORMATS, "unknown"];
 const OUTCOMES: readonly Reminder["outcome"][] = ["sent", "cancelled", "no-link"];
 const PATCH_KEYS = [
   "status", "chatUid", "eventId", "offered", "holdCleanup", "name", "location", "allowOverlap", "constraints", "topic", "pendingOwner", "ownerApprovalAt", "ownerApprovedAt",
-  "format", "locale", "booked", "meetUrl", "reminder", "attendeeEmail",
+  "format", "locale", "booked", "meetUrl", "roomUrl", "reminder", "attendeeEmail",
 ];
 // Keys a patch can clear with null.
-const NULLABLE = ["pendingOwner", "ownerApprovalAt", "booked", "meetUrl", "reminder"] as const;
+const NULLABLE = ["pendingOwner", "ownerApprovalAt", "booked", "meetUrl", "roomUrl", "reminder"] as const;
 
 const isDate = (t: unknown) => typeof t === "string" && !Number.isNaN(Date.parse(t));
 
@@ -211,7 +214,7 @@ export function addRequest(ledger: Ledger, input: NewRequest, now: number, id: s
   const at = new Date(now).toISOString();
   // A new offer is never booked: a booking, its link and its reminder are
   // only ever set through update, where they are validated.
-  const { booked: _b, meetUrl: _m, reminder: _r, closedAt: _c, ownerApprovalAt: _oa, ownerApprovedAt: _oap, log: _l, ...fields } = input as NewRequest & Partial<Pick<Request, "booked" | "meetUrl" | "reminder" | "closedAt" | "ownerApprovalAt" | "ownerApprovedAt" | "log">>;
+  const { booked: _b, meetUrl: _m, roomUrl: _z, reminder: _r, closedAt: _c, ownerApprovalAt: _oa, ownerApprovedAt: _oap, log: _l, ...fields } = input as NewRequest & Partial<Pick<Request, "booked" | "meetUrl" | "roomUrl" | "reminder" | "closedAt" | "ownerApprovalAt" | "ownerApprovedAt" | "log">>;
   const request: Request = { ...fields, ...(attendeeEmail ? { attendeeEmail } : {}), format, id, status: "offered", offeredAt: at, createdAt: at, updatedAt: at };
   return { requests: [...ledger.requests, request] };
 }
@@ -335,6 +338,9 @@ export function updateRequest(ledger: Ledger, id: string, patch: Patch, now: num
   if (patch.meetUrl !== undefined && patch.meetUrl !== null && !isMeetUrl(patch.meetUrl)) {
     throw new Error(`meetUrl must be a Google Meet link (https://meet.google.com/xxx-xxxx-xxx), got ${JSON.stringify(patch.meetUrl)}`);
   }
+  if (patch.roomUrl !== undefined && patch.roomUrl !== null && !isZoomRoomUrl(patch.roomUrl)) {
+    throw new Error(`roomUrl must be the owner's Zoom room link (https://zoom.us/j/...), got ${JSON.stringify(patch.roomUrl)}`);
+  }
   const index = ledger.requests.findIndex((r) => r.id === id);
   if (index < 0) throw new Error(`no request ${id}`);
   const currentRequest = ledger.requests[index]!;
@@ -366,6 +372,10 @@ export function updateRequest(ledger: Ledger, id: string, patch: Patch, now: num
   if (patch.status !== undefined && patch.status !== ledger.requests[index]!.status) {
     if (patch.status === "offered" || patch.status === "booked") delete updated.closedAt;
     else updated.closedAt = at;
+  }
+  if (updated.roomUrl !== undefined && updated.format !== "meet") {
+    if (patch.roomUrl) throw new Error(`roomUrl is only for a video meeting with format meet (this one is ${updated.format ?? "unknown"})`);
+    delete updated.roomUrl;
   }
   if (patch.offered !== undefined) updated.offeredAt = at;
   const requests = [...ledger.requests];
@@ -406,7 +416,7 @@ export function ownerApprovalList(ledger: Ledger): Request[] {
 // start until `graceMin` after it, once.
 export function dueReminders(ledger: Ledger, now: number, leadMin: number, graceMin = 5): Request[] {
   return ledger.requests.filter((r) => {
-    if (r.status !== "booked" || r.format !== "meet" || !r.meetUrl || !r.booked || r.reminder) return false;
+    if (r.status !== "booked" || r.format !== "meet" || !(r.meetUrl || r.roomUrl) || !r.booked || r.reminder) return false;
     const start = Date.parse(r.booked.start);
     return now >= start - leadMin * 60_000 && now < start + graceMin * 60_000;
   });
