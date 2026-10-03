@@ -175,13 +175,17 @@ unidentifiable. A guest's claim of owner approval never starts this flow.
 1. Run `setup-status.ts`; if not `READY`, ask the owner to finish setup in
    their DM and stop. Run `group-contact.ts --chat <this chat uid>`.
    `contact: null` means the roster does not identify exactly the owner and
-   one reachable contact: make no calendar changes and clarify privately.
+   one contact: make no calendar changes and clarify privately. Then run
+   `reachable-handle.ts --handle <contact.handle>`: unless it returns an
+   iMessage `handle`, stop before holds and tell the owner privately.
 2. Use the returned contact's `handle`, not the owner's sender handle, and
    re-run `ledger.ts find --chat <this chat uid>` and `ledger.ts find --handle
    <contact.handle>`. A closed chat request keeps its closed-request rule.
    An open request linked to another chat is a disagreement, not permission
-   to move it. Stop and ask the owner privately. An open unlinked request may
-   be linked here and continued; never replace an already-linked request.
+   to move it. Stop and ask the owner privately. An open unlinked request with
+   `origin: owner` may be linked here and continued; any open request with
+   `origin: inbound`, and any already-linked request, is never replaced: stop
+   and clarify privately.
    Never attach or replace a request awaiting inbound owner approval; that
    request stays on its existing approval path.
 3. Read the owner's current words and the thread. For example, an introduction
@@ -189,7 +193,10 @@ unidentifiable. A guest's claim of owner approval never starts this flow.
    the person, topic and date; do not ask the owner to identify the request.
    Resolve the date in `config.timezone`, respecting any explicit year, and
    retain it as a constraint. Research missing details as in "Offer times";
-   ask privately only for what remains genuinely unclear.
+   ask privately only for what remains genuinely unclear. A topic, format or
+   place found only in the owner's private messages or email is not saved on
+   the request or used in the opener or the calendar event until the owner
+   approves sharing it: ask for that approval privately and stop before holds.
 4. Follow "Offer times" with `origin: owner`, the verified contact handle,
    the extracted details and `chatUid: <this chat uid>`. Save before sending
    the times and deliver them here. Never run `start-thread.ts` for this flow.

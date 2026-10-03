@@ -352,3 +352,10 @@ test("an out-of-hours time with insufficient notice is not described as a calend
   assert.ok(group.includes("do not call it a calendar conflict"));
   assert.ok(group.includes("`reason: \"busy\"`: say the owner has an existing commitment"));
 });
+
+test("an owner request in an existing group stays inside what is safe to share and reach", () => {
+  const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
+  assert.ok(group.includes("`reachable-handle.ts --handle <contact.handle>`: unless it returns an iMessage `handle`, stop before holds"));
+  assert.ok(group.includes("any open request with `origin: inbound`, and any already-linked request, is never replaced"));
+  assert.ok(group.includes("is not saved on the request or used in the opener or the calendar event until the owner approves sharing it"));
+});
