@@ -37,10 +37,8 @@ export type CalEvent = {
   status?: string;
   // Latch lists only the others invited, by address; the raw Google shape lists everyone as objects.
   attendees?: (string | { self?: boolean; resource?: boolean; responseStatus?: string })[];
-  // The raw Google listing (what a single-account read returns) names the creator; Latch's compact listing
-  // says only `createdByOwner` (creator address equals the account), never an address.
+  // A single-account read, the only kind Meetly makes, returns the raw Google listing, which names the creator.
   creator?: { email?: string; self?: boolean };
-  createdByOwner?: boolean;
 };
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
@@ -122,10 +120,9 @@ export function toBusy(results: unknown[], opts: { tz: string; max: number; mova
 // Meetly's own holds ("Hold: <topic> with <name>") carry the topic and no guests: never movable, or the same time could be offered twice.
 const MEETLY_HOLD = /^\s*hold:/i;
 
-// The event was created by the account's owner: Latch's flag, or the creator's address equal to the account it was read from.
+// The event was created by the account's owner: the creator's address is the account it was read from.
 const createdByOwner = (e: CalEvent): boolean =>
-  e.createdByOwner === true ||
-  (typeof e.creator?.email === "string" && typeof e.account === "string" && e.creator.email.toLowerCase() === e.account.toLowerCase());
+  typeof e.creator?.email === "string" && typeof e.account === "string" && e.creator.email.toLowerCase() === e.account.toLowerCase();
 
 // Anyone besides the owner on the event: Latch's list of other addresses, or the raw objects that are not the owner or a room.
 const hasOthers = (e: CalEvent): boolean =>

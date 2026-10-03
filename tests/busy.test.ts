@@ -153,8 +153,6 @@ test("a block the owner created and nobody else is invited to, whose title has a
     { id: "h1", account: "owner@example.com", summary: "Hold: Prayer group with Ana", startLocal: "2026-09-28T15:00:00-03:00", endLocal: "2026-09-28T16:00:00-03:00", ...own },
     // Only the owner (and a room) on it, created by the owner: their own block. Case of the address does not matter.
     { id: "p3", account: "owner@example.com", summary: "Gym", startLocal: "2026-09-28T14:00:00-03:00", endLocal: "2026-09-28T15:00:00-03:00", attendees: [{ self: true, responseStatus: "accepted" }, { resource: true }], creator: { email: "Owner@Example.com" } },
-    // Latch's compact listing says only that the owner created it.
-    { id: "p4", account: "owner@example.com", summary: "Prayer", startLocal: "2026-09-28T16:00:00-03:00", endLocal: "2026-09-28T17:00:00-03:00", createdByOwner: true },
     // Not proven: a collaborator wrote it onto the owner's calendar (Google still says organizer.self and creator.self are true),
     // an invitation's creator, and an old listing that names no creator at all.
     { id: "collab", account: "owner@example.com", summary: "Prayer", startLocal: "2026-09-28T17:00:00-03:00", endLocal: "2026-09-28T18:00:00-03:00", creator: { email: "collab@example.com", self: true }, organizer: { email: "owner@example.com", self: true } },
@@ -164,7 +162,7 @@ test("a block the owner created and nobody else is invited to, whose title has a
   const r = toBusy([{ items }], { tz: TZ, max: 100, movable: ["prayer", "gym"] });
   assert.deepEqual(r.busy.map((b) => [b.id, b.movable]), [
     ["p1", true], ["m1", undefined], ["s1", undefined], ["p2", true], ["x1", undefined], ["x2", undefined], ["p3", true], ["h1", undefined],
-    ["p4", true], ["collab", undefined], ["invite", undefined], ["legacy", undefined],
+    ["collab", undefined], ["invite", undefined], ["legacy", undefined],
   ]);
   assert.equal(JSON.stringify(r).includes("prayer"), false);
   assert.equal(JSON.stringify(r).includes("Board"), false);
