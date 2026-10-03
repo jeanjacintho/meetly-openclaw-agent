@@ -76,8 +76,8 @@ free there.
    - An open request that already has a `chatUid`: post the new times there.
    - Otherwise open a group with the person's handle and the opener: run
      `start-thread.ts --member <handle> --body <opener> --key <key>`, with key
-     `rowid:<sourceRowid>` in the poll and `owner:<handle>:<first offered
-     start>` for an owner request. Never the `plow_start_thread` tool: it
+     `rowid:<sourceRowid>` in the poll and `request:<saved request id>`
+     for an owner request, so a retry keeps its key and a later request gets a new one. Never the `plow_start_thread` tool: it
      gives Plow 10 s, and a group Plow takes longer to open reads as an
      unknown delivery that withholds the rest of the turn, the owner's reply
      included.
