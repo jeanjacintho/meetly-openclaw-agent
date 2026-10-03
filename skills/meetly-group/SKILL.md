@@ -329,6 +329,17 @@ An answer that arrives before booking is recorded with
 one. Never ask about the format twice in a row: once in the opener, and once
 after booking if the pick did not answer it.
 
+## Video provider
+
+A video meeting (`format` `meet`) happens on Google Meet unless the owner set
+their Zoom room (`config.zoomRoomUrl`). Then book it with `--location
+<config.zoomRoomUrl>` and no `--with-meet`, and say "video call" where this
+skill says "Google Meet". Meetly cannot create a Zoom link and never takes one
+from a message: the only Zoom link it posts is the owner's room, which
+`record-booking.ts` reads from the returned event's location, and the
+reminder goes out only while the event still shows that room. Once the provider is
+set, never ask the owner which to use.
+
 ## Book the event
 
 Used by "Pick", "Owner confirms" and the owner writing in the group. The
@@ -336,7 +347,8 @@ command is the one that step names (`calendar update primary <holdId>` for a
 held slot, or `calendar create primary`), always with `--json` and
 `--send-updates all`, plus:
 
-- `format` `meet`: `--with-meet`. That creates the Google Meet room.
+- `format` `meet`: `--with-meet`. That creates the Google Meet room (with a
+  Zoom room set, see "Video provider": `--location` instead).
 - `in_person` with a place: `--location <place>`.
 - `phone`: `--location "Phone call"`.
 - `unknown`: nothing extra.

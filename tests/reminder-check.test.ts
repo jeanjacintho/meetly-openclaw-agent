@@ -42,6 +42,21 @@ test("in the window, the link is sent to the group with the time in the person's
   });
 });
 
+test("a booking in the owner's Zoom room sends that room, and a cancelled event sends nothing", () => {
+  const room = "https://zoom.us/j/123456789";
+  const zoom = bookedMeet({ meetUrl: null, roomUrl: room });
+  const noLink = event({ meetUrl: null });
+  const out = check(zoom, event({ meetUrl: null, roomUrl: room }), START - 8 * MIN);
+  assert.equal(out.action, "send");
+  assert.equal(out.send!.meetUrl, room);
+  // The live event no longer shows the saved room (location removed or changed): nothing is sent.
+  assert.equal(check(zoom, noLink, START - 8 * MIN).action, "no-link");
+  assert.equal(check(zoom, event({ meetUrl: null, roomUrl: "https://zoom.us/j/999999999" }), START - 8 * MIN).action, "no-link");
+  assert.equal(check(zoom, event({ meetUrl: null, roomUrl: room, status: "cancelled" }), START - 8 * MIN).action, "cancelled");
+  // Neither a Meet link nor a room: nothing to send.
+  assert.equal(check(bookedMeet({ meetUrl: null }), noLink, START - 8 * MIN).action, "no-link");
+});
+
 test("the time is written in the owner's zone and the person's locale", () => {
   const out = check(bookedMeet({ locale: "en-US" }), event(), START - 5 * MIN);
   assert.equal(out.send!.time, "04:00 AM");

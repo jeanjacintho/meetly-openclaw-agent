@@ -114,6 +114,13 @@ test("durations and horizons are bounded integers", () => {
     assert.deepEqual(parseField("travel", value), { travelMin: min }, value);
   }
   for (const bad of ["soon", "-5", "181", "4h", ""]) assert.throws(() => parseField("travel", bad), /travel/, bad);
+  // The video provider is Meet, or the owner's personal Zoom room (a strict https zoom.us URL).
+  assert.deepEqual(parseField("videoProvider", "meet"), { zoomRoomUrl: undefined });
+  const room = "https://us02web.zoom.us/j/123456789?pwd=abc.DEF";
+  assert.deepEqual(parseField("videoProvider", ` ${room} `), { zoomRoomUrl: room });
+  for (const bad of ["zoom", "http://zoom.us/j/1", "https://zoom.us.evil.example/j/1", "https://zoom.us/j/1?x=1", "https://example.com/j/1"]) {
+    assert.throws(() => parseField("videoProvider", bad), /Zoom/, bad);
+  }
   // The notice a time needs is hours or minutes, 0 to 72 hours, and default clears it.
   for (const [value, min] of [["3", 180], ["3h", 180], ["1.5h", 90], ["45 min", 45], ["0", 0]] as const) assert.deepEqual(parseField("minNotice", value), { minNoticeMin: min });
   assert.deepEqual(parseField("minNotice", "default"), { minNoticeMin: undefined });
@@ -212,6 +219,10 @@ test("editing a field after setup updates config.json and keeps setupDoneAt", ()
     assert.equal(readJson<Config | null>(join(home, "config.json"), null)!.travelMin, 30);
     record("travel", "none");
     assert.equal("travelMin" in readJson<object>(join(home, "config.json"), {}), false);
+    record("videoProvider", "https://zoom.us/j/123456789");
+    assert.equal(readJson<Config | null>(join(home, "config.json"), null)!.zoomRoomUrl, "https://zoom.us/j/123456789");
+    record("videoProvider", "meet");
+    assert.equal("zoomRoomUrl" in readJson<object>(join(home, "config.json"), {}), false);
     assert.equal("defaultFormat" in config, false);
     record("defaultFormat", "meet");
     assert.equal(readJson<Config | null>(join(home, "config.json"), null)!.defaultFormat, "meet");

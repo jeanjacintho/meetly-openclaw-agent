@@ -48,8 +48,11 @@ export function checkReminder(request: Request, event: EventInfo, now: number, o
   if (Date.parse(event.start) !== Date.parse(booked.start) || Date.parse(event.end) !== Date.parse(booked.end)) {
     patch.booked = { start: event.start, end: event.end, account: booked.account };
   }
-  if (!event.meetUrl) return { action: "no-link", patch: { ...patch, reminder: { at, outcome: "no-link" } } };
-  if (event.meetUrl !== request.meetUrl) patch.meetUrl = event.meetUrl;
+  // The link is the one on the event, or the owner's Zoom room saved at booking
+  // while the live event's location still shows that same room.
+  const link = event.meetUrl ?? (request.roomUrl && event.roomUrl === request.roomUrl ? request.roomUrl : null);
+  if (!link) return { action: "no-link", patch: { ...patch, reminder: { at, outcome: "no-link" } } };
+  if (event.meetUrl && event.meetUrl !== request.meetUrl) patch.meetUrl = event.meetUrl;
 
   const start = Date.parse(event.start);
   const grace = opts.graceMin ?? 5;
@@ -60,7 +63,7 @@ export function checkReminder(request: Request, event: EventInfo, now: number, o
     patch,
     send: {
       chatUid: request.chatUid ?? null,
-      meetUrl: event.meetUrl,
+      meetUrl: link,
       ...(request.name ? { name: request.name } : {}),
       locale,
       time: timeLabel(start, locale, opts.tz),
