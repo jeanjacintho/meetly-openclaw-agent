@@ -88,6 +88,7 @@ test("the CLI prints the pipeline and a person's history", () => {
   const p = cli("ledger.ts", ["pipeline"], env);
   assert.equal(p.status, 0, p.stderr);
   assert.deepEqual(Object.keys(p.json), ["waitingOnOwner", "deliveryUnknown", "waitingOnThem", "booked", "closed"]);
+  assert.deepEqual(cli("ledger.ts", ["monitor"], env).json, { ownerWaiting: [], deliveryUnknown: [], waitingOnThem: [] });
   assert.equal(p.json.deliveryUnknown[0].name, "Ana");
   const h = cli("ledger.ts", ["history", "--handle", "+15550000001"], env);
   assert.equal(h.json.requests[0].topic, "coffee");
@@ -165,15 +166,4 @@ test("the monitor lists owner decisions, unknown delivery warnings and contact n
   const asked = updateRequest(nudged, "r_ana", { pendingOwner: { start: "2026-10-04T22:00:00Z", end: "2026-10-04T22:30:00Z", askedAt: new Date(T0 + 1 * HOUR).toISOString() } }, T0 + 1 * HOUR);
   assert.deepEqual(monitor(asked, T0 + 6 * HOUR).ownerWaiting.map((i) => i.id), ["r_ana"]);
   assert.throws(() => updateRequest(l, "r_ana", { nudgedAt: "soon" }, T0), /nudgedAt/);
-});
-
-test("the CLI prints the monitor, and the poll reminds the owner once, with advice and no claims", () => {
-  const env = { MEETLY_HOME: tmpHome() };
-  cli("ledger.ts", ["add", "--json", JSON.stringify(input("+15550000001", { name: "Ana" }))], env);
-  assert.deepEqual(cli("ledger.ts", ["monitor"], env).json, { ownerWaiting: [], deliveryUnknown: [], waitingOnThem: [] });
-  const poll = flat("skills/meetly-poll/SKILL.md");
-  assert.ok(poll.includes("Run `ledger.ts monitor`"));
-  assert.ok(poll.includes("`ledger.ts update --id <id> --json '{\"nudgedAt\":\"<now ISO>\"}'` so it is sent once"));
-  assert.ok(poll.includes("cannot confirm whether the group offer arrived"));
-  assert.ok(poll.includes("Do not open another group or send another offer"));
 });

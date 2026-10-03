@@ -279,12 +279,19 @@ test("the poll sends due reminders before reading messages, and marks each once"
   for (const action of ["`send`", "`wait`", "`cancelled`", "`no-link`", "`skip`"]) assert.ok(poll.includes(action), action);
 });
 
-test("the poll checks for a reply before sending one follow-up per offer", () => {
+test("the poll's follow-ups read before nudging, reach the owner once, and make no claims", () => {
   const poll = flat(readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8"));
-  assert.ok(poll.includes("For each `waitingOnThem` item, read the latest messages"));
-  assert.ok(poll.includes("If the person has already answered, do not nudge"));
-  assert.ok(poll.includes("personNudgedAt"));
-  assert.ok(poll.includes("eligible after 24 hours"));
+  for (const [rule, snippet] of [
+    ["read before follow-up", "For each `waitingOnThem` item, read the latest messages"],
+    ["skip answered contacts", "If the person has already answered, do not nudge"],
+    ["one nudge per offer", "personNudgedAt"],
+    ["replacement offer", "eligible after 24 hours"],
+    ["monitor", "Run `ledger.ts monitor`"],
+    ["do-not-contact first", "first run `blocklist.ts check --handles-file <file with item.handle>`; if blocked, skip it"],
+    ["owner reminder once", "then run `ledger.ts update --id <id> --json '{\"nudgedAt\":\"<now ISO>\"}'` so it is sent once"],
+    ["no claims", "cannot confirm whether the group offer arrived"],
+    ["no second group", "Do not open another group or send another offer"],
+  ]) assert.ok(poll.includes(snippet), rule);
 });
 
 test("a Meetly group is trusted but scoped to its meeting, and a group that fails to open is reported, not improvised", () => {
@@ -392,8 +399,3 @@ test("a blocked person gets no calendar notice either, and the do-not-contact en
   assert.ok(!group.includes("--name <name>"));
 });
 
-test("an owner reminder checks the do-not-contact list first and is sent once", () => {
-  const poll = flat(readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8"));
-  assert.ok(poll.includes("first run `blocklist.ts check --handles-file <file with item.handle>`; if blocked, skip it"));
-  assert.ok(poll.includes("then run `ledger.ts update --id <id> --json '{\"nudgedAt\":\"<now ISO>\"}'` so it is sent once"));
-});
