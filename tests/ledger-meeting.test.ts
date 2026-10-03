@@ -181,6 +181,10 @@ test("only a booked Meet with a link, a time and no reminder yet is due", () => 
   ];
   for (const [name, l] of cases) assert.deepEqual(dueReminders(l, at, 10), [], name);
   assert.equal(dueReminders(bookedMeet(), at, 10).length, 1);
+  // An in-person booking is checked for cancellation only when it has travel buffers, until it starts.
+  const withTravel = bookedMeet({ format: "in_person", meetUrl: null, offered: [{ ...offer, travel: [{ holdId: "t1", account: "a" }] }] });
+  assert.equal(dueReminders(withTravel, START - 3 * 60 * MIN, 10).length, 1);
+  assert.equal(dueReminders(withTravel, START + 6 * MIN, 10).length, 0);
 });
 
 test("several meetings: each is due on its own time", () => {

@@ -31,13 +31,15 @@ export type Config = {
   travelMin?: number;
   // When enabled, inbound requests wait for owner approval before contacting the person.
   ownerGate?: boolean;
+  // Minutes of notice a time needs before it is offered; unset means MIN_NOTICE_MIN.
+  minNoticeMin?: number;
   defaultFormat?: DefaultFormat;
   setupDoneAt?: string;
   paused?: boolean;
 };
 
 // Every setting the owner can change.
-export const FIELDS = ["ownerName", "timezone", "days", "window", "durationMin", "horizonDays", "calendars", "videoProvider", "movable", "travel", "ownerGate", "defaultFormat"] as const;
+export const FIELDS = ["ownerName", "timezone", "days", "window", "durationMin", "horizonDays", "calendars", "videoProvider", "movable", "travel", "ownerGate", "minNotice", "defaultFormat"] as const;
 export type Field = (typeof FIELDS)[number];
 
 // What setup cannot start without, in the order it asks: nobody but the owner,
@@ -63,6 +65,7 @@ export const QUESTIONS: Record<RequiredField, string> = {
 };
 
 export const MIN_NOTICE_MIN = 120;
+const MAX_NOTICE_MIN = 72 * 60;
 export const STEP_MIN = 30;
 export const SLOT_COUNT = 3;
 
@@ -198,6 +201,16 @@ export function parseField(field: string, value: string): Partial<Config> {
       if (["off", "no", "false", "disabled"].includes(v)) return { ownerGate: false };
       throw new Error(`ownerGate must be on or off, got "${value}"`);
     }
+    case "minNotice": {
+      const raw = value.trim().toLowerCase();
+      if (raw === "default") return { minNoticeMin: undefined };
+      const m = /^(\d+(?:\.\d+)?)\s*(h|hr|hrs|hour|hours|m|min|mins|minute|minutes)?$/.exec(raw);
+      const minutesAhead = m ? Math.round(Number(m[1]) * (m[2] && m[2].startsWith("m") ? 1 : 60)) : NaN;
+      if (!(minutesAhead >= 0 && minutesAhead <= MAX_NOTICE_MIN)) {
+        throw new Error(`the notice must be 0 to ${MAX_NOTICE_MIN / 60} hours, like 3h or 90 min (or default), got "${value}"`);
+      }
+      return { minNoticeMin: minutesAhead };
+    }
     case "defaultFormat": {
       const format = value.trim();
       if (format === "ask") return { defaultFormat: undefined };
@@ -264,6 +277,7 @@ export function validateConfig(partial: Partial<Config>): Config {
   }
   if (p.ownerGate !== undefined && typeof p.ownerGate !== "boolean") throw new Error("ownerGate must be true or false");
   config.ownerGate = p.ownerGate;
+  if (p.minNoticeMin !== undefined) config.minNoticeMin = p.minNoticeMin;
   if (p.defaultFormat !== undefined) config.defaultFormat = p.defaultFormat;
   if (p.setupDoneAt !== undefined) config.setupDoneAt = p.setupDoneAt;
   if (p.paused !== undefined) config.paused = p.paused;

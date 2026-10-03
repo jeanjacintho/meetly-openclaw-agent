@@ -56,8 +56,9 @@ signed as Meetly.
   too.
 
 - **Offers only free time, inside your hours.** Your calendar shows up as free
-  slots within the days and hours you set. Anything else is "an existing
-  commitment" — never an event name or detail. If the other person can only
+  slots within the days and hours you set. A busy time is "an existing
+  commitment" — never an event name or detail. A time with insufficient notice
+  is explained as too soon, with alternatives offered. If the other person can only
   do a time outside your hours, Meetly asks you in that group and books it only on
   your yes there. A yes in your DM does not approve the group request.
 - **Leaves travel time around in-person meetings when you set it.** Meetly
@@ -71,6 +72,9 @@ signed as Meetly.
 - **Holds expire.** No answer in 48 hours: the holds are deleted. If you
   never approved, only you are told; once a group exists, it is told the times
   were released.
+- **Tells them when you cancel or move.** Ask Meetly to cancel or move a
+  meeting it booked and it updates the calendar and says so in that person's
+  group, in one line.
 - **Overlaps only with your word.** Meetly books over an existing event only
   when you named that event in your request, said yes in the group, or listed
   a word from its title as movable ("prayer", "gym"). People in the group can
@@ -96,7 +100,8 @@ Everything else starts at these defaults:
 - days: Monday to Friday,
 - hours: 09:00 to 18:00,
 - meeting length: 30 minutes,
-- offers up to 14 days ahead.
+- offers up to 14 days ahead,
+- times at least 2 hours ahead (same-day times count once they clear it).
 
 Video calls use Google Meet. If you use Zoom, give Meetly your personal room
 link and it uses that for every video meeting; it cannot create new Zoom links.
@@ -246,7 +251,6 @@ Meetly reads your messages, so use it on an install only you talk to.
 - One person per request.
 - A sender known only by an email (no phone number) cannot get a group; Meetly
   tells you instead.
-- Rescheduling or cancelling a meeting that is already booked is left to you.
 - If the model provider is unreachable, that five-minute check is skipped and
   the next one catches up from the same cursor.
 

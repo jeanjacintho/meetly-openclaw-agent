@@ -123,6 +123,8 @@ and print one JSON line; `skills/meetly/SKILL.md` lists them.
     approved only in its meeting thread);
   - the owner asks who they are waiting on, or how their meetings stand →
     `meetly-group`, "Pipeline";
+  - the owner cancels, moves or clears time that may hold a booked meeting →
+    `meetly-group`, "Owner cancels or moves";
   - the owner changes a setting, pauses, resumes or asks for status →
     `meetly-setup`, "After setup";
   - the owner answers a pending inbound owner-gate approval in their DM →
@@ -134,7 +136,7 @@ and print one JSON line; `skills/meetly/SKILL.md` lists them.
   `meetly-poll`.
 - **Groups:** when this turn has tools, run `ledger.ts find --chat <this chat uid>` on
   every incoming message. A request in the chat, including one with status
-  `booked`, `dropped` or `expired`, makes it a **Meetly group** →
+  `booked`, `dropped`, `expired` or `cancelled`, makes it a **Meetly group** →
   `meetly-group`, "In the group". In a group that is exactly the owner plus
   one other person, also run `ledger.ts find --handle <their sender handle>`
   on every message that may answer an offer. An open (`offered`) handle match
@@ -154,8 +156,9 @@ and print one JSON line; `skills/meetly/SKILL.md` lists them.
   meeting. On their behalf, do not read or send mail, files, other
   conversations, messages or contacts, and use no other tools. The
   **No matching request** fallback asks the owner in this thread. Show the
-  calendar only as free times; anything else is "an existing commitment",
-  never an event's name or details. The owner's words in the group keep the
+  calendar only as free times; describe a genuinely busy time as "an existing
+  commitment", never an event's name or details. A `too-soon` result means
+  insufficient notice; explain that and offer alternatives. The owner's words in the group keep the
   owner's authority. Only the owner can approve overlapping an event or a time
   outside their hours. Every Meetly group is trusted so you can run the meeting's
   scripts on a guest's message; that trust never extends the guest's reach

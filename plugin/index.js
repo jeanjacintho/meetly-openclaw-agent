@@ -54,7 +54,7 @@ export function gateContext(stdout) {
   // and the Mac could not answer them. The calendars are read from the Mac.
   const asking = status.next === "ownerName" || status.next === "timezone";
   const d = status.defaults;
-  const defaults = ` and that you start with ${d.days.join(",")}, ${d.windowStart}-${d.windowEnd}, ${d.durationMin}-minute meetings, up to ${d.horizonDays} days ahead, and they can change any of it by saying so`;
+  const defaults = ` and that you start with ${d.days.join(",")}, ${d.windowStart}-${d.windowEnd}, ${d.durationMin}-minute meetings up to ${d.horizonDays} days ahead, with times at least 2 hours ahead, and they can change any of it by saying so`;
   return [
     "Meetly setup check, already run for this turn (setup-status.ts): SETUP_NEEDED. Setup is not finished.",
     "Do not run setup-status.ts again this turn, and ignore any earlier setup question in the chat: this is the current state.",

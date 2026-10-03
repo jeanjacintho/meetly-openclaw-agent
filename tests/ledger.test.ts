@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  addRequest, saveRequest, appendLog, cleanupList, pendingOwnerList, ownerApprovalList, expiredRequests, findByChat, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, monitor, pipeline, stageOf,
+  addRequest, saveRequest, appendLog, cleanupList, pendingOwnerList, ownerApprovalList, expiredRequests, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, monitor, pipeline, stageOf,
   type Ledger, type NewRequest,
 } from "../skills/meetly/scripts/ledger.ts";
 import { cli, tmpHome } from "./helpers.ts";
@@ -297,4 +297,35 @@ test("a corrupt ledger.json fails loudly", () => {
   const r = cli("ledger.ts", ["find", "--handle", "+15551234567"], { MEETLY_HOME: home });
   assert.equal(r.status, 1);
   assert.match(r.stderr, /ledger\.json/);
+});
+
+test("an owner cancellation finds the booked request by its event id and closes it as cancelled", () => {
+  let l = addRequest(empty(), input({ chatUid: "c1" }), T0, "r_1");
+  l = updateRequest(l, "r_1", { status: "booked", eventId: "ev_1", booked: { start: offer.start, end: offer.end, account: "a@example.com" } }, T0);
+  assert.equal(findByEvent(l, "ev_1", "a@example.com")?.id, "r_1");
+  assert.equal(findByEvent(l, "ev_other", "a@example.com"), undefined);
+  // The same id on another account is another event: never this request.
+  assert.equal(findByEvent(l, "ev_1", "b@example.com"), undefined);
+  l = updateRequest(l, "r_1", { status: "cancelled" }, T0 + HOUR);
+  assert.equal(l.requests[0]!.status, "cancelled");
+  // A cancelled meeting is closed: no reminder, no expiry, and it frees the person for a new offer.
+  assert.deepEqual(expiredRequests(l, 0, T0 + 100 * HOUR), []);
+  assert.equal(findOpenByHandle(l, "+15551234567"), undefined);
+  assert.equal(findByChat(l, "c1")?.status, "cancelled");
+});
+
+test("CLI find --event returns the request booked as that event", () => {
+  const env = { MEETLY_HOME: tmpHome() };
+  const id = cli("ledger.ts", ["add", "--json", JSON.stringify(input({ chatUid: "c1" }))], env).json.request.id;
+  // A booking with no recorded account never matches: the lookup fails closed.
+  cli("ledger.ts", ["update", "--id", id, "--json", '{"status":"booked","eventId":"ev_1"}'], env);
+  assert.deepEqual(cli("ledger.ts", ["find", "--event", "ev_1", "--account", "a@example.com"], env).json, { request: null });
+  const booked = { start: offer.start, end: offer.end, account: "a@example.com" };
+  cli("ledger.ts", ["update", "--id", id, "--json", JSON.stringify({ booked })], env);
+  assert.equal(cli("ledger.ts", ["find", "--event", "ev_1", "--account", "a@example.com"], env).json.request.id, id);
+  assert.deepEqual(cli("ledger.ts", ["find", "--event", "ev_2", "--account", "a@example.com"], env).json, { request: null });
+  assert.notEqual(cli("ledger.ts", ["find", "--event", "ev_1"], env).status, 0, "--event needs --account");
+  const cancelled = cli("ledger.ts", ["update", "--id", id, "--json", '{"status":"cancelled"}'], env);
+  assert.equal(cancelled.status, 0, cancelled.stderr);
+  assert.equal(cancelled.json.request.status, "cancelled");
 });
