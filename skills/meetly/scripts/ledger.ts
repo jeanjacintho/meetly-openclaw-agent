@@ -11,7 +11,8 @@ import { isMeetUrl, isZoomRoomUrl } from "./event.ts";
 import { file } from "./paths.ts";
 import { readJson, updateJson } from "./store.ts";
 
-export type Status = "offered" | "booked" | "dropped" | "expired" | "cancelled";
+const STATUSES = ["offered", "booked", "dropped", "expired", "cancelled"] as const;
+export type Status = (typeof STATUSES)[number];
 export type HoldRef = { holdId: string; account: string };
 export type Offer = { start: string; end: string; holdId?: string; account: string; travel?: HoldRef[] };
 // A time outside the owner's days or window that the other person asked for,
@@ -91,7 +92,6 @@ export type Patch = Partial<Pick<Request,
   personNudgedAt?: string | null;
 };
 
-const STATUSES: readonly Status[] = ["offered", "booked", "dropped", "expired", "cancelled"];
 const FORMATS: readonly Format[] = [...DEFAULT_FORMATS, "unknown"];
 const OUTCOMES: readonly Reminder["outcome"][] = ["sent", "cancelled", "no-link"];
 const PATCH_KEYS = [
@@ -179,6 +179,13 @@ export function findByChat(ledger: Ledger, chatUid: string, handle?: string): Re
   return ledger.requests.findLast((r) => r.chatUid === chatUid && r.status === "offered"
     && (r.ownerApprovalAt === undefined || r.ownerApprovedAt !== undefined))
     ?? ledger.requests.findLast((r) => r.chatUid === chatUid);
+}
+
+// The request booked as this calendar event on this account: how an owner's
+// cancel or move of an event finds the person and group to tell. A booking
+// with no recorded account never matches.
+export function findByEvent(ledger: Ledger, eventId: string, account: string): Request | undefined {
+  return ledger.requests.findLast((r) => r.eventId === eventId && r.booked?.account === account);
 }
 
 function checkOffers(offered: unknown): Offer[] {
@@ -504,6 +511,8 @@ if (isMain(import.meta.url)) {
       options: {
         handle: { type: "string" },
         chat: { type: "string" },
+        event: { type: "string" },
+        account: { type: "string" },
         id: { type: "string" },
         json: { type: "string" },
         text: { type: "string" },
@@ -517,9 +526,13 @@ if (isMain(import.meta.url)) {
     switch (cmd) {
       case "find": {
         const ledger = readJson<Ledger>(path, EMPTY);
+        if (values.event !== undefined) {
+          if (!values.account) throw new Error("find --event needs --account: the account the event is on");
+          return { request: findByEvent(ledger, values.event, values.account) ?? null };
+        }
         if (values.chat !== undefined) return { request: findByChat(ledger, values.chat, values.handle) ?? null };
         if (values.handle !== undefined) return { request: findOpenByHandle(ledger, values.handle) ?? null };
-        throw new Error("usage: ledger.ts find --handle H | --chat U");
+        throw new Error("usage: ledger.ts find --handle H | --chat U | --event E --account A");
       }
       case "add": {
         const input = jsonArg(values);

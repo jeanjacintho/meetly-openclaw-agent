@@ -33,6 +33,9 @@ test("no busy: spread over the first days, after the minimum notice", () => {
     { start: "2026-09-30T09:00:00-03:00", end: "2026-09-30T09:30:00-03:00", dayOfWeek: "wed", label: "wed 30/9 09:00" },
   ]);
   assert.equal(unknownAfter, undefined);
+  // The owner's notice moves the first offer: none, 3 hours, a whole day.
+  const first = (minNoticeMin: number) => findSlots(q({ config: { ...CONFIG, minNoticeMin } })).slots[0]!.start;
+  assert.deepEqual([first(0), first(180), first(24 * 60)], ["2026-09-28T09:00:00-03:00", "2026-09-28T11:00:00-03:00", "2026-09-29T09:00:00-03:00"]);
 });
 
 test("busy time is skipped unless its event may be overlapped", () => {
@@ -199,6 +202,7 @@ test("checkTime: a time the person insists on", () => {
   );
   assert.equal(check("2026-10-03T10:00:00-03:00", { busy, allowOverlap: ["gym"] }).free, true);
   assert.equal(check("2026-09-28T09:00:00-03:00").reason, "too-soon");
+  assert.equal(check("2026-09-28T09:00:00-03:00", { config: { ...CONFIG, minNoticeMin: 60 } }).free, true);
   assert.equal(check("2026-10-03T10:00:00-03:00", { unknownAfter: "2026-10-02T00:00:00-03:00" }).reason, "unknown");
   assert.equal(check("2026-10-03T10:00:00-03:00", { locale: "en-US" }).slot.label, "Sat, 10/3, 10:00 AM");
   assert.equal(check("2026-10-03T10:00").slot.start, "2026-10-03T10:00:00-03:00");

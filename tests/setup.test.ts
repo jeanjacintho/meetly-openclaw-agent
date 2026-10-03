@@ -131,6 +131,10 @@ test("durations and horizons are bounded integers", () => {
   for (const bad of ["zoom", "http://zoom.us/j/1", "https://zoom.us.evil.example/j/1", "https://zoom.us/j/1?x=1", "https://example.com/j/1"]) {
     assert.throws(() => parseField("videoProvider", bad), /Zoom/, bad);
   }
+  // The notice a time needs is hours or minutes, 0 to 72 hours, and default clears it.
+  for (const [value, min] of [["3", 180], ["3h", 180], ["1.5h", 90], ["45 min", 45], ["0", 0]] as const) assert.deepEqual(parseField("minNotice", value), { minNoticeMin: min });
+  assert.deepEqual(parseField("minNotice", "default"), { minNoticeMin: undefined });
+  for (const bad of ["soon", "-1", "73h", "2 days"]) assert.throws(() => parseField("minNotice", bad), /notice/);
   assert.throws(() => parseField("durationMin", "5"));
   assert.throws(() => parseField("durationMin", "abc"));
   assert.throws(() => parseField("durationMin", "241"));
@@ -215,6 +219,11 @@ test("editing a field after setup updates config.json and keeps setupDoneAt", ()
     const config = readJson<Config | null>(join(home, "config.json"), null)!;
     assert.equal(config.windowStart, "10:00");
     assert.equal(config.windowEnd, "17:00");
+    assert.equal("minNoticeMin" in config, false);
+    record("minNotice", "1h");
+    assert.equal(readJson<Config | null>(join(home, "config.json"), null)!.minNoticeMin, 60);
+    record("minNotice", "default");
+    assert.equal("minNoticeMin" in readJson<object>(join(home, "config.json"), {}), false);
     assert.equal(config.setupDoneAt, "2026-09-26T12:00:00.000Z");
     record("videoProvider", "https://zoom.us/j/123456789");
     assert.equal(readJson<Config | null>(join(home, "config.json"), null)!.zoomRoomUrl, "https://zoom.us/j/123456789");

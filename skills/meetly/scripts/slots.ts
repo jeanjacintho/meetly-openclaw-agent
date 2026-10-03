@@ -1,5 +1,6 @@
 // Free times to offer: the owner's days and window, in the owner's zone,
-// clear of busy time, at least MIN_NOTICE_MIN ahead, spread across days.
+// clear of busy time, at least the owner's notice ahead (MIN_NOTICE_MIN unless
+// they set one), spread across days.
 // The label and weekday come from here so the agent never computes a weekday.
 // A request only narrows the owner's days and window. A time outside them is
 // never offered: when the other person can only do such a time, --at checks
@@ -73,7 +74,7 @@ export function findSlots(q: SlotQuery): { slots: Slot[]; unknownAfter?: string 
   endMin -= travelMin;
   startMin = Math.ceil(startMin / STEP_MIN) * STEP_MIN;
 
-  const earliest = now + (MIN_NOTICE_MIN + travelMin) * 60_000;
+  const earliest = now + ((config.minNoticeMin ?? MIN_NOTICE_MIN) + travelMin) * 60_000;
   const excluded = new Set((q.exclude ?? []).map((e) => Date.parse(e)));
   const allowed = new Set(q.allowOverlap ?? []);
   const isSoft = (b: Busy) => b.movable === true || (b.id !== undefined && allowed.has(b.id));
@@ -178,7 +179,7 @@ export function checkTime(q: {
   const overlaps = [...new Set(overlapping.filter((b) => isSoft(b) && b.id !== undefined).map((b) => b.id!))];
   let reason: TimeCheck["reason"];
   if (q.unknownAfter !== undefined && bufferEnd > Date.parse(q.unknownAfter)) reason = "unknown";
-  else if (bufferStart < q.now + MIN_NOTICE_MIN * 60_000) reason = "too-soon";
+  else if (bufferStart < q.now + (q.config.minNoticeMin ?? MIN_NOTICE_MIN) * 60_000) reason = "too-soon";
   else if (overlapping.some((b) => !isSoft(b))) reason = "busy";
   const format = q.locale !== undefined ? localeFormatter(q.locale, tz) : undefined;
   const slot: Slot = {
