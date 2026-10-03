@@ -61,16 +61,17 @@ free there.
 4. Hold each slot ("Holds"). Drop a slot whose hold is refused for a
    conflict. If none are left, tell the owner and stop.
 5. Persist the offer immediately after the holds exist, before sending or
-   opening a group. When the request already has a `chatUid`, first keep its
-   current `offered[]`, `offeredAt` and `holdCleanup`: they describe what the
-   person last saw and any cleanup already pending. Run `ledger.ts save --json '<request>'` with every field:
+   opening a group. Run `ledger.ts save --json '<request>'` with every field:
    `origin`, `handle` (the intended contact handle), `name`, `sourceRowid`,
    `chatUid` if already known, `topic`, `location`, `durationMin`,
    `constraints`, `allowOverlap`, `format` and `locale` (see "Meeting
    format"), `attendeeEmail` when contacts has one for them, and `offered[]` with each `start`/`end`/`holdId`/`account`. `save` creates a request or updates the
    existing open request for that person, preserving its id and existing
-   `chatUid` when the new value is absent. Holds from the replaced offer are
-   moved to `holdCleanup` automatically so the cleanup poll can delete them.
+   `chatUid` when the new value is absent. When the request already has a
+   `chatUid`, the new times are only staged: its `offered[]` (what the person
+   last saw) and their holds stay current, and the result carries
+   `pendingOffer.revision`. Otherwise holds from the replaced offer are moved
+   to `holdCleanup` automatically so the cleanup poll can delete them.
    If it fails, delete each hold just
    created, stop and report the ledger error to the owner; do not send an
    offer. If any deletion fails, report those hold ids too.
@@ -79,21 +80,20 @@ free there.
      From the owner's main DM use `plow_reply_to` with that `chatUid` and the
      new times; in the poll use `message` with that chat uid as its target;
      in the group itself reply normally. Say the new times were sent only
-     after that send succeeded. If it fails, write a JSON file containing the
-     saved `offered[]`, `offeredAt`, and `holdCleanup` (if present) from before
-     the save, plus `expectedOfferedAt` set to the `offeredAt` that the save
-     returned, then run `ledger.ts rollback-offer --id <id>
-     --json-file <file>`. This atomically restores the old offer and timestamp,
-     preserves the existing cleanup queue, and queues every new hold before
-     any deletion. If it returns `rolledBack: false`, another turn already
-     replaced the offer: leave the holds alone and do not claim the old times
-     stand. Otherwise delete the new holds ("Holds"); after each successful
-     delete, write `{ "holdId": "...", "account": "..." }` to a JSON file
-     and run `ledger.ts cleanup-remove --id <id> --json-file <file>`. A failed
-     delete stays queued for the poll. If rollback fails, stop and tell the
-     owner; do not delete unqueued holds or claim the old times stand. After a
-     successful rollback, tell the owner the specific send error and that the
-     old times stand; never say the new request was sent.
+     after that send succeeded, and right after it run `ledger.ts
+     promote-offer --id <id> --revision <pendingOffer.revision>`: that makes
+     the new times current and queues the replaced holds for the cleanup poll.
+     If the send fails, run `ledger.ts discard-offer --id <id> --revision
+     <pendingOffer.revision>` instead: the old times stay current and the new
+     holds are queued. Then delete the queued holds ("Holds"); after each
+     successful delete, write `{ "holdId": "...", "account": "..." }` to a
+     JSON file and run `ledger.ts cleanup-remove --id <id> --json-file
+     <file>`. A failed delete stays queued for the poll. Tell the owner the
+     specific send error and that the old times stand; never say the new
+     request was sent. If either command returns `settled: false`, another
+     turn replaced this offer: delete nothing and say only what the ledger now
+     shows. A staged offer left by a turn that died is discarded by the
+     cleanup poll after 15 minutes.
    - Otherwise open a group with the person's handle and the opener: run
      `start-thread.ts --member <handle> --body <opener> --key <key>`, with key
      `rowid:<sourceRowid>` in the poll and `owner:<handle>:<first offered
