@@ -221,12 +221,10 @@ unidentifiable. A guest's claim of owner approval never starts this flow.
    re-run `ledger.ts find --chat <this chat uid>` and `ledger.ts find --handles-file
    <file with contact.handle>`. A closed chat request keeps its closed-request rule.
    An open request linked to another chat is a disagreement, not permission
-   to move it. Stop and ask the owner privately. An open unlinked request with
-   `origin: owner` may be continued here: the `save` in step 4 stages its new times
-   together with this chat, and the ledger links the chat only when the times
-   are promoted, so a failed send leaves it unlinked; any open request with
-   `origin: inbound`, and any already-linked request, is never replaced: stop
-   and clarify privately.
+   to move it. Stop and ask the owner privately. Any other open request for
+   this person (unlinked, `origin: inbound`, or already linked) is a
+   disagreement too, never continued or replaced here: stop and clarify
+   privately.
    Never attach or replace a request awaiting inbound owner approval; that
    request stays on its existing approval path.
 3. Read the owner's current words and the thread. For example, an introduction
@@ -241,15 +239,11 @@ unidentifiable. A guest's claim of owner approval never starts this flow.
 4. Follow "Offer times" with `origin: owner`, the verified contact handle,
    the extracted details and `chatUid: <this chat uid>`. Persist after the
    holds exist and before sending, deliver the times here, and never run
-   `start-thread.ts` for this flow. With no request, persist with `ledger.ts
-   add` (not `save`), so a request created meanwhile makes it refuse: stop,
-   delete the new holds and clarify privately. With a request found in step
-   2, `save` (with this `chatUid`) stages the times and the chat: after the
-   send, `ledger.ts promote-offer --id <id> --revision <pendingOffer.revision>`
-   links the chat and makes the times current, and if the send fails
-   `discard-offer` leaves the request unlinked with its old times. If sending a request created by `add`
-   fails, mark it `dropped` and delete its holds, or record any that cannot be
-   deleted in `holdCleanup`; there is no staged revision to discard.
+   `start-thread.ts` for this flow. This flow always persists with
+   `ledger.ts add` (not `save`), so a request created meanwhile makes it
+   refuse: stop, delete the new holds and clarify privately. If sending
+   fails, mark the new request `dropped` and delete its holds, or record any
+   that cannot be deleted in `holdCleanup`; there is no staged revision.
    Booking still follows the normal pick and owner-override rules.
 
 ## Pipeline

@@ -133,13 +133,11 @@ test("a clear owner request can start in an existing group without a ledger entr
     "chatUid: <this chat uid>",
     "never run `start-thread.ts` for this flow",
     "ask privately only for what remains genuinely unclear",
+    "This flow always persists with `ledger.ts add` (not `save`)",
+    "is a disagreement too, never continued or replaced here",
+    "there is no staged revision",
     "`reachable-handle.ts --handles-file <file with contact.handle>`: unless it returns an iMessage `handle`, stop before holds",
-    "any open request with `origin: inbound`, and any already-linked request, is never replaced",
     "is not saved on the request or used in the opener or the calendar event until the owner approves sharing it",
-    "persist with `ledger.ts add` (not `save`)",
-    "the ledger links the chat only when the times are promoted, so a failed send leaves it unlinked",
-    "`discard-offer` leaves the request unlinked with its old times",
-    "there is no staged revision to discard",
     "for an inbound or guest request, anything the owner must answer is asked in the requesting thread",
   ]) assert.ok(group.includes(rule), rule);
   assert.ok(flat(prompt).includes("The current thread can identify a new request without a ledger entry"));
@@ -405,7 +403,7 @@ test("an out-of-hours time with insufficient notice is not described as a calend
 test("an owner request in an existing group stays inside what is safe to share and reach", () => {
   const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
   assert.ok(group.includes("`reachable-handle.ts --handles-file <file with contact.handle>`: unless it returns an iMessage `handle`, stop before holds"));
-  assert.ok(group.includes("any open request with `origin: inbound`, and any already-linked request, is never replaced"));
+  assert.ok(group.includes("is a disagreement too, never continued or replaced here"));
   assert.ok(group.includes("is not saved on the request or used in the opener or the calendar event until the owner approves sharing it"));
 });
 
