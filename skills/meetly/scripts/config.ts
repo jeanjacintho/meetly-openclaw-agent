@@ -25,6 +25,8 @@ export type Config = {
   defaultAccount: string;
   // When enabled, inbound requests wait for owner approval before contacting the person.
   ownerGate?: boolean;
+  // Minutes to leave free before and after an in-person meeting.
+  travelMin?: number;
   // The owner's personal Zoom room; unset means Google Meet.
   zoomRoomUrl?: string;
   // Minutes of notice a time needs before it is offered; unset means MIN_NOTICE_MIN.
@@ -169,6 +171,20 @@ export function parseField(field: string, value: string): Partial<Config> {
       if (["off", "no", "false", "disabled"].includes(v)) return { ownerGate: false };
       throw new Error(`ownerGate must be on or off, got "${value}"`);
     }
+    case "travel": {
+      const raw = value.trim().toLowerCase();
+      if (raw === "none" || raw === "0") return { travelMin: undefined };
+      let minutes: number;
+      const hours = /^(\d+(?:\.\d+)?)\s*h$/.exec(raw);
+      const mins = /^(\d+)\s*(?:min(?:ute)?s?)?$/.exec(raw);
+      if (hours) minutes = Number(hours[1]) * 60;
+      else if (mins) minutes = Number(mins[1]);
+      else throw new Error(`travel must be 1 to 180 minutes (or hours), or none, got "${value}"`);
+      if (!Number.isInteger(minutes) || minutes < 1 || minutes > 180) {
+        throw new Error(`travel must be 1 to 180 minutes, got "${value}"`);
+      }
+      return { travelMin: minutes };
+    }
     case "videoProvider": {
       const v = value.trim();
       if (v === "meet") return { zoomRoomUrl: undefined };
@@ -243,6 +259,12 @@ export function validateConfig(partial: Partial<Config>): Config {
   };
   if (p.ownerGate !== undefined && typeof p.ownerGate !== "boolean") throw new Error("ownerGate must be true or false");
   config.ownerGate = p.ownerGate;
+  if (p.travelMin !== undefined) {
+    if (!Number.isInteger(p.travelMin) || p.travelMin < 1 || p.travelMin > 180) {
+      throw new Error(`travel must be 1 to 180 minutes, got ${JSON.stringify(p.travelMin)}`);
+    }
+    config.travelMin = p.travelMin;
+  }
   if (p.zoomRoomUrl !== undefined) config.zoomRoomUrl = p.zoomRoomUrl;
   if (p.minNoticeMin !== undefined) config.minNoticeMin = p.minNoticeMin;
   if (p.defaultFormat !== undefined) config.defaultFormat = p.defaultFormat;
