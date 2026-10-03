@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { writeFileSync } from "node:fs";
+import type { Busy } from "../skills/meetly/scripts/busy.ts";
 import type { Config } from "../skills/meetly/scripts/config.ts";
 import { checkTime, findSlots, type SlotQuery } from "../skills/meetly/scripts/slots.ts";
 import { writeJson } from "../skills/meetly/scripts/store.ts";
@@ -20,6 +21,7 @@ const CONFIG: Config = {
   setupDoneAt: "2026-09-26T12:00:00.000Z",
 };
 const NOW = Date.parse("2026-09-28T08:00:00-03:00");
+const withTravel = (travelMin: number): Config => ({ ...CONFIG, travelMin });
 const q = (over: Partial<SlotQuery> = {}): SlotQuery => ({ now: NOW, config: CONFIG, busy: [], ...over });
 const starts = (over: Partial<SlotQuery> = {}) => findSlots(q(over)).slots.map((s) => s.start);
 const labels = (over: Partial<SlotQuery> = {}) => findSlots(q(over)).slots.map((s) => s.label);
@@ -56,6 +58,31 @@ test("requests only narrow the configured days and window", () => {
   assert.deepEqual(starts({ days: ["sat"] }), []);
   assert.deepEqual(starts({ days: ["mon"], after: "19:00", before: "21:00" }), []);
   assert.deepEqual(labels({ after: "07:00", before: "09:30", count: 2 }), ["tue 29/9 09:00", "wed 30/9 09:00"]);
+});
+
+test("travel time before and after an in-person slot must be free too, and comes back with the slot", () => {
+  // A hard block at 11:00-11:30 local on Monday 28/9.
+  const busy: Busy[] = [{ start: "2026-09-28T14:00:00.000Z", end: "2026-09-28T14:30:00.000Z", id: "call" }];
+  const plain = findSlots(q({ busy, days: ["mon"], count: 6 })).slots.map((s) => s.label);
+  assert.ok(plain.includes("mon 28/9 10:30") && plain.includes("mon 28/9 11:30"));
+  const slots = findSlots(q({ busy, days: ["mon"], count: 6, travel: true, config: withTravel(30) })).slots;
+  // 10:30 would need 10:00-10:30 before and 11:00-11:30 after: the call is in the way. 11:30 needs the call's slot before it.
+  assert.equal(slots.some((s) => s.label === "mon 28/9 10:30" || s.label === "mon 28/9 11:30"), false);
+  const first = slots[0]!;
+  assert.deepEqual(first.travel, {
+    before: { start: new Date(Date.parse(first.start) - 30 * 60_000).toISOString().replace(".000Z", "Z"), end: new Date(Date.parse(first.start)).toISOString().replace(".000Z", "Z") },
+    after: { start: new Date(Date.parse(first.end)).toISOString().replace(".000Z", "Z"), end: new Date(Date.parse(first.end) + 30 * 60_000).toISOString().replace(".000Z", "Z") },
+  });
+  // No travel asked, no travel key. The buffer before must also clear the owner's notice.
+  assert.equal("travel" in findSlots(q({ busy, days: ["mon"], count: 1 })).slots[0]!, false);
+  assert.equal(findSlots(q({ days: ["mon"], count: 1, travel: true, config: withTravel(60) })).slots[0]!.label, "mon 28/9 11:00");
+  // A time asked for needs the same room around it.
+  const at = (start: string, travel?: boolean) => checkTime({ now: NOW, config: withTravel(30), busy, start, travel });
+  assert.equal(at("2026-09-28T10:30:00-03:00").free, true);
+  assert.deepEqual([at("2026-09-28T10:30:00-03:00", true).free, at("2026-09-28T10:30:00-03:00", true).reason], [false, "busy"]);
+  // The attendee's own earliest time is not pushed back by the owner's trip: only the owner's window is.
+  assert.ok(labels({ days: ["tue"], after: "10:00", count: 6, travel: true, config: withTravel(30) }).includes("tue 29/9 10:00"));
+  assert.equal(labels({ days: ["tue"], count: 6, travel: true, config: withTravel(30) })[0], "tue 29/9 09:30");
 });
 
 test("excluded starts are not offered", () => {
