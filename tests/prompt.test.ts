@@ -387,6 +387,10 @@ test("do not contact is checked before every contact-visible message and stored 
 
 test("travel buffer references are persisted before an outside-hours booking", () => {
   const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
+  // A booked meeting becomes in person only once its buffers are held; a failed check or hold leaves the prior format.
+  assert.ok(group.includes("record `in_person` (\"Meeting format\") only once both are held"));
+  assert.ok(group.includes("keep the prior format, say the meeting cannot switch to in person without another time"));
+  assert.ok(group.includes("Only then record `in_person`, and save the holds on the booking with `ledger.ts set-travel"));
   assert.ok(group.includes("persist their refs with `ledger.ts set-travel --id <id> --json-file <file>`"));
   assert.ok(group.includes("the ledger keeps them in `pendingOwner.travel` (a retry that holds a new pair queues the displaced refs for cleanup in the same write)"));
   assert.ok(group.includes("Do this before creating the event"));

@@ -578,7 +578,13 @@ offer.
   through the owner in this thread. One exception, **the format answer
   after booking**: when a booked request's `format` is `unknown` (or
   `in_person` with no `location`) and the message answers how or where to
-  meet, record it ("Meeting format"), then run `plow-gog calendar update
+  meet: if the answer is in person and `config.travelMin` is set, first do
+  the check and hold both buffers as in "Travel time" (a booked meeting
+  changing to in person) and record `in_person` ("Meeting format") only once
+  both are held; if the check fails or a hold cannot be created, keep the
+  prior format, say the meeting cannot switch to in person without another
+  time, and tell the owner. Any other answer is recorded ("Meeting format")
+  directly. Then run `plow-gog calendar update
   primary <eventId> --account <booked.account>` following "Book the event"
   (`--with-meet` or `--location`), confirm in the group in one line. A
   second exception, **an email after booking**: when the booked request has
@@ -650,10 +656,13 @@ cannot be created, delete any travel hold already made, leave the meeting
 unbooked, and report the failure to the owner.
 
 When a booked meeting changes from an unknown format to in person, do the same
-  calendar check using the booked event id as `--allow-overlap` (ignore that id
-in `overlaps` as this request's own event), create both travel holds, and save
-them on the booking with `ledger.ts set-travel --id <id> --json-file <file>`
-(`{"travel":[…]}`, no `start`). If the format changes away from in person,
+calendar check first, using the booked event id as `--allow-overlap` (ignore that id
+in `overlaps` as this request's own event), and create both travel holds. Only
+then record `in_person`, and save the holds on the booking with
+`ledger.ts set-travel --id <id> --json-file <file>`
+(`{"travel":[…]}`, no `start`); if that write fails, delete both holds and put the
+previous format back. If the check is not free or a hold cannot be created (delete any
+already made), change nothing: the booking keeps its format and the owner is told. If the format changes away from in person,
 delete the booking's travel holds and clear them with `{"travel":[]}`;
 record any failed deletes in `holdCleanup`.
 
