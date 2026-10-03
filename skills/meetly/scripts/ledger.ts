@@ -497,7 +497,7 @@ if (isMain(import.meta.url)) {
     const { values } = parseArgs({
       args: rest,
       options: {
-        handle: { type: "string" },
+        "handles-file": { type: "string" },
         chat: { type: "string" },
         event: { type: "string" },
         account: { type: "string" },
@@ -512,6 +512,8 @@ if (isMain(import.meta.url)) {
     });
     const path = file("ledger.json");
     const now = Date.now();
+    // A handle came from a message or a contact card, so it arrives in a JSON array file, never on the command line.
+    const handle = values["handles-file"] ? (JSON.parse(readFileSync(values["handles-file"], "utf8")) as string[])[0] : undefined;
     switch (cmd) {
       case "find": {
         const ledger = readJson<Ledger>(path, EMPTY);
@@ -519,9 +521,9 @@ if (isMain(import.meta.url)) {
           if (!values.account) throw new Error("find --event needs --account: the account the event is on");
           return { request: findByEvent(ledger, values.event, values.account) ?? null };
         }
-        if (values.chat !== undefined) return { request: findByChat(ledger, values.chat, values.handle) ?? null };
-        if (values.handle !== undefined) return { request: findOpenByHandle(ledger, values.handle) ?? null };
-        throw new Error("usage: ledger.ts find --handle H | --chat U | --event E --account A");
+        if (values.chat !== undefined) return { request: findByChat(ledger, values.chat, handle) ?? null };
+        if (handle !== undefined) return { request: findOpenByHandle(ledger, handle) ?? null };
+        throw new Error("usage: ledger.ts find --handles-file F | --chat U | --event E --account A");
       }
       case "add": {
         const input = jsonArg(values);
@@ -579,8 +581,8 @@ if (isMain(import.meta.url)) {
       case "pipeline":
         return pipeline(readJson<Ledger>(path, EMPTY), now, readJson<{ handle: string }[]>(file("blocked.json"), []).map((b) => b.handle));
       case "history": {
-        if (values.handle === undefined) throw new Error("usage: ledger.ts history --handle H");
-        return { requests: historyFor(readJson<Ledger>(path, EMPTY), values.handle) };
+        if (handle === undefined) throw new Error("usage: ledger.ts history --handles-file F");
+        return { requests: historyFor(readJson<Ledger>(path, EMPTY), handle) };
       }
       case "pending":
         return { requests: pendingOwnerList(readJson<Ledger>(path, EMPTY)) };
