@@ -249,6 +249,10 @@ test("editing a field after setup updates config.json and keeps setupDoneAt", ()
     assert.equal(loadConfig().ownerGate, false);
     const standingAuthorization = status();
     assert.equal(standingAuthorization.status === "READY" && standingAuthorization.config.ownerGate, false);
+    record("travel", "30");
+    assert.equal(readJson<Config | null>(join(home, "config.json"), null)!.travelMin, 30);
+    record("travel", "none");
+    assert.equal("travelMin" in readJson<object>(join(home, "config.json"), {}), false);
     record("movable", "prayer, gym");
     assert.deepEqual(readJson<Config | null>(join(home, "config.json"), null)!.movable, ["prayer", "gym"]);
     record("movable", "none");

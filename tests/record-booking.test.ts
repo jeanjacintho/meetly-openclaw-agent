@@ -115,3 +115,47 @@ test("CLI books from gog's saved output and prints the link", () => {
   assert.equal(bad.status, 1);
   assert.match(bad.stderr, /^error: /);
 });
+
+test("a first booking queues every unselected offer's holds and buffers for cleanup in the same write", () => {
+  const l = offered("in_person");
+  const ev = plainEvent();
+  const keep = { start: ev.start, end: ev.end, account: ACCOUNT, holdId: "h_keep", travel: [{ holdId: "t_keep", account: ACCOUNT }] };
+  const other = { start: "2030-01-01T10:00:00Z", end: "2030-01-01T10:30:00Z", account: ACCOUNT, holdId: "h_other", travel: [{ holdId: "t_other", account: ACCOUNT }] };
+  l.requests[0]!.offered = [keep, other];
+  l.requests[0]!.holdCleanup = [{ holdId: "old", account: ACCOUNT }];
+  const booked = recordBooking(l, "r_1", ev, ACCOUNT, T0).ledger.requests[0]!;
+  assert.deepEqual(booked.holdCleanup!.map((h) => h.holdId).sort(), ["h_other", "old", "t_other"]);
+  assert.deepEqual(booked.booked!.travel, keep.travel);
+  // Re-recording a move (already booked) queues nothing more.
+  const again = recordBooking({ requests: [booked] }, "r_1", ev, ACCOUNT, T0).ledger.requests[0]!;
+  assert.deepEqual(again.holdCleanup!.map((h) => h.holdId).sort(), ["h_other", "old", "t_other"]);
+});
+
+test("a booking at an owner-approved time that is no offer takes the buffers held on the pending approval", () => {
+  const travel = [{ holdId: "t_before", account: ACCOUNT }, { holdId: "t_after", account: ACCOUNT }];
+  const l = offered("in_person");
+  const ev = plainEvent();
+  l.requests[0]!.pendingOwner = { start: ev.start, end: ev.end, askedAt: new Date(T0).toISOString(), travel };
+  const booked = recordBooking(l, "r_1", ev, ACCOUNT, T0).ledger.requests[0]!;
+  assert.deepEqual(booked.booked!.travel, travel);
+  assert.equal(booked.pendingOwner, undefined);
+  assert.equal(booked.holdCleanup, undefined);
+});
+
+test("booking keeps the offer's travel refs on the booking, in the same write, and a move keeps them", () => {
+  const travel = [{ holdId: "t_before", account: ACCOUNT }, { holdId: "t_after", account: ACCOUNT }];
+  const l = offered("in_person");
+  const start = plainEvent().start;
+  l.requests[0]!.offered = [{ start, end: plainEvent().end, account: ACCOUNT, holdId: "h_travel", travel }, { ...l.requests[0]!.offered[0]!, start: "2030-01-01T10:00:00Z", end: "2030-01-01T10:30:00Z" }];
+  const { ledger } = recordBooking(l, "r_1", plainEvent(), ACCOUNT, T0);
+  const booked = ledger.requests[0]!;
+  assert.equal(booked.status, "booked");
+  assert.deepEqual(booked.booked!.travel, travel);
+  // Re-recording the booking for a time no offer has (a move) keeps the buffers the booking already owns.
+  const moved = { ...plainEvent(), start: "2030-02-02T10:00:00Z", end: "2030-02-02T10:30:00Z" };
+  assert.deepEqual(recordBooking(ledger, "r_1", moved, ACCOUNT, T0).ledger.requests[0]!.booked!.travel, travel);
+  // Moving back to a time that was in the original offer must not bring that offer's stale buffers back over the committed ones.
+  const fresh = [{ holdId: "t_new_before", account: ACCOUNT }, { holdId: "t_new_after", account: ACCOUNT }];
+  const committed = updateRequest(ledger, "r_1", { booked: { ...ledger.requests[0]!.booked!, travel: fresh } }, T0);
+  assert.deepEqual(recordBooking(committed, "r_1", plainEvent(), ACCOUNT, T0).ledger.requests[0]!.booked!.travel, fresh);
+});

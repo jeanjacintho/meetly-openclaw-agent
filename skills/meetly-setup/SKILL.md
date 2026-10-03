@@ -83,6 +83,9 @@ to install anything else.
   asking me first", record `record-setup.ts --field ownerGate --value off`;
   that is standing authorization for Meetly to contact people automatically.
   "Ask me before replying to new meeting requests" records it as on again.
+- "Leave an hour for travel around in-person meetings" →
+  `record-setup.ts --field travel --value <minutes>`; accept minutes or hours
+  from 1 minute to 3 hours. `none` clears the buffer. The default is no buffer.
 - "My prayer time and gym can move" → `record-setup.ts --field movable --value <words from the titles>`
   (for example `prayer, gym`); "nothing can move" → `none`. Meetly then offers
   times over those blocks, and never repeats their titles to anyone. Only
@@ -100,6 +103,7 @@ to install anything else.
 - "Status" → summarize `setup-status.ts`: days, window, duration, horizon,
   the minimum notice (2 hours when `config.minNoticeMin` is unset),
   default meeting type (or "ask each time" when `config.defaultFormat` is
+  unset), travel buffer when set, calendars, and whether it is paused.
   unset), video provider (Google Meet, or Zoom when
   `config.zoomRoomUrl` is set), whether inbound owner approval is on, the movable title phrases (`config.movable`, or
   "none"), calendars, and whether it is paused.

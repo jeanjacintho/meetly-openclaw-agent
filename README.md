@@ -68,6 +68,9 @@ signed as Meetly.
   This is on by default, including for existing configurations. If you tell
   Meetly to answer meeting requests without asking first, that is standing
   authorization for automatic replies.
+- **Leaves travel time around in-person meetings when you set it.** Meetly
+  checks and holds the buffer before and after the meeting; video and phone
+  meetings do not use it. The default is no travel buffer.
 - **Holds expire.** No answer in 48 hours: the holds are deleted. If you
   never approved, only you are told; once a group exists, it is told the times
   were released.

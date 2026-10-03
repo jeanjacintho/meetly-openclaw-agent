@@ -145,6 +145,16 @@ ahead so its reminder fires during the run.
     reminder still carries the calendar's link.
 22. [ ] **Hold deletes.** After any pick, the other `Hold:` events are gone
     (this needs `--force`; see `checks/spike.md`).
+23. [ ] **In-person travel buffers.** Set the travel buffer to 30 minutes,
+     then ask for an in-person meeting next week.
+    - Expect: offered times have 30 minutes free before and after; Meetly
+      creates two travel holds per offer and records their ids in `travel[]`.
+    - Expect: a normal busy event in either buffer blocks the time. A meeting
+      picked while the format was unknown gets rechecked before travel holds
+      are created.
+    - Expect: booking keeps the selected offer's travel holds and deletes the
+      other offers' meeting and travel holds. Decline, re-offer, or expiry
+      deletes every related hold.
 24. [ ] **Inbound owner gate.** With default settings, send a scheduling
      request from a second account.
     - Expect: Meetly creates holds and asks the owner privately; it opens no

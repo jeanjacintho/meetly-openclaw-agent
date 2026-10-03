@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  addRequest, approveRequest, declineRequest, assertDeliverable, saveRequest, settleOffer, discardStaleOffers, removeCleanupRef, appendLog, cleanupList, pendingOwnerList, ownerApprovalList, expiredRequests, expireRequests, monitor, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, pipeline, stageOf,
+  addRequest, approveRequest, declineRequest, assertDeliverable, saveRequest, settleOffer, discardStaleOffers, removeCleanupRef, appendLog, cleanupList, pendingOwnerList, ownerApprovalList, expiredRequests, expireRequests, monitor, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, pipeline, stageOf, commitTravel, reconcileTravel, dueReminders, setTravel, stageTravel,
   type Ledger, type NewRequest,
 } from "../skills/meetly/scripts/ledger.ts";
 import { cli, tmpHome, handlesFile, writeConfig, saveCli } from "./helpers.ts";
@@ -85,6 +85,76 @@ test("an offer's travel blocks are holds: validated, and queued for deletion whe
   assert.deepEqual(kept.requests[0]!.holdCleanup!.map((h) => h.holdId).sort(), ["h1", "t2"]);
 });
 
+test("moving a meeting: one move at a time, the new buffers out of cleanup's reach, ownership swapped only on commit", () => {
+  const acct = "jean@example.com";
+  const oldTravel = [{ holdId: "t1", account: acct }, { holdId: "t2", account: acct }];
+  const newTravel = [{ holdId: "t3", account: acct }, { holdId: "t4", account: acct }];
+  const target = { start: "2026-10-05T10:00:00-03:00", end: "2026-10-05T10:30:00-03:00" };
+  let l = addRequest(empty(), input(), T0, "r_1");
+  l = updateRequest(l, "r_1", { status: "booked", eventId: offer.holdId, booked: { start: offer.start, end: offer.end, account: acct, travel: oldTravel } }, T0);
+  // Staged: the old buffers stay owned, the new ones are in neither the booking nor the cleanup queue.
+  const staged = stageTravel(l, "r_1", newTravel, target, T0);
+  assert.deepEqual(staged.requests[0]!.booked!.travel, oldTravel);
+  assert.deepEqual(staged.requests[0]!.pendingTravel!.refs, newTravel);
+  assert.equal(staged.requests[0]!.pendingTravel!.start, target.start);
+  assert.deepEqual(cleanupList(staged), []);
+  // A second move is refused while one is pending (the caller deletes the buffers it just made); nothing changes.
+  assert.throws(() => stageTravel(staged, "r_1", [{ holdId: "t5", account: acct }], target, T0 + 60_000, "rev2"), /already has a move in progress/);
+  // Committed: the new buffers are owned, the old ones queued, nothing pending.
+  const done = commitTravel(staged, "r_1", "r_1", T0).ledger;
+  assert.deepEqual(done.requests[0]!.booked!.travel, newTravel);
+  // The booking takes the target interval in the same write (a dead turn before record-booking leaves nothing at the old time).
+  assert.deepEqual([done.requests[0]!.booked!.start, done.requests[0]!.booked!.end], [target.start, target.end]);
+  assert.deepEqual(done.requests[0]!.holdCleanup!.map((h) => h.holdId).sort(), ["t1", "t2"]);
+  assert.equal(done.requests[0]!.pendingTravel, undefined);
+  assert.equal(commitTravel(staged, "r_1", "other", T0).committed, false);
+  // A turn that died before committing: nothing is touched until the stage is stale; then the live event decides.
+  const early = { start: offer.start, end: offer.end };
+  assert.deepEqual(reconcileTravel(staged, "r_1", early, T0 + 60_000), staged);
+  const late = T0 + 20 * 60_000;
+  // The calendar still shows the old time: the staged buffers are abandoned to cleanup.
+  const abandoned = reconcileTravel(staged, "r_1", early, late).requests[0]!;
+  assert.equal(abandoned.pendingTravel, undefined);
+  assert.deepEqual(abandoned.booked!.travel, oldTravel);
+  assert.deepEqual(abandoned.holdCleanup!.map((h) => h.holdId).sort(), ["t3", "t4"]);
+  // A duration-only edit (same start, other end) is not the move the buffers were computed for: abandoned too.
+  const resized = reconcileTravel(staged, "r_1", { start: target.start, end: "2026-10-05T11:00:00-03:00" }, late).requests[0]!;
+  assert.deepEqual(resized.booked!.travel, oldTravel);
+  assert.deepEqual(resized.holdCleanup!.map((h) => h.holdId).sort(), ["t3", "t4"]);
+  // A reminder that belonged to the old start is cleared when the move lands.
+  const reminded = updateRequest(staged, "r_1", { reminder: { at: new Date(T0).toISOString(), outcome: "sent" } }, T0);
+  assert.equal(commitTravel(reminded, "r_1", "r_1", T0).ledger.requests[0]!.reminder, undefined);
+  // The calendar accepted the move: the booking takes the new time and buffers, the old buffers are queued.
+  const accepted = reconcileTravel(staged, "r_1", target, late).requests[0]!;
+  assert.deepEqual([accepted.booked!.start, accepted.booked!.end], [target.start, target.end]);
+  assert.deepEqual(accepted.booked!.travel, newTravel);
+  assert.deepEqual(accepted.holdCleanup!.map((h) => h.holdId).sort(), ["t1", "t2"]);
+  assert.deepEqual(dueReminders(staged, late, 10).map((r) => r.id), ["r_1"]);
+  // Clearing the setting: staging no buffers releases the old ones atomically with the move.
+  const cleared = commitTravel(stageTravel(l, "r_1", [], target, T0, "rc"), "r_1", "rc", T0).ledger.requests[0]!;
+  assert.deepEqual(cleared.booked!.travel, []);
+  assert.deepEqual(cleared.holdCleanup!.map((h) => h.holdId).sort(), ["t1", "t2"]);
+  assert.throws(() => stageTravel(empty(), "nope", newTravel, target, T0), /no request/);
+  // A booked meeting that closes (the owner cancels it) queues its buffers and any staged ones in the same write.
+  const cancelled = updateRequest(staged, "r_1", { status: "cancelled" }, T0).requests[0]!;
+  assert.deepEqual(cancelled.holdCleanup!.map((h) => h.holdId).sort(), ["t1", "t2", "t3", "t4"]);
+  assert.equal(cancelled.pendingTravel, undefined);
+});
+
+test("set-travel writes only the buffers of one offer or of the booking", () => {
+  const acct = "jean@example.com";
+  const travel = [{ holdId: "t1", account: acct }, { holdId: "t2", account: acct }];
+  const l = addRequest(empty(), input(), T0, "r_1");
+  const set = setTravel(l, "r_1", travel, offer.start, T0);
+  assert.deepEqual(set.requests[0]!.offered[0]!.travel, travel);
+  assert.throws(() => setTravel(l, "r_1", travel, "2031-01-01T10:00:00Z", T0), /no offer starting/);
+  assert.throws(() => setTravel(l, "r_1", [{ holdId: "" } as never], offer.start, T0), /travel hold/);
+  const booked = updateRequest(l, "r_1", { status: "booked", eventId: "e1", booked: { start: offer.start, end: offer.end, account: acct } }, T0);
+  const withTravel = setTravel(booked, "r_1", travel, undefined, T0);
+  assert.deepEqual(withTravel.requests[0]!.booked!.travel, travel);
+  assert.equal("travel" in setTravel(withTravel, "r_1", [], undefined, T0).requests[0]!.booked!, false);
+});
+
 test("monitor nudges the other person once after a day; a staged replacement keeps the marker and waits, and promotion resets it", () => {
   const offered = addRequest(empty(), input({ chatUid: "chat_1" }), T0, "r_1");
   assert.equal(monitor(offered, T0 + 23 * HOUR).waitingOnThem.length, 0);
@@ -104,6 +174,30 @@ test("monitor nudges the other person once after a day; a staged replacement kee
   // A direct replacement (no group yet) resets it at once.
   const direct = saveRequest(updateRequest(addRequest(empty(), input(), T0, "r_9"), "r_9", { personNudgedAt: new Date(T0).toISOString() }, T0), input({ offered: [{ ...offer, holdId: "h3" }] }), T0 + HOUR, "r_10");
   assert.equal(direct.requests[0]!.personNudgedAt, undefined);
+});
+
+test("buffers of an owner-approved out-of-hours time live on the pending approval, and are booked or cleaned up with it", () => {
+  const acct = "jean@example.com";
+  const pendingStart = "2026-10-03T22:00:00-03:00";
+  const pendingOwner = { start: pendingStart, end: "2026-10-03T22:30:00-03:00", askedAt: new Date(T0).toISOString() };
+  const travel = [{ holdId: "t1", account: acct }, { holdId: "t2", account: acct }];
+  let l = addRequest(empty(), input(), T0, "r_1");
+  l = updateRequest(l, "r_1", { pendingOwner }, T0);
+  // The time is no offer, so set-travel parks the buffers on the pending approval instead of refusing.
+  const held = setTravel(l, "r_1", travel, pendingStart, T0);
+  assert.deepEqual(held.requests[0]!.pendingOwner!.travel, travel);
+  assert.deepEqual(held.requests[0]!.offered, l.requests[0]!.offered);
+  // A retry that holds a new pair displaces the first one into cleanup, in the same write.
+  const retry = [{ holdId: "t3", account: acct }, { holdId: "t4", account: acct }];
+  const again = setTravel(held, "r_1", retry, pendingStart, T0);
+  assert.deepEqual(again.requests[0]!.pendingOwner!.travel, retry);
+  assert.deepEqual(again.requests[0]!.holdCleanup!.map((h) => h.holdId), ["t1", "t2"]);
+  // Declined or replaced: they go to cleanup.
+  const declined = updateRequest(held, "r_1", { pendingOwner: null }, T0);
+  assert.deepEqual(declined.requests[0]!.holdCleanup!.map((h) => h.holdId), ["t1", "t2"]);
+  // Booked for that time (as record-booking does): the booking owns them, nothing is queued.
+  const booked = updateRequest(held, "r_1", { status: "booked", eventId: "e1", pendingOwner: null, booked: { start: pendingStart, end: pendingOwner.end, account: acct, travel } }, T0);
+  assert.equal(booked.requests[0]!.holdCleanup, undefined);
 });
 
 test("a re-offer to an existing group stays staged until its send succeeds", () => {
@@ -409,6 +503,9 @@ test("the owner's no closes the request and queues every hold in one write, only
   assert.equal(declineRequest(out.ledger, "r_1", T0 + 2 * HOUR).declined, false);
   assert.equal(declineRequest(approveRequest(waiting, "r_1", T0).ledger, "r_1", T0).declined, false);
   assert.equal(declineRequest(waiting, "nope", T0).declined, false);
+  // An offer's travel buffers are queued with its meeting hold, so a decline leaves none behind.
+  const withTravel = saveRequest(empty(), input({ ownerApprovalAt: gate, offered: [{ ...offer, holdId: "h1", travel: [{ holdId: "t1", account: offer.account }, { holdId: "t2", account: offer.account }] }] }), T0, "r_t");
+  assert.deepEqual(declineRequest(withTravel, "r_t", T0).ledger.requests[0]!.holdCleanup!.map((h) => h.holdId).sort(), ["h1", "t1", "t2"]);
 });
 
 test("ledger.ts save needs a finished setup", () => {

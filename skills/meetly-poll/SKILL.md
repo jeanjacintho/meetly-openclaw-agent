@@ -44,7 +44,8 @@ still explain why no contact message was sent.
         `reminder-check.ts --id <id> --sent`. If delivery is unknown, still
         mark it sent: never resend.
       - `wait`: the meeting moved; nothing now.
-      - `cancelled`: the event was deleted; send nothing.
+      - `cancelled`: the event was deleted (a Meet or an in-person meeting
+        with travel buffers); send nothing.
       - `no-link`: the Meet was removed from the event. Tell the meeting
         thread in one line that no link went out for <name>'s meeting.
       - `skip`: already handled, or not a Meet: nothing to send.
