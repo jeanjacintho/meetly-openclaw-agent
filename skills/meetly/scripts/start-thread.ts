@@ -14,11 +14,11 @@ import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
 import { isBlocked, loadBlocked } from "./blocklist.ts";
 import { fetchIdentity, findOwnerDm, plowApi, type ApiOptions } from "./owner-chat.ts";
-import { assertDeliverable, awaitingOwnerApproval, sameHandle, type Ledger } from "./ledger.ts";
+import { assertDeliverable, awaitingOwnerApproval, sameHandle, updateRequest, type Ledger } from "./ledger.ts";
 import { loadConfig } from "./config.ts";
 import { file } from "./paths.ts";
 import { isHandle } from "./reachable-handle.ts";
-import { readJson, withLock } from "./store.ts";
+import { readJson, withLock, writeJson } from "./store.ts";
 
 export type Started = { chatUid: string; messageSent: true } | { chatUid: null; deliveryUnknown: true };
 
@@ -65,28 +65,34 @@ export async function startThread(opts: ApiOptions & { members: string[]; body: 
     // The request identity must survive regenerated wording after an unknown
     // delivery; the opener body is not durable state in the ledger.
     const idempotencyKey = createHash("sha256").update(JSON.stringify([lineUid, `request:${request.id}`, members])).digest("hex");
-    // Verify, under the ledger lock, that the request is still the one validated above.
-    withLock(file("ledger.json"), () =>
-      assertDeliverable(readJson<Ledger>(file("ledger.json"), { requests: [] }), request.id, { handle: request.handle, offeredAt: request.offeredAt, ownerApprovedAt: request.ownerApprovedAt }, gateOn));
+    // The ledger lock is held from the last check through the POST and the link of the group, so a concurrent
+    // replacement, approval change or expiry cannot slip in between: the request that was validated is the one
+    // that is sent and linked.
+    return withLock(file("ledger.json"), async (): Promise<Started> => {
+      const ledger = readJson<Ledger>(file("ledger.json"), { requests: [] });
+      assertDeliverable(ledger, request.id, { handle: request.handle, offeredAt: request.offeredAt, ownerApprovedAt: request.ownerApprovedAt }, gateOn);
 
-    let res: Response;
-    try {
-      res = await api.fetch(`${api.base}/v1/chats`, {
-        method: "POST",
-        headers: { ...api.headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ line_uid: lineUid, members, body: opts.body, trusted: true, idempotency_key: idempotencyKey }),
-        redirect: "error",
-        signal: AbortSignal.timeout(30_000),
-      });
-    } catch {
-      return { chatUid: null, deliveryUnknown: true };
-    }
-    // Same rule as the plugin: 408, 424 and 5xx may have gone through.
-    if ([408, 424].includes(res.status) || res.status >= 500) return { chatUid: null, deliveryUnknown: true };
-    if (!res.ok) throw new Error(`POST /v1/chats returned HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
-    const chat = (await res.json()) as { uid?: string };
-    if (!chat.uid) return { chatUid: null, deliveryUnknown: true };
-    return { chatUid: chat.uid, messageSent: true };
+      let res: Response;
+      try {
+        res = await api.fetch(`${api.base}/v1/chats`, {
+          method: "POST",
+          headers: { ...api.headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ line_uid: lineUid, members, body: opts.body, trusted: true, idempotency_key: idempotencyKey }),
+          redirect: "error",
+          signal: AbortSignal.timeout(30_000),
+        });
+      } catch {
+        return { chatUid: null, deliveryUnknown: true };
+      }
+      // Same rule as the plugin: 408, 424 and 5xx may have gone through.
+      if ([408, 424].includes(res.status) || res.status >= 500) return { chatUid: null, deliveryUnknown: true };
+      if (!res.ok) throw new Error(`POST /v1/chats returned HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+      const chat = (await res.json()) as { uid?: string };
+      if (!chat.uid) return { chatUid: null, deliveryUnknown: true };
+      // Link the group in the same write, before the ledger lock is released: no replacement or expiry can slip in between.
+      writeJson(file("ledger.json"), updateRequest(ledger, request.id, { chatUid: chat.uid }, Date.now()));
+      return { chatUid: chat.uid, messageSent: true };
+    });
   });
 }
 

@@ -46,7 +46,8 @@ function sleepSync(ms: number): void {
 // A per-file lock: `mkdir <path>.lock`. The poll and group turns can run at
 // the same time, so every read-modify-write goes through here.
 export function withLock<R>(path: string, fn: () => R, opts: LockOptions = {}): R {
-  const waitMs = opts.waitMs ?? 10_000;
+  // A holder may keep a lock across a slow opener POST (30 s), so waiters outwait it.
+  const waitMs = opts.waitMs ?? 40_000;
   const staleMs = opts.staleMs ?? 60_000;
   const now = opts.now ?? Date.now;
   const sleep = opts.sleep ?? sleepSync;

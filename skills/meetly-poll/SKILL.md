@@ -67,7 +67,7 @@ still explain why no contact message was sent.
       and anything unclear.
    3. If the owner replied after the request, skip: the owner is handling it.
    4. If `ledger.ts find --handles-file <file with the sender>` has an open request, skip,
-      except one waiting for owner approval (`ledger.ts approvals`, state `waiting`)
+      except one waiting for owner approval (listed by `ledger.ts approvals`)
       whose `sourceRowid` `cursor.ts` still has held: the previous run died before the
       owner's ask was delivered, so send that saved ask again (`meetly-group` owner
       gate, from the saved offer) and run `cursor.ts set` only after that DM

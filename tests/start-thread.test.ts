@@ -50,6 +50,30 @@ test("posts the same chat the plow_start_thread tool would", async () => {
   assert.equal(body.trusted, true);
   assert.equal(body.body, args.body);
   assert.match(body.idempotency_key, /^[0-9a-f]{64}$/);
+  // The group is linked to the request by start-thread itself, in the same locked write: no model step in between.
+  assert.equal(JSON.parse(readFileSync(join(home, "ledger.json"), "utf8")).requests[0].chatUid, "chat_9");
+});
+
+test("a request replaced between validation and the POST is not sent, and an unknown delivery links nothing", async () => {
+  const calls: Call[] = [];
+  const replaceOnIdentity = (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), init });
+    if (String(url).endsWith("/v1/agents/me")) {
+      // Another turn installs a new offer after start-thread validated the request but before it holds the ledger lock.
+      const ledger = JSON.parse(readFileSync(join(home, "ledger.json"), "utf8"));
+      ledger.requests[0].offeredAt = "2030-01-01T00:00:00.000Z";
+      writeFileSync(join(home, "ledger.json"), JSON.stringify(ledger));
+      return new Response(JSON.stringify(identity), { status: 200 });
+    }
+    return new Response('{"uid":"chat_x"}', { status: 201 });
+  }) as typeof fetch;
+  await assert.rejects(startThread({ ...args, fetch: replaceOnIdentity, base, token: "t" }), /changed since it was authorized/);
+  assert.equal(calls.length, 1, "no POST was made");
+  assert.equal(JSON.parse(readFileSync(join(home, "ledger.json"), "utf8")).requests[0].chatUid, undefined);
+  // An uncertain delivery leaves the request unlinked.
+  seedRequest(home);
+  assert.deepEqual(await startThread({ ...args, fetch: fakeFetch(() => new Response("", { status: 502 })), base, token: "t" }), { chatUid: null, deliveryUnknown: true });
+  assert.equal(JSON.parse(readFileSync(join(home, "ledger.json"), "utf8")).requests[0].chatUid, undefined);
 });
 
 test("the same request and people give the same idempotency key even if wording changes", async () => {

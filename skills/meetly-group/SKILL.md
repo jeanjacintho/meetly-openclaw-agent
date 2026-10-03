@@ -158,11 +158,10 @@ free there.
      says the group is not there, or asks you to try again, run
      `start-thread.ts` again with the same `requestId` and members. The idempotency
      key is based on request identity, so regenerated opener wording still
-     resolves to the same group. Link the group it returns as below.
-   - After a group opens, run `ledger.ts update --id <saved request id>
-     --json '{"chatUid":"<chat uid>"}'` immediately. If that update fails,
-     report the error and the chat uid to the owner; do not claim the group is
-     linked.
+     resolves to the same group.
+   - When a group opens, `start-thread.ts` links it to the request itself
+     (`chatUid`), in the same write that is protected by the ledger lock it
+     holds through the POST; never link it by hand.
 7. The group opener also notifies the owner of who, the topic and the held
    times; do not send a separate DM.
 
@@ -212,8 +211,8 @@ and topic in the approval message; if more than one fits, ask which one.
   `slots.ts --in … --at <start>` for every held time, passing that offer's hold
   ids with `--allow-overlap`. If the times are still free, open the saved
   offer's group with its existing holds; do not run "Offer times" or
-  `ledger.ts save` again. Open the group with `start-thread.ts --input-file` (its `requestId` is `<id>`) and, when it returns a chat uid,
-  link it with `ledger.ts update --id <id> --json '{"chatUid":"<uid>"}'`. If it
+  `ledger.ts save` again. Open the group with `start-thread.ts --input-file` (its `requestId` is `<id>`), which links
+  the chat itself. If it
   returns `deliveryUnknown`, leave `chatUid` absent and follow the no-retry
   rule: approval is recorded separately from delivery certainty. If any held
   time is no longer free, do not send the stale options: run "Offer times"
