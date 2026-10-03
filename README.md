@@ -58,6 +58,9 @@ signed as Meetly.
   is explained as too soon, with alternatives offered. If the other person can only
   do a time outside your hours, Meetly asks you in that group and books it only on
   your yes there. A yes in your DM does not approve the group request.
+- **Can ask you before answering inbound meeting requests.** Turn on
+  `ownerGate` to hold proposed times for your approval in your DM before
+  Meetly contacts the other person. It is off by default.
 - **Holds expire.** No answer in 48 hours: the holds are deleted and the
   group is told the times were released.
 - **Tells them when you cancel or move.** Ask Meetly to cancel or move a

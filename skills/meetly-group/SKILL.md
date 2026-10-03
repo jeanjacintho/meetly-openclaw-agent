@@ -14,8 +14,10 @@ Messages to the other person come from Meetly, in the third person, using
 `ownerName`, in their language (see "Examples"). Reply in the current
 conversation with `message` (action `send`, omit target) or a normal final reply.
 The owner is in every meeting thread: confirmations, notifications and
-approval asks go there once, where the guest receives them too. From the
-owner's main DM, a follow-up to a known meeting thread uses `plow_reply_to`.
+approval asks go there once, where the guest receives them too. The configured
+pre-thread owner gate is the exception: its approval request goes to the
+owner's DM because no meeting thread exists yet. From the owner's main DM, a
+follow-up to a known meeting thread uses `plow_reply_to`.
 An unattended poll has no current conversation and uses `message` with the
 known meeting chat uid as its target.
 Before every contact-visible message (including an existing-group offer,
@@ -85,6 +87,14 @@ free there.
    If it fails, delete each hold just
    created, stop and report the ledger error to the owner; do not send an
    offer. If any deletion fails, report those hold ids too.
+   - **Owner gate:** when `origin` is `inbound` and `config.ownerGate` is
+     true, update the saved request with `ownerApprovalAt: <now ISO>`. Do not
+     open a group or send any proposed time to the other person yet. Run
+     `owner-chat.ts`, then use `message` (`action: send`, channel `plow`,
+     accountId `chat`, target its `chatUid`) to send the owner one private
+     message with the person's name, topic, and held time options, asking for
+     yes or no. The owner approval flow below resumes it. The holds expire
+     normally if the owner does not answer.
 6. Deliver the times:
    - An open request that already has a `chatUid`: post the new times there.
      From the owner's main DM use `plow_reply_to` with that `chatUid` and the
@@ -179,12 +189,46 @@ In the owner's DM:
    request someone else made (`origin: inbound`) is approved only in its
    meeting thread: point the owner there and book nothing.
 
+## Approve an inbound request
+
+This section applies only in the owner's DM. Before interpreting a short yes
+or no as a new scheduling instruction, run `ledger.ts approvals` and check
+whether the owner is answering a pending inbound request. Match by the person
+and topic in the approval message; if more than one fits, ask which one.
+
+- **Yes:** re-read the calendar and run `slots.ts --at <start>` for every
+  held time, passing that offer's hold ids with `--allow-overlap`. If the
+  times are still free, open the group using the saved offer and its existing
+  holds; do not run "Offer times" or `ledger.ts save` again. Keep
+  `ownerApprovalAt` set while opening it, using idempotency key
+  `owner-gate:<id>`. After `start-thread.ts` returns either a chat uid or
+  `deliveryUnknown`, write `ownerApprovedAt: <now ISO>` to a JSON file and
+  include `chatUid` only when it returned one; apply the patch in one
+  `ledger.ts update --id <id> --json-file <file>`. This records the owner's
+  approval separately from delivery certainty. If delivery is unknown, leave
+  `chatUid` absent and follow the no-retry rule. If any held time
+  is no longer free, do not send the stale
+  options: clean the old holds (queue failed deletes in `holdCleanup`),
+  calculate and save fresh options, set a new `ownerApprovalAt`, and ask the
+  owner to approve those exact times.
+- **No:** delete every hold recorded in `offered[]`, then
+  update the request to `{"status":"dropped","ownerApprovalAt":null}`.
+  If any delete fails, record that `{holdId, account}` in `holdCleanup` before
+  closing the request.
+  No message has gone to the other person, so do not contact them.
+- **No clear answer:** leave the request and holds as they are and ask whether
+  to approve or decline.
+
+After either decision, tell the owner what Meetly did. Approval authorizes
+only sending the displayed times to this person; it does not authorize
+booking a meeting.
+
 ## Pipeline
 
 When the owner asks who they are waiting on, or how their meetings stand,
 run `ledger.ts pipeline` and answer in their language, one short line per
 person: what the meeting is for, its `stage` and its `nextStep`. Stages:
-`waiting_on_us` (an out-of-hours time for the owner to approve),
+`waiting_on_us` (an out-of-hours time or inbound offer awaiting owner approval),
 `delivery_unknown` (no linked group; check Messages manually and never resend),
 `sent` (offered less than a day ago), `waiting_on_them` (no
 answer in a day or more, with the hours), `confirmed` (booked: day and time;
@@ -442,6 +486,12 @@ offer.
   requests, or the open handle match is linked to another chat. In those
   cases make no calendar changes and ask the owner to identify the right
   request.
+- If either lookup identifies an inbound request with `ownerApprovalAt` and
+  no `ownerApprovedAt`, the
+  owner gate is still active. Do not link the chat, replace or update the
+  offer, create holds, book, or send any message to the contact. Leave the
+  ledger request untouched and tell the owner privately that this contact
+  reached an unapproved request.
 - **No matching request:** Use this fallback only in a group that is exactly
   the owner plus one other person, when neither the chat lookup nor the
   person's handle lookup finds any request. A closed (`dropped`, `expired`,

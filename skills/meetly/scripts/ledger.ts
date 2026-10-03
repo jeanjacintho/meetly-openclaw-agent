@@ -49,6 +49,11 @@ export type Request = {
   eventId?: string;
   holdCleanup?: HoldRef[];
   pendingOwner?: PendingOwner;
+  // Inbound request is held for explicit owner approval before outreach.
+  ownerApprovalAt?: string;
+  // Set only after the owner approves this exact offer, whether or not Plow
+  // returned a chat uid for the attempted delivery.
+  ownerApprovedAt?: string;
   format?: Format;
   locale?: string;
   booked?: Booked;
@@ -70,11 +75,13 @@ const LOG_TEXT_MAX = 300;
 export type Ledger = { requests: Request[] };
 
 export type NewRequest = Omit<Request,
-  "id" | "status" | "eventId" | "pendingOwner" | "booked" | "meetUrl" | "reminder" | "offeredAt" | "closedAt" | "log" | "createdAt" | "updatedAt">;
+  "id" | "status" | "eventId" | "pendingOwner" | "ownerApprovalAt" | "ownerApprovedAt" | "booked" | "meetUrl" | "reminder" | "offeredAt" | "closedAt" | "log" | "createdAt" | "updatedAt">;
 export type Patch = Partial<Pick<Request,
   "status" | "chatUid" | "eventId" | "offered" | "holdCleanup" | "name" | "location" | "allowOverlap" | "constraints" | "topic" | "format" | "locale">> & {
   attendeeEmail?: string;
   pendingOwner?: PendingOwner | null;
+  ownerApprovalAt?: string | null;
+  ownerApprovedAt?: string;
   booked?: Booked | null;
   meetUrl?: string | null;
   reminder?: Reminder | null;
@@ -83,11 +90,11 @@ export type Patch = Partial<Pick<Request,
 const FORMATS: readonly Format[] = [...DEFAULT_FORMATS, "unknown"];
 const OUTCOMES: readonly Reminder["outcome"][] = ["sent", "cancelled", "no-link"];
 const PATCH_KEYS = [
-  "status", "chatUid", "eventId", "offered", "holdCleanup", "name", "location", "allowOverlap", "constraints", "topic", "pendingOwner",
+  "status", "chatUid", "eventId", "offered", "holdCleanup", "name", "location", "allowOverlap", "constraints", "topic", "pendingOwner", "ownerApprovalAt", "ownerApprovedAt",
   "format", "locale", "booked", "meetUrl", "reminder", "attendeeEmail",
 ];
 // Keys a patch can clear with null.
-const NULLABLE = ["pendingOwner", "booked", "meetUrl", "reminder"] as const;
+const NULLABLE = ["pendingOwner", "ownerApprovalAt", "booked", "meetUrl", "reminder"] as const;
 
 const isDate = (t: unknown) => typeof t === "string" && !Number.isNaN(Date.parse(t));
 
@@ -153,12 +160,14 @@ export function findByChat(ledger: Ledger, chatUid: string, handle?: string): Re
   // yet. This lets a replacement offer supersede a closed request in the chat.
   if (handle !== undefined) {
     const openForHandle = findOpenByHandle(ledger, handle);
-  if (openForHandle && (openForHandle.chatUid === undefined || openForHandle.chatUid === chatUid)) {
+  if (openForHandle && (openForHandle.ownerApprovalAt === undefined || openForHandle.ownerApprovedAt !== undefined)
+      && (openForHandle.chatUid === undefined || openForHandle.chatUid === chatUid)) {
       return openForHandle;
     }
   }
   // A chat remains a Meetly group after its request closes.
-  return ledger.requests.findLast((r) => r.chatUid === chatUid && r.status === "offered")
+  return ledger.requests.findLast((r) => r.chatUid === chatUid && r.status === "offered"
+    && (r.ownerApprovalAt === undefined || r.ownerApprovedAt !== undefined))
     ?? ledger.requests.findLast((r) => r.chatUid === chatUid);
 }
 
@@ -202,7 +211,7 @@ export function addRequest(ledger: Ledger, input: NewRequest, now: number, id: s
   const at = new Date(now).toISOString();
   // A new offer is never booked: a booking, its link and its reminder are
   // only ever set through update, where they are validated.
-  const { booked: _b, meetUrl: _m, reminder: _r, closedAt: _c, log: _l, ...fields } = input as NewRequest & Partial<Pick<Request, "booked" | "meetUrl" | "reminder" | "closedAt"  | "log">>;
+  const { booked: _b, meetUrl: _m, reminder: _r, closedAt: _c, ownerApprovalAt: _oa, ownerApprovedAt: _oap, log: _l, ...fields } = input as NewRequest & Partial<Pick<Request, "booked" | "meetUrl" | "reminder" | "closedAt" | "ownerApprovalAt" | "ownerApprovedAt" | "log">>;
   const request: Request = { ...fields, ...(attendeeEmail ? { attendeeEmail } : {}), format, id, status: "offered", offeredAt: at, createdAt: at, updatedAt: at };
   return { requests: [...ledger.requests, request] };
 }
@@ -224,6 +233,7 @@ const withoutRefs = (refs: HoldRef[], keep: HoldRef[]): HoldRef[] =>
 export function saveRequest(ledger: Ledger, input: NewRequest, now: number, id: string, revision = id): Ledger {
   const existing = findOpenByHandle(ledger, input.handle);
   if (!existing) return addRequest(ledger, input, now, id);
+  if (existing.ownerApprovalAt !== undefined && existing.ownerApprovedAt === undefined) throw new Error(`request ${existing.id} is waiting for owner approval; do not replace or link its offer`);
 
   // Reuse addRequest's validation and timestamp behavior, then apply its new
   // offer to the existing record. An absent chatUid must not erase the link.
@@ -236,6 +246,8 @@ export function saveRequest(ledger: Ledger, input: NewRequest, now: number, id: 
     // A new offer that does not name a format keeps the one already answered.
     format: validated.format === "unknown" ? existing.format ?? "unknown" : validated.format,
     locale: input.locale ?? existing.locale,
+    ownerApprovalAt: undefined,
+    ownerApprovedAt: undefined,
     createdAt: existing.createdAt,
     updatedAt: new Date(now).toISOString(),
   };
@@ -313,6 +325,8 @@ export function updateRequest(ledger: Ledger, id: string, patch: Patch, now: num
       throw new Error(`pendingOwner needs valid start, end and askedAt: ${JSON.stringify(pending)}`);
     }
   }
+  if (patch.ownerApprovalAt !== undefined && patch.ownerApprovalAt !== null && !isDate(patch.ownerApprovalAt)) throw new Error(`ownerApprovalAt must be a time, got ${JSON.stringify(patch.ownerApprovalAt)}`);
+  if (patch.ownerApprovedAt !== undefined && !isDate(patch.ownerApprovedAt)) throw new Error(`ownerApprovedAt must be a time, got ${JSON.stringify(patch.ownerApprovedAt)}`);
   if (patch.format !== undefined) checkFormat(patch.format);
   if (patch.locale !== undefined) checkLocale(patch.locale);
   const patched = patch.attendeeEmail !== undefined ? { ...patch, attendeeEmail: checkEmail(patch.attendeeEmail) } : patch;
@@ -324,6 +338,15 @@ export function updateRequest(ledger: Ledger, id: string, patch: Patch, now: num
   const index = ledger.requests.findIndex((r) => r.id === id);
   if (index < 0) throw new Error(`no request ${id}`);
   const currentRequest = ledger.requests[index]!;
+  const approvalPending = currentRequest.ownerApprovalAt !== undefined && currentRequest.ownerApprovedAt === undefined;
+  if (approvalPending) {
+    if (patch.chatUid !== undefined && patch.ownerApprovedAt === undefined) {
+      throw new Error(`request ${id} is waiting for owner approval; chatUid cannot be linked before owner approval`);
+    }
+    if (patch.status === "booked" || patch.eventId !== undefined || patch.booked !== undefined) {
+      throw new Error(`request ${id} is waiting for owner approval; it cannot be booked or attached to an event`);
+    }
+  }
   const at = new Date(now).toISOString();
   const updated: Request = { ...ledger.requests[index]!, updatedAt: at };
   if (currentRequest.status !== "offered" && currentRequest.status !== "booked" && !currentRequest.closedAt) {
@@ -373,6 +396,10 @@ export function expiredRequests(ledger: Ledger, hours: number, now: number): Req
 // Open requests waiting for the owner to confirm an out-of-hours time.
 export function pendingOwnerList(ledger: Ledger): Request[] {
   return ledger.requests.filter((r) => r.status === "offered" && r.pendingOwner !== undefined);
+}
+
+export function ownerApprovalList(ledger: Ledger): Request[] {
+  return ledger.requests.filter((r) => r.status === "offered" && r.ownerApprovalAt !== undefined && r.ownerApprovedAt === undefined);
 }
 
 // Booked Meets whose link is due in the group: from `leadMin` before the
@@ -426,7 +453,7 @@ const NEXT_STEP: Record<Stage, string> = {
 export function stageOf(r: Request, now: number): Stage {
   if (r.status === "booked") return "confirmed";
   if (r.status !== "offered") return "passed";
-  if (r.pendingOwner) return "waiting_on_us";
+  if (r.pendingOwner || (r.ownerApprovalAt && !r.ownerApprovedAt)) return "waiting_on_us";
   if (!r.chatUid) return "delivery_unknown";
   return hoursSince(r.offeredAt, now) >= STALE_HOURS ? "waiting_on_them" : "sent";
 }
@@ -444,7 +471,8 @@ export function pipeline(ledger: Ledger, now: number): {
     if (r.name !== undefined) out.name = r.name;
     return out;
   };
-  const waiting = (r: Request) => ({ hoursWaiting: hoursSince(r.pendingOwner?.askedAt ?? r.offeredAt, now) });
+  const waiting = (r: Request) => ({ hoursWaiting: hoursSince(r.pendingOwner?.askedAt
+    ?? (r.ownerApprovedAt ? r.offeredAt : r.ownerApprovalAt ?? r.offeredAt), now) });
   const open = ledger.requests.filter((r) => r.status === "offered");
   const upcoming = ledger.requests.filter((r) => r.status === "booked" && (!r.booked || Date.parse(r.booked.start) >= now));
   const startOf = (r: Request) => (r.booked ? Date.parse(r.booked.start) : Infinity);
@@ -572,6 +600,8 @@ if (isMain(import.meta.url)) {
       }
       case "pending":
         return { requests: pendingOwnerList(readJson<Ledger>(path, EMPTY)) };
+      case "approvals":
+        return { requests: ownerApprovalList(readJson<Ledger>(path, EMPTY)) };
       case "cleanup":
         return { requests: cleanupList(updateJson<Ledger>(path, EMPTY, (l) => discardStaleOffers(l, now, 15 * 60_000))).map((r) => ({ id: r.id, holdCleanup: r.holdCleanup })) };
       case "reminders": {
@@ -580,7 +610,7 @@ if (isMain(import.meta.url)) {
         return { requests: dueReminders(readJson<Ledger>(path, EMPTY), now, lead) };
       }
       default:
-        throw new Error("usage: ledger.ts find | add | save | update | promote-offer | discard-offer | cleanup-remove | expired | pending | pipeline | history | log | cleanup | reminders");
+        throw new Error("usage: ledger.ts find | add | save | update | promote-offer | discard-offer | cleanup-remove | expired | pending | approvals | pipeline | history | log | cleanup | reminders");
     }
   });
 }

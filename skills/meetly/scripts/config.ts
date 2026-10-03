@@ -22,6 +22,8 @@ export type Config = {
   horizonDays: number;
   calendars: Calendar[];
   defaultAccount: string;
+  // When enabled, inbound requests wait for owner approval before contacting the person.
+  ownerGate?: boolean;
   // Minutes of notice a time needs before it is offered; unset means MIN_NOTICE_MIN.
   minNoticeMin?: number;
   defaultFormat?: DefaultFormat;
@@ -30,7 +32,7 @@ export type Config = {
 };
 
 // Every setting the owner can change.
-export const FIELDS = ["ownerName", "timezone", "days", "window", "durationMin", "horizonDays", "calendars", "minNotice", "defaultFormat"] as const;
+export const FIELDS = ["ownerName", "timezone", "days", "window", "durationMin", "horizonDays", "calendars", "ownerGate", "minNotice", "defaultFormat"] as const;
 export type Field = (typeof FIELDS)[number];
 
 // What setup cannot start without, in the order it asks: nobody but the owner,
@@ -156,6 +158,12 @@ export function parseField(field: string, value: string): Partial<Config> {
       return { durationMin: integer(value, "the duration in minutes", 15, 240) };
     case "horizonDays":
       return { horizonDays: integer(value, "the number of days", 1, 30) };
+    case "ownerGate": {
+      const v = value.trim().toLowerCase();
+      if (["on", "yes", "true", "enabled"].includes(v)) return { ownerGate: true };
+      if (["off", "no", "false", "disabled"].includes(v)) return { ownerGate: false };
+      throw new Error(`ownerGate must be on or off, got "${value}"`);
+    }
     case "minNotice": {
       const raw = value.trim().toLowerCase();
       if (raw === "default") return { minNoticeMin: undefined };
@@ -222,6 +230,10 @@ export function validateConfig(partial: Partial<Config>): Config {
     calendars: readableCalendars(p.calendars, p.defaultAccount),
     defaultAccount: p.defaultAccount,
   };
+  if (p.ownerGate !== undefined) {
+    if (typeof p.ownerGate !== "boolean") throw new Error("ownerGate must be true or false");
+    config.ownerGate = p.ownerGate;
+  }
   if (p.minNoticeMin !== undefined) config.minNoticeMin = p.minNoticeMin;
   if (p.defaultFormat !== undefined) config.defaultFormat = p.defaultFormat;
   if (p.setupDoneAt !== undefined) config.setupDoneAt = p.setupDoneAt;

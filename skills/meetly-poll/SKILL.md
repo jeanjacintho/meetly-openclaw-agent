@@ -82,11 +82,16 @@ still explain why no contact message was sent.
       batch>` and go to step 6.
 5. Run `cursor.ts set <highest rowid in the batch>`.
 6. Maintenance:
-   - For each request from `ledger.ts expired`: delete its holds ("Holds" in
-     `meetly-group`), then `ledger.ts update --id <id> --json
-     '{"status":"expired","pendingOwner":null}'`. If it has a `chatUid`, check
-     the blocklist then tell the group the held times were released; this also
-     notifies the owner.
+   - For each request from `ledger.ts expired`: delete its
+     holds ("Holds" in `meetly-group`), then `ledger.ts update --id <id>
+     --json '{"status":"expired","pendingOwner":null,"ownerApprovalAt":null}'`.
+     If it has a `chatUid`, check the blocklist then tell the group the held
+     times were released; this also notifies the owner. If `ownerApprovalAt`
+     was set, `ownerApprovedAt` is absent and there is no `chatUid`, tell the
+     owner in their DM that approval expired and the holds were released. If
+     `ownerApprovedAt` is set but there is no `chatUid`, tell the owner the
+     delivery is unknown, the holds expired and they must check Messages; do
+     not resend. Never contact the other person before approval.
    - For each request from `ledger.ts cleanup`: retry each delete, and after
      each successful one write `{ "holdId": "...", "account": "..." }` to a
      JSON file and run `ledger.ts cleanup-remove --id <id> --json-file <file>`.

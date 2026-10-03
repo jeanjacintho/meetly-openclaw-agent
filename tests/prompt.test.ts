@@ -125,6 +125,10 @@ test("routine meeting notifications stay in the group and pre-thread gate approv
   assert.ok(group.includes("Ask the owner in this thread"));
   assert.ok(group.includes("A yes in the owner's DM does not approve the request"));
   assert.ok(group.includes("The group confirmation also notifies the owner"));
+  assert.ok(group.includes("when `origin` is `inbound` and `config.ownerGate` is true"));
+  assert.ok(group.includes("The configured pre-thread owner gate is the exception"));
+  assert.ok(group.includes("Approval authorizes only sending the displayed times"));
+  assert.ok(flat(prompt).includes("matching `ledger.ts approvals` entry"));
   assert.ok(!/owner in their DM|and to the owner|then tell the owner/.test(group));
   assert.ok(!flat(prompt).includes("send the owner its specified brief alert in the owner's DM"));
   // A new offer for an open group goes there by the route that reaches it, is reported only once sent, and a failed send restores the last delivered offer.
@@ -358,6 +362,17 @@ test("Meetly re-proposes fresh times when the other person says none of the opti
   assert.ok(group.includes("Re-read the calendar"));
   assert.ok(group.includes("search the remaining configured horizon"));
   assert.ok(group.includes("never claim a slot is free from an earlier calendar read"));
+});
+
+test("the optional owner gate holds inbound times until an owner DM approval", () => {
+  const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
+  const setup = flat(readFileSync(join(SKILLS, "meetly-setup", "SKILL.md"), "utf8"));
+  const poll = flat(readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8"));
+  assert.ok(group.includes("ledger.ts approvals"));
+  assert.ok(group.includes("Do not open a group or send any proposed time"));
+  assert.ok(group.includes("owner-gate:<id>"));
+  assert.ok(setup.includes("record-setup.ts --field ownerGate --value on"));
+  assert.ok(poll.includes("Never contact the other person before approval"));
 });
 
 test("do not contact is checked before every contact-visible message and stored for all aliases", () => {
