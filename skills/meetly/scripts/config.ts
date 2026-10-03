@@ -1,5 +1,4 @@
 // The owner's scheduling config: types, answer parsing and validation.
-import { isZoomRoomUrl } from "./event.ts";
 import { file } from "./paths.ts";
 import { readJson } from "./store.ts";
 import { DAYS, type Day } from "./time.ts";
@@ -23,8 +22,6 @@ export type Config = {
   horizonDays: number;
   calendars: Calendar[];
   defaultAccount: string;
-  // The owner's personal Zoom room; unset means Google Meet.
-  zoomRoomUrl?: string;
   // When enabled, inbound requests wait for owner approval before contacting the person.
   ownerGate?: boolean;
   // Minutes of notice a time needs before it is offered; unset means MIN_NOTICE_MIN.
@@ -35,7 +32,7 @@ export type Config = {
 };
 
 // Every setting the owner can change.
-export const FIELDS = ["ownerName", "timezone", "days", "window", "durationMin", "horizonDays", "calendars", "videoProvider", "ownerGate", "minNotice", "defaultFormat"] as const;
+export const FIELDS = ["ownerName", "timezone", "days", "window", "durationMin", "horizonDays", "calendars", "ownerGate", "minNotice", "defaultFormat"] as const;
 export type Field = (typeof FIELDS)[number];
 
 // What setup cannot start without, in the order it asks: nobody but the owner,
@@ -161,12 +158,6 @@ export function parseField(field: string, value: string): Partial<Config> {
       return { durationMin: integer(value, "the duration in minutes", 15, 240) };
     case "horizonDays":
       return { horizonDays: integer(value, "the number of days", 1, 30) };
-    case "videoProvider": {
-      const v = value.trim();
-      if (v === "meet") return { zoomRoomUrl: undefined };
-      if (!isZoomRoomUrl(v)) throw new Error(`the video provider is meet, or your Zoom room link (https://zoom.us/j/... or /my/...), got "${value}"`);
-      return { zoomRoomUrl: v };
-    }
     case "ownerGate": {
       const v = value.trim().toLowerCase();
       if (["on", "yes", "true", "enabled"].includes(v)) return { ownerGate: true };
@@ -239,7 +230,6 @@ export function validateConfig(partial: Partial<Config>): Config {
     calendars: readableCalendars(p.calendars, p.defaultAccount),
     defaultAccount: p.defaultAccount,
   };
-  if (p.zoomRoomUrl !== undefined) config.zoomRoomUrl = p.zoomRoomUrl;
   if (p.ownerGate !== undefined) {
     if (typeof p.ownerGate !== "boolean") throw new Error("ownerGate must be true or false");
     config.ownerGate = p.ownerGate;

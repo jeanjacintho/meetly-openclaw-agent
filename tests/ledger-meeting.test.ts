@@ -81,27 +81,6 @@ test("meetUrl only takes a Google Meet link", () => {
   }
 });
 
-const ROOM = "https://zoom.us/j/123456789";
-
-test("roomUrl takes only a personal Zoom room, only on a video meeting, and clears with null", () => {
-  const l = addRequest(empty(), input({ format: "meet" }), T0, "r_1");
-  for (const bad of ["http://zoom.us/j/1", "https://zoom.us.evil.example/j/1", "https://meet.google.com/abc-defg-hij", "https://zoom.us/j/1?x=1", ""]) {
-    assert.throws(() => updateRequest(l, "r_1", { roomUrl: bad }, T0), /roomUrl/, bad);
-  }
-  const withRoom = updateRequest(l, "r_1", { roomUrl: ROOM }, T0);
-  assert.equal(withRoom.requests[0]!.roomUrl, ROOM);
-  assert.equal("roomUrl" in updateRequest(withRoom, "r_1", { roomUrl: null }, T0).requests[0]!, false);
-  // Moving to another format drops it; it cannot be set on one that is not a video meeting.
-  assert.equal("roomUrl" in updateRequest(withRoom, "r_1", { format: "in_person", location: "Office" }, T0).requests[0]!, false);
-  const phone = addRequest(empty(), input({ format: "phone" }), T0, "r_2");
-  assert.throws(() => updateRequest(phone, "r_2", { roomUrl: ROOM }, T0), /roomUrl/);
-});
-
-test("a booked video meeting with the owner's Zoom room is due for a reminder like a Meet", () => {
-  const l = bookedMeet({ meetUrl: null, roomUrl: ROOM });
-  assert.deepEqual(dueReminders(l, START - 5 * MIN, 10).map((r) => r.id), ["r_1"]);
-});
-
 test("meetUrl is refused on a meeting that is not a Meet", () => {
   for (const format of ["in_person", "phone", "unknown"]) {
     const l = addRequest(empty(), input({ format }), T0, "r_1");

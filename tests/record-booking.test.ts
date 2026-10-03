@@ -30,15 +30,6 @@ test("booking a Meet records the event, its time, its account and its link", () 
   assert.equal(warning, undefined);
 });
 
-test("with the owner's Zoom room the booking keeps that room as its link, and nothing is missing", () => {
-  const room = "https://zoom.us/j/123456789";
-  const { ledger, meetUrl, warning } = recordBooking(offered("meet"), "r_1", plainEvent(), ACCOUNT, T0, room);
-  const r = ledger.requests[0]!;
-  assert.deepEqual([r.status, r.roomUrl, "meetUrl" in r, meetUrl, warning], ["booked", room, false, null, undefined]);
-  // A meeting that is not a video call never keeps the room.
-  assert.equal("roomUrl" in recordBooking(offered("in_person"), "r_1", plainEvent(), ACCOUNT, T0, room).ledger.requests[0]!, false);
-});
-
 test("a Meet booked without a link is still booked, with a warning and no link", () => {
   const { ledger, meetUrl, warning } = recordBooking(offered("meet"), "r_1", plainEvent(), ACCOUNT, T0);
   assert.equal(ledger.requests[0]!.status, "booked");

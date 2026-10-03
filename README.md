@@ -93,9 +93,6 @@ Everything else starts at these defaults:
 - offers up to 14 days ahead,
 - times at least 2 hours ahead (same-day times count once they clear it).
 
-Video calls use Google Meet. If you use Zoom, give Meetly your personal room
-link and it uses that for every video meeting; it cannot create new Zoom links.
-
 One more setting has no default: your default meeting type (online, in person
 or phone). Say "always online" and Meetly stops asking how to meet; whatever a
 request says still wins.
