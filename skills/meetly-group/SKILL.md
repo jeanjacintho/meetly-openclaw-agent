@@ -280,8 +280,14 @@ owner's days or window:
 1. Run `slots.ts --in /var/lib/plow/meetly/tmp/busy.json --at <their time,
    as YYYY-MM-DDTHH:MM in the owner's zone> --duration <the request's>
    --locale <their locale>`.
-2. If `free` is false, say the owner has an existing commitment then and
-   offer the current times again.
+2. If `free` is false:
+   - `reason: "busy"`: say the owner has an existing commitment then and
+     offer the current times again.
+   - `reason: "too-soon"`: say there is not enough notice for that time and
+     offer the current times or ask for a later time; do not call it a
+     calendar conflict.
+   - `reason: "unknown"`: tell the owner the calendar could not confirm that
+     time; do not claim it is free or busy.
 3. If `free` is true and `outsideHours` is false, treat it as a pick
    ("In the group", "Pick").
 4. If `free` is true and `outsideHours` is true:

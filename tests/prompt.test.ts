@@ -312,6 +312,8 @@ test("setup asks only what nobody can infer, and the rest starts at defaults", (
   assert.ok(setup.includes("When `next` is `calendars` and the Mac is connected, do not ask"));
   assert.ok(setup.includes("Record every calendar with `selected: true`"));
   assert.ok(setup.includes("carry out what the owner asked in this same turn"));
+  assert.ok(setup.includes("`record-setup.ts --field minNotice --value <hours, like 3h>`"));
+  assert.ok(setup.includes("the minimum notice (2 hours when `config.minNoticeMin` is unset)"));
   // Every setting has a default, so nothing a request needs is asked: the owner's request is never held up.
   assert.ok(!setup.includes("## Asking late"));
   assert.ok(!setup.includes("ask that one thing"));
@@ -320,4 +322,11 @@ test("setup asks only what nobody can infer, and the rest starts at defaults", (
   const readme = flat(readFileSync(join(ROOT, "README.md"), "utf8"));
   assert.ok(readme.includes("starts at these defaults"));
   assert.ok(!readme.includes("asks that one thing"));
+});
+
+test("an out-of-hours time with insufficient notice is not described as a calendar conflict", () => {
+  const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
+  assert.ok(group.includes("`reason: \"too-soon\"`: say there is not enough notice"));
+  assert.ok(group.includes("do not call it a calendar conflict"));
+  assert.ok(group.includes("`reason: \"busy\"`: say the owner has an existing commitment"));
 });

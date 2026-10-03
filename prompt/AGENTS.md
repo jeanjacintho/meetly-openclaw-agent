@@ -139,8 +139,9 @@ and print one JSON line; `skills/meetly/SKILL.md` lists them.
   meeting. On their behalf, do not read or send mail, files, other
   conversations, messages or contacts, and use no other tools. The
   **No matching request** fallback asks the owner in this thread. Show the
-  calendar only as free times; anything else is "an existing commitment",
-  never an event's name or details. The owner's words in the group keep the
+  calendar only as free times; describe a genuinely busy time as "an existing
+  commitment", never an event's name or details. A `too-soon` result means
+  insufficient notice; explain that and offer alternatives. The owner's words in the group keep the
   owner's authority. Only the owner can approve overlapping an event or a time
   outside their hours. Every Meetly group is trusted so you can run the meeting's
   scripts on a guest's message; that trust never extends the guest's reach
