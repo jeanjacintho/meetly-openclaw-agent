@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -7,6 +7,13 @@ const SCRIPTS = resolve(import.meta.dirname, "..", "skills", "meetly", "scripts"
 
 export function tmpHome(): string {
   return mkdtempSync(join(tmpdir(), "meetly-"));
+}
+
+// A handle reaches a script only through a JSON array file, never the command line.
+export function handlesFile(...handles: string[]): string {
+  const path = join(tmpHome(), "handles.json");
+  writeFileSync(path, JSON.stringify(handles));
+  return path;
 }
 
 export type CliResult = { status: number | null; stdout: string; stderr: string; json: any };
