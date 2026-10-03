@@ -53,7 +53,9 @@ export async function startThread(opts: ApiOptions & { members: string[]; body: 
   for (const m of opts.members) if (isBlocked(blockedBeforePost, m)) {
     throw new Error(`do not contact: ${m} is on the owner's do-not-contact list; the owner must take them off it first`);
   }
-  const idempotencyKey = createHash("sha256").update(JSON.stringify([lineUid, opts.key, members, opts.body])).digest("hex");
+  // The request identity must survive regenerated wording after an unknown
+  // delivery; the opener body is not durable state in the ledger.
+  const idempotencyKey = createHash("sha256").update(JSON.stringify([lineUid, opts.key, members])).digest("hex");
 
   let res: Response;
   try {
@@ -80,7 +82,7 @@ if (isMain(import.meta.url)) {
     const { values } = parseArgs({
       options: { member: { type: "string", multiple: true }, body: { type: "string" }, key: { type: "string" }, request: { type: "string" } },
     });
-    if (!values.key) throw new Error("pass --key (e.g. rowid:<the request's rowid>) so a retry cannot open a second group");
+    if (!values.key) throw new Error("pass --key (e.g. request:<the saved request id>) so a retry cannot open a second group");
     if (values.body === undefined) throw new Error("pass --body");
     if (!values.request) throw new Error("pass --request <the saved request id>");
     return startThread({ members: values.member ?? [], body: values.body, key: values.key, requestId: values.request });
