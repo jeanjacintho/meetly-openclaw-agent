@@ -55,7 +55,7 @@ Shortcuts:
      lists 3 labels in the sender's locale format.
    - Expect: 3 `Hold: …` events on the owner's primary calendar.
    - Expect: the opener reaches the owner in the same group.
-   - Check: `m/ledger.ts find --handle <phone>` shows the request with
+   - Check: `m/ledger.ts find --handles-file <file>` (a file holding `["<phone>"]`) shows the request with
      `chatUid` and three `holdId`s.
 4. [ ] **Pick a time.** In the group: "the second one".
    - Expect: that hold becomes the event (no "Hold:", the attendee invited if
