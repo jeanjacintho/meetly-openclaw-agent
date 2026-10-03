@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  addRequest, saveRequest, settleOffer, discardStaleOffers, removeCleanupRef, appendLog, cleanupList, pendingOwnerList, ownerApprovalList, expiredRequests, expireRequests, monitor, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, pipeline, stageOf,
+  addRequest, approveRequest, saveRequest, settleOffer, discardStaleOffers, removeCleanupRef, appendLog, cleanupList, pendingOwnerList, ownerApprovalList, expiredRequests, expireRequests, monitor, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, pipeline, stageOf,
   type Ledger, type NewRequest,
 } from "../skills/meetly/scripts/ledger.ts";
 import { cli, tmpHome, handlesFile } from "./helpers.ts";
@@ -334,6 +334,25 @@ test("the CLI expire closes an old request once and queues its holds", () => {
   assert.equal(cli("ledger.ts", ["find", "--chat", "chat_1"], env).json.request.status, "expired");
   assert.deepEqual(cli("ledger.ts", ["expire", "--hours", "0"], env).json, { requests: [] });
   assert.deepEqual(cli("ledger.ts", ["cleanup"], env).json, { requests: [{ id, holdCleanup: [{ holdId: "h1", account: offer.account }] }] });
+});
+
+test("the owner's yes is claimed atomically: only a request still open and waiting can be approved", () => {
+  const gate = new Date(T0).toISOString();
+  const waiting = saveRequest(empty(), input({ ownerApprovalAt: gate }), T0, "r_1");
+  const claimed = approveRequest(waiting, "r_1", T0 + HOUR);
+  assert.equal(claimed.approved, true);
+  assert.equal(claimed.ledger.requests[0]!.ownerApprovedAt, new Date(T0 + HOUR).toISOString());
+  // A second approval, an unknown id, or a request the poll already expired all lose.
+  assert.equal(approveRequest(claimed.ledger, "r_1", T0 + 2 * HOUR).approved, false);
+  assert.equal(approveRequest(waiting, "nope", T0).approved, false);
+  const expired = expireRequests(waiting, 48, T0 + 49 * HOUR).ledger;
+  assert.equal(approveRequest(expired, "r_1", T0 + 50 * HOUR).approved, false);
+  // An approval just before expiry restarts the clock, so the poll cannot close it under the owner's turn.
+  const late = approveRequest(waiting, "r_1", T0 + 47 * HOUR).ledger;
+  assert.deepEqual(expireRequests(late, 48, T0 + 49 * HOUR).claimed, []);
+  // A re-offer to a group the request already has is never gated.
+  const linked = addRequest(empty(), input({ chatUid: "g1" }), T0, "r_2");
+  assert.throws(() => saveRequest(linked, input({ chatUid: "g1", ownerApprovalAt: gate }), T0, "r_3"), /already has a group/);
 });
 
 test("CLI add, find, update and cleanup round-trip", () => {

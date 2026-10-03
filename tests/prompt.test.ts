@@ -127,7 +127,9 @@ test("routine meeting notifications stay in the group and pre-thread gate approv
   assert.ok(group.includes("Ask the owner in this thread"));
   assert.ok(group.includes("A yes in the owner's DM does not approve the request"));
   assert.ok(group.includes("The group confirmation also notifies the owner"));
-  assert.ok(group.includes("when `origin` is `inbound` and `config.ownerGate` is true"));
+  assert.ok(group.includes("when `origin` is `inbound`, `config.ownerGate` is true and the request has no `chatUid` yet"));
+  assert.ok(group.includes("first claim the approval with `ledger.ts approve --id <id>`"));
+  assert.ok(group.includes("Create the fresh holds first and save them"));
   assert.ok(group.includes("The configured pre-thread owner gate is the exception"));
   assert.ok(group.includes("Approval authorizes only sending the displayed times"));
   assert.ok(flat(prompt).includes("matching `ledger.ts approvals` entry"));

@@ -248,6 +248,10 @@ const withoutRefs = (refs: HoldRef[], keep: HoldRef[]): HoldRef[] =>
 export function saveRequest(ledger: Ledger, input: NewRequest, now: number, id: string, revision = id): Ledger {
   const existing = findOpenByHandle(ledger, input.handle);
   if (!existing) return addRequest(ledger, input, now, id);
+  // The gate is for a request that has no group yet: a re-offer to a linked group goes the send and promote way.
+  if (input.ownerApprovalAt !== undefined && existing.chatUid !== undefined) {
+    throw new Error(`request ${existing.id} already has a group: an owner approval cannot gate a re-offer to it`);
+  }
   // A gated offer is replaced only by one that carries a fresh approval time (stale options regenerated).
   if (awaitingOwnerApproval(existing) && !(input.ownerApprovalAt && Date.parse(input.ownerApprovalAt) > Date.parse(existing.ownerApprovalAt!))) {
     throw new Error(`request ${existing.id} is waiting for owner approval; replace its offer only with a new ownerApprovalAt`);
@@ -436,6 +440,15 @@ export function expireRequests(ledger: Ledger, hours: number, now: number): { le
 // Open requests waiting for the owner to confirm an out-of-hours time.
 export function pendingOwnerList(ledger: Ledger): Request[] {
   return ledger.requests.filter((r) => r.status === "offered" && r.pendingOwner !== undefined);
+}
+
+// The owner's yes, claimed atomically: it succeeds only while the request is
+// still open and waiting, so an expiry that closed it first wins, and once it
+// is claimed the expiry clock restarts from the approval (`expiredRequests`).
+export function approveRequest(ledger: Ledger, id: string, now: number): { ledger: Ledger; approved: boolean } {
+  const r = ledger.requests.find((x) => x.id === id);
+  if (!r || r.status !== "offered" || !awaitingOwnerApproval(r)) return { ledger, approved: false };
+  return { ledger: updateRequest(ledger, id, { ownerApprovedAt: new Date(now).toISOString() }, now), approved: true };
 }
 
 export function ownerApprovalList(ledger: Ledger): Request[] {
@@ -678,6 +691,16 @@ if (isMain(import.meta.url)) {
       }
       case "pending":
         return { requests: pendingOwnerList(readJson<Ledger>(path, EMPTY)) };
+      case "approve": {
+        if (!values.id) throw new Error("usage: ledger.ts approve --id X");
+        let approved = false;
+        const ledger = updateJson<Ledger>(path, EMPTY, (l) => {
+          const out = approveRequest(l, values.id!, now);
+          approved = out.approved;
+          return out.ledger;
+        });
+        return { approved, request: ledger.requests.find((r) => r.id === values.id) ?? null };
+      }
       case "approvals":
         return { requests: ownerApprovalList(readJson<Ledger>(path, EMPTY)) };
       case "cleanup":
@@ -688,7 +711,7 @@ if (isMain(import.meta.url)) {
         return { requests: dueReminders(readJson<Ledger>(path, EMPTY), now, lead) };
       }
       default:
-        throw new Error("usage: ledger.ts find | add | save | update | promote-offer | discard-offer | cleanup-remove | expire | pending | approvals | pipeline | monitor | history | log | cleanup | reminders");
+        throw new Error("usage: ledger.ts find | add | save | update | promote-offer | discard-offer | cleanup-remove | expire | approve | pending | approvals | pipeline | monitor | history | log | cleanup | reminders");
     }
   });
 }

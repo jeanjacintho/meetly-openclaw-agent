@@ -89,8 +89,9 @@ free there.
    If it fails, delete each hold just
    created, stop and report the ledger error to the owner; do not send an
    offer. If any deletion fails, report those hold ids too.
-   - **Owner gate:** when `origin` is `inbound` and `config.ownerGate` is
-     true, put `ownerApprovalAt: <now ISO>` in the step 5 `ledger.ts save`
+   - **Owner gate:** when `origin` is `inbound`, `config.ownerGate` is
+     true and the request has no `chatUid` yet (a re-offer to a group it
+     already has is sent and promoted as above), put `ownerApprovalAt: <now ISO>` in the step 5 `ledger.ts save`
      payload, so the request is saved already gated in one write. Do not
      open a group or send any proposed time to the other person yet. Run
      `owner-chat.ts`, then use `message` (`action: send`, channel `plow`,
@@ -202,19 +203,24 @@ or no as a new scheduling instruction, run `ledger.ts approvals` and check
 whether the owner is answering a pending inbound request. Match by the person
 and topic in the approval message; if more than one fits, ask which one.
 
-- **Yes:** re-read the calendar and run `slots.ts --at <start>` for every
-  held time, passing that offer's hold ids with `--allow-overlap`. If the
-  times are still free, open the group using the saved offer and its existing
-  holds; do not run "Offer times" or `ledger.ts save` again. First record the
-  approval with `ledger.ts update --id <id> --json '{"ownerApprovedAt":"<now ISO>"}'`:
-  `start-thread.ts` refuses a request that is still waiting. Then open the
-  group with `start-thread.ts --input-file` (its `requestId` is `<id>`) and, when it returns a chat uid,
+- **Yes:** first claim the approval with `ledger.ts approve --id <id>`. If
+  `approved` is false the request was already closed (the poll expired it) or
+  approved: do nothing else, delete nothing, and tell the owner what the
+  ledger now shows. Only a claimed request is acted on; `start-thread.ts`
+  refuses one that is still waiting. Then re-read the calendar and run
+  `slots.ts --in … --at <start>` for every held time, passing that offer's hold
+  ids with `--allow-overlap`. If the times are still free, open the saved
+  offer's group with its existing holds; do not run "Offer times" or
+  `ledger.ts save` again. Open the group with `start-thread.ts --input-file` (its `requestId` is `<id>`) and, when it returns a chat uid,
   link it with `ledger.ts update --id <id> --json '{"chatUid":"<uid>"}'`. If it
   returns `deliveryUnknown`, leave `chatUid` absent and follow the no-retry
   rule: approval is recorded separately from delivery certainty. If any held
   time is no longer free, do not send the stale options: run "Offer times"
-  again with `ownerApprovalAt` set; that `save` replaces the pending request,
-  queues the old holds for cleanup, and the owner approves those exact times.
+  again with a new `ownerApprovalAt`. Create the fresh holds first and save
+  them; that `save` replaces the pending request and queues the old holds for
+  cleanup in the same write (never delete the old holds yourself, so an
+  interrupted turn never leaves the request pointing at deleted holds), and
+  the owner approves those exact times.
 - **No:** delete every hold recorded in `offered[]`, then
   update the request to `{"status":"dropped","ownerApprovalAt":null}`.
   If any delete fails, record that `{holdId, account}` in `holdCleanup` before
