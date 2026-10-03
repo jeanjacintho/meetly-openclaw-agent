@@ -131,7 +131,7 @@ test("a clear owner request can start in an existing group without a ledger entr
     "do not ask the owner to identify the request",
     "An open request linked to another chat is a disagreement",
     "chatUid: <this chat uid>",
-    "Never run `start-thread.ts` for this flow",
+    "never run `start-thread.ts` for this flow",
     "ask privately only for what remains genuinely unclear",
     "`reachable-handle.ts --handle <contact.handle>`: unless it returns an iMessage `handle`, stop before holds",
     "any open request with `origin: inbound`, and any already-linked request, is never replaced",
