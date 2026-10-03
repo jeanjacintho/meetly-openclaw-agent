@@ -92,4 +92,5 @@ to install anything else.
   the minimum notice (2 hours when `config.minNoticeMin` is unset),
   default meeting type (or "ask each time" when `config.defaultFormat` is
   unset), video provider (Google Meet, or Zoom when
-  `config.zoomRoomUrl` is set), calendars, and whether it is paused.
+  `config.zoomRoomUrl` is set), the movable title phrases (`config.movable`, or
+  "none"), calendars, and whether it is paused.

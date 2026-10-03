@@ -99,7 +99,7 @@ export function toBusy(results: unknown[], opts: { tz: string; max: number; mova
       const b: Busy = { start: new Date(start).toISOString(), end: new Date(end).toISOString() };
       if (e.id !== undefined) b.id = e.id;
       if (e.account !== undefined) b.account = e.account;
-      if (!hasOthers(e) && e.summary && opts.movable?.some((w) => titleHasWordOrPhrase(e.summary!, w))) b.movable = true;
+      if (!hasOthers(e) && !MEETLY_HOLD.test(e.summary ?? "") && e.summary && opts.movable?.some((w) => titleHasWordOrPhrase(e.summary!, w))) b.movable = true;
       busy.push(b);
     }
     for (const { count, last } of perAccount.values()) {
@@ -111,6 +111,9 @@ export function toBusy(results: unknown[], opts: { tz: string; max: number; mova
   if (unknownAfter !== undefined) out.unknownAfter = new Date(unknownAfter).toISOString();
   return out;
 }
+
+// Meetly's own holds ("Hold: <topic> with <name>") carry the topic and no guests: never movable, or the same time could be offered twice.
+const MEETLY_HOLD = /^\s*hold:/i;
 
 // Anyone besides the owner on the event: Latch's list of other addresses, or the raw objects that are not the owner or a room.
 const hasOthers = (e: CalEvent): boolean =>
