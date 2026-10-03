@@ -258,6 +258,11 @@ const withoutRefs = (refs: HoldRef[], keep: HoldRef[]): HoldRef[] =>
 export function saveRequest(ledger: Ledger, input: NewRequest, now: number, id: string, revision = id): Ledger {
   const existing = findOpenByHandle(ledger, input.handle);
   if (!existing) return addRequest(ledger, input, now, id);
+  // A request already linked to a group is never moved to another chat by a payload: its new times can only go to the
+  // group it has (a different chat uid is a disagreement the owner resolves, not something a save may rewrite).
+  if (existing.chatUid !== undefined && input.chatUid !== undefined && input.chatUid !== existing.chatUid) {
+    throw new Error(`request ${existing.id} is already linked to another group: its times go to that group, not to ${input.chatUid}`);
+  }
   // The gate is for a request that has no group yet: a re-offer to a linked group goes the send and promote way.
   if (input.ownerApprovalAt !== undefined && existing.chatUid !== undefined) {
     throw new Error(`request ${existing.id} already has a group: an owner approval cannot gate a re-offer to it`);

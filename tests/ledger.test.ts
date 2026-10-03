@@ -565,6 +565,15 @@ test("CLI add, find, update and cleanup round-trip", () => {
   cli("ledger.ts", ["update", "--id", firstA.id, "--json", '{"status":"dropped"}'], env);
   const reoffer = cli("ledger.ts", ["save", "--json", JSON.stringify(input({ handle: A, chatUid: "g1" }))], env).json.request;
   assert.deepEqual([reoffer.ownerApprovalAt, reoffer.chatUid], [undefined, "g1"]);
+  // A request that already has a group is never moved to a conflicting chat: B linked to gB cannot be re-pointed at A's g1.
+  const B = "+15553330001";
+  assert.equal(cli("ledger.ts", ["save", "--json", JSON.stringify(input({ handle: B, origin: "owner", chatUid: "gB" }))], env).json.request.chatUid, "gB");
+  const moved = cli("ledger.ts", ["save", "--json", JSON.stringify(input({ handle: B, chatUid: "g1", offered: [{ ...offer, holdId: "h77" }] }))], env);
+  assert.equal(moved.status, 1);
+  assert.match(moved.stderr, /already linked to another group/);
+  assert.equal(cli("ledger.ts", ["find", "--chat", "gB"], env).json.request.chatUid, "gB");
+  // Its own group is fine (a re-offer is staged for it).
+  assert.equal(cli("ledger.ts", ["save", "--json", JSON.stringify(input({ handle: B, chatUid: "gB", offered: [{ ...offer, holdId: "h78" }] }))], env).status, 0);
   // The owner turned it off: nothing is gated.
   const off = JSON.parse(readFileSync(join(home, "config.json"), "utf8"));
   writeFileSync(join(home, "config.json"), JSON.stringify({ ...off, ownerGate: false }));
