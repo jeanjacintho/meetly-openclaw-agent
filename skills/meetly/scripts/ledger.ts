@@ -408,7 +408,8 @@ export function appendLog(ledger: Ledger, id: string, text: string, now: number)
 
 export function expiredRequests(ledger: Ledger, hours: number, now: number): Request[] {
   // A request with an offer being sent is not expired: its send settles first.
-  return ledger.requests.filter((r) => r.status === "offered" && !r.pendingOffer && now - Date.parse(r.offeredAt) >= hours * 3600_000);
+  // An approved request's holds are counted from the approval, so opening the group just after it never races the expiry.
+  return ledger.requests.filter((r) => r.status === "offered" && !r.pendingOffer && now - Date.parse(r.ownerApprovedAt ?? r.offeredAt) >= hours * 3600_000);
 }
 
 // Close, in one locked write, every open request whose holds have run out, and

@@ -154,7 +154,7 @@ free there.
      nothing else about delivery: never quote a status code or say you cannot
      confirm anything else. Never resend by another route. Only if the owner
      says the group is not there, or asks you to try again, run
-     `start-thread.ts` again with the same `key` and members. The idempotency
+     `start-thread.ts` again with the same `requestId` and members. The idempotency
      key is based on request identity, so regenerated opener wording still
      resolves to the same group. Link the group it returns as below.
    - After a group opens, run `ledger.ts update --id <saved request id>

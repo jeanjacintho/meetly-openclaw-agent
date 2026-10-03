@@ -205,6 +205,10 @@ test("expired: 48 hours after the offer, open requests only", () => {
   l = updateRequest(l, "r_2", { status: "booked" }, T0);
   assert.deepEqual(expiredRequests(l, 48, T0 + 47 * HOUR), []);
   assert.deepEqual(expiredRequests(l, 48, T0 + 48 * HOUR).map((r) => r.id), ["r_1"]);
+  // An approved request counts its hold time from the approval, so an approval just before expiry is not raced.
+  const approved = updateRequest(l, "r_1", { ownerApprovedAt: new Date(T0 + 47 * HOUR).toISOString() }, T0 + 47 * HOUR);
+  assert.deepEqual(expiredRequests(approved, 48, T0 + 48 * HOUR), []);
+  assert.deepEqual(expiredRequests(approved, 48, T0 + 95 * HOUR).map((r) => r.id), ["r_1"]);
 });
 
 test("expiring claims each request once, queues its holds, and returns it as it was", () => {
