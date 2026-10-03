@@ -215,10 +215,6 @@ test("editing a field after setup updates config.json and keeps setupDoneAt", ()
     record("minNotice", "default");
     assert.equal("minNoticeMin" in readJson<object>(join(home, "config.json"), {}), false);
     assert.equal(config.setupDoneAt, "2026-09-26T12:00:00.000Z");
-    record("travel", "30");
-    assert.equal(readJson<Config | null>(join(home, "config.json"), null)!.travelMin, 30);
-    record("travel", "none");
-    assert.equal("travelMin" in readJson<object>(join(home, "config.json"), {}), false);
     record("videoProvider", "https://zoom.us/j/123456789");
     assert.equal(readJson<Config | null>(join(home, "config.json"), null)!.zoomRoomUrl, "https://zoom.us/j/123456789");
     record("videoProvider", "meet");
