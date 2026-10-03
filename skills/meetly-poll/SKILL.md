@@ -20,7 +20,7 @@ Before each contact-visible poll message, immediately check
 `blocklist.ts check --handles-file <file>` (a JSON array with the handle, written to
 `/var/lib/plow/meetly/tmp/handles-<request id or sender rowid>.json`; never a
 shared name, and never on the command line). If blocked, skip it and do
-not update the reminder timestamp; private owner notifications may
+not update the reminder or nudge timestamp; private owner notifications may
 still explain why no contact message was sent.
 
 1. Run `setup-status.ts`. If it is not `READY`, or `config.paused` is true, end.
@@ -89,6 +89,28 @@ still explain why no contact message was sent.
      '{"status":"expired","pendingOwner":null}'`. If it has a `chatUid`, check
      the blocklist then tell the group the held times were released; this also
      notifies the owner.
+   - Run `ledger.ts monitor`: it lists what waits on the owner, Meetly or the
+     other person too long. For each `waitingOnThem` item, read the latest
+     messages in that meeting thread first. If the person has already
+     answered, do not nudge; handle their reply in the group. Otherwise send
+     one brief, friendly follow-up in their language, asking whether any held
+     time works or whether Meetly should find other times. Do not imply that
+     they forgot or that a time was booked. Then run `ledger.ts update --id
+     <id> --json '{"personNudgedAt":"<now ISO>"}'` so this offer is nudged
+     once. A replacement offer makes the next follow-up eligible after 24
+     hours.
+     For each `ownerWaiting` item with a `chatUid`, first run `blocklist.ts
+     check --handles-file <file with item.handle>`; if blocked, skip it. Otherwise remind the
+     owner in that meeting thread (`message`, that chat uid as its target), in
+     one line and in their language, that the time they were asked about is
+     still waiting for their yes or no, with its `nextStep`, then run
+     `ledger.ts update --id <id> --json '{"nudgedAt":"<now ISO>"}'` so it is
+     sent once. For each
+     `deliveryUnknown` item, tell the owner in their DM that Meetly cannot
+     confirm whether the group offer arrived, ask them to check Messages
+     manually, and explicitly say never to resend. Do not open another group
+     or send another offer. After the warning run `ledger.ts update --id <id>
+     --json '{"nudgedAt":"<now ISO>"}'` so it is sent once.
    - For each request from `ledger.ts cleanup`: retry each delete, and after
      each successful one write `{ "holdId": "...", "account": "..." }` to a
      JSON file and run `ledger.ts cleanup-remove --id <id> --json-file <file>`.
