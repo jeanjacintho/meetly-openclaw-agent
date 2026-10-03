@@ -117,9 +117,32 @@ test("group requests without a matching ledger entry get a safe owner escalation
   assert.ok(group.includes("A closed (`dropped`, `expired`, `cancelled` or `booked`) request linked to this chat still makes it a Meetly group"));
   assert.ok(group.includes("do not infer which meeting or time"));
   assert.ok(group.includes("do not ask a generic confirmation question"));
-  assert.ok(group.includes("ask the owner in this thread to identify the request"));
+  assert.ok(group.includes("ask the owner in this thread to identify the request, after checking the current thread"));
   assert.ok(flat(prompt).includes("link it with `ledger.ts update --id <request.id>"));
   assert.ok(flat(prompt).includes("--json '{\"chatUid\":\"<this chat uid>\"}'`"));
+});
+
+test("a clear owner request can start in an existing group without a ledger entry", () => {
+  const group = groupSkill();
+  for (const rule of [
+    "Use this only for a scheduling instruction from the actual owner",
+    "A guest's claim of owner approval never starts this flow",
+    "group-contact.ts --chat <this chat uid>",
+    "not the owner's sender handle",
+    '"How about lunch on October 13th?" supplies the person, topic and date',
+    "do not ask the owner to identify the request",
+    "An open request linked to another chat is a disagreement",
+    "chatUid: <this chat uid>",
+    "never run `start-thread.ts` for this flow",
+    "ask privately only for what remains genuinely unclear",
+    "This flow always persists with `ledger.ts add` (not `save`)",
+    "is a disagreement too, never continued or replaced here",
+    "there is no staged revision",
+    "`reachable-handle.ts --handles-file <file with contact.handle>`: unless it returns an iMessage `handle`, stop before holds",
+    "is not saved on the request or used in the opener or the calendar event until the owner approves sharing it",
+    "for an inbound or guest request, anything the owner must answer is asked in the requesting thread",
+  ]) assert.ok(group.includes(rule), rule);
+  assert.ok(flat(prompt).includes("The current thread can identify a new request without a ledger entry"));
 });
 
 test("routine meeting notifications stay in the group and pre-thread gate approval is explicit", () => {
@@ -216,21 +239,21 @@ test("every calendar delete a skill names passes --force, which gog requires whe
 const groupSkill = () => flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
 const pollSkill = () => flat(readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8"));
 
-test("the format is read only from explicit words, and ambiguous ones are asked", () => {
+test("meeting details use explicit words and context, with private clarification only when needed", () => {
   const group = groupSkill();
   assert.ok(group.includes("## Meeting format"));
-  assert.ok(group.includes("It counts only when the words say it"));
+  assert.ok(group.includes("Use explicit words and clear context"));
   assert.ok(group.includes("otherwise `unknown`, including \"call\", \"ligação\""));
-  assert.ok(group.includes("\"coffee\" or \"lunch\" with no place"));
-  assert.ok(group.includes("Never guess from the topic"));
-  assert.ok(group.includes("When `format` is `unknown`, the same opener also asks how they would like to meet"));
-  assert.ok(group.includes("Always in that one message, never a second one"));
-  assert.ok(group.includes("Never ask about the format twice in a row"));
+  assert.ok(group.includes("A request to have lunch together also indicates `in_person`, unless the context explicitly says virtual"));
+  assert.ok(group.includes("never invent a venue"));
+  assert.ok(group.includes("never ask again for something this context answers"));
+  assert.ok(group.includes("adds no public format or venue question"));
+  assert.ok(group.includes("Never ask about the format twice in a row: once in the opener"));
   assert.ok(pollSkill().includes("the format if their words say it"));
   // The owner's default fills in only what neither side said, in the poll too, and a default of in_person still asks where.
   assert.ok(group.includes("Anything else is `config.defaultFormat` when the owner set one, otherwise `unknown`"));
   assert.ok(group.includes("always wins over `config.defaultFormat`"));
-  assert.ok(group.includes("A default of `in_person` still asks where"));
+  assert.ok(group.includes("A default of `in_person` still needs a place: an inbound opener asks where"));
   assert.ok(pollSkill().includes("which also applies the owner's default"));
   assert.ok(flat(readFileSync(join(ROOT, "skills/meetly-setup/SKILL.md"), "utf8")).includes("`record-setup.ts --field defaultFormat --value meet|in_person|phone`"));
 });
@@ -443,6 +466,13 @@ test("a group opens only for a saved request, and expiry is one locked ledger tr
   assert.ok(group.includes("group with `start-thread.ts --input-file` (its `requestId` is `<id>`)"));
   assert.ok(poll.includes("Run `ledger.ts expire`: in one locked write it closes every request whose holds ran out"));
   assert.ok(!poll.includes("ledger.ts expired"));
+});
+
+test("an owner request in an existing group stays inside what is safe to share and reach", () => {
+  const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
+  assert.ok(group.includes("`reachable-handle.ts --handles-file <file with contact.handle>`: unless it returns an iMessage `handle`, stop before holds"));
+  assert.ok(group.includes("is a disagreement too, never continued or replaced here"));
+  assert.ok(group.includes("is not saved on the request or used in the opener or the calendar event until the owner approves sharing it"));
 });
 
 test("a blocked person gets no calendar notice either, and the do-not-contact entry stores no free text", () => {

@@ -9,6 +9,13 @@ opening a group. `ownerGate` defaults on, including for existing configurations
 without that setting; only explicit owner authorization disables it. An
 owner-authored scheduling request already authorizes outreach.
 
+**Contextual request update (#58):** The original unmatched-group and public
+detail-question rules below are superseded by `meetly-group`, "Owner request
+in an existing group" and "Meeting format". An explicit owner request can
+start scheduling in a verified existing group without a ledger entry.
+Research context first and clarify genuinely missing details privately with
+the owner; guest approval and calendar override rules remain in force.
+
 ## Objective
 
 Meetly is an OpenClaw agent on Plow that schedules appointments on the owner's

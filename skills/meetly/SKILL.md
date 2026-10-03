@@ -39,6 +39,7 @@ exits non-zero: report that line; never guess a result. State lives in
 | `slots.ts` | `--in busy.json [--duration N] [--days mon,thu] [--after HH:MM] [--before HH:MM] [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--allow-overlap ID]… [--exclude ISO]… [--count N] [--travel] [--locale TAG]` | `{slots:[{start,end,dayOfWeek,label,overlaps?}], unknownAfter?, degraded}`; `overlaps` lists the ids of the movable or allowed blocks the slot sits over; with `--travel`, each slot also has `travel:{before,after}` (the buffer blocks as UTC `{start,end}`) |
 | | `--in busy.json --at <ISO or YYYY-MM-DDTHH:MM in the owner's zone> [--duration N] [--allow-overlap ID]… [--travel] [--locale TAG]` | `{slot, free, reason?: busy\|too-soon\|unknown, outsideHours, overlaps?, degraded}`; with `--travel`, the buffers are `slot.travel` |
 | `owner-chat.ts` | | `{chatUid}`: the owner's DM |
+| `group-contact.ts` | `--chat U` | `{contact:{handle,name}}` for an active group with this agent, the owner and exactly one other member whose handle is a valid phone or email (reachability is checked separately with `reachable-handle.ts`); otherwise `{contact:null}` |
 | `start-thread.ts` | `--input-file F` (JSON `{"members":[…],"body":"…","requestId":"<saved request id>"}`) | `{chatUid, messageSent:true}` or `{chatUid:null, deliveryUnknown:true}`. After an unknown delivery, running it again with the same `requestId` and members (only when the owner asks; the opener wording may be regenerated) returns the group if Plow had opened it |
 | `contact.ts` | `--handles-file F` (a JSON array with the one phone or email) | `{found:true, handle, name, phones, emails, matches}`, `{found:false, handle}` or `{found:false, handle, reason:"mac-unavailable"}` |
 | `reachable-handle.ts` | `--handles-file F` (a JSON array of phones and emails) | `{handle, via:"iMessage"}`, `{handle:null, reason:"not-on-imessage", services}` or `{handle:null, reason:"mac-unavailable"}` |
@@ -67,7 +68,9 @@ Notes:
   Android, an RCS or SMS contact) gets nothing, and Plow still reports it as
   sent. `reachable-handle.ts` asks the owner's Messages archive which of a
   person's handles is on iMessage; use the handle it returns.
-- `start-thread.ts` opens every Meetly group, in the poll and for the owner.
+- `start-thread.ts` opens every new Meetly group, in the poll and for the owner;
+  an owner request made inside an existing one-contact group reuses that group
+  (`meetly-group` "Owner request in an existing group") and never opens another.
   It gives Plow 30 s and reports an unknown delivery without failing the
   turn; the `plow_start_thread` tool gives it 10 s and, on a slow Plow,
   withholds the turn's reply to the owner.
