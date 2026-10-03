@@ -115,6 +115,21 @@ test("CLI books from gog's saved output and prints the link", () => {
   assert.match(bad.stderr, /^error: /);
 });
 
+test("a first booking queues every unselected offer's holds and buffers for cleanup in the same write", () => {
+  const l = offered("in_person");
+  const ev = plainEvent();
+  const keep = { start: ev.start, end: ev.end, account: ACCOUNT, holdId: "h_keep", travel: [{ holdId: "t_keep", account: ACCOUNT }] };
+  const other = { start: "2030-01-01T10:00:00Z", end: "2030-01-01T10:30:00Z", account: ACCOUNT, holdId: "h_other", travel: [{ holdId: "t_other", account: ACCOUNT }] };
+  l.requests[0]!.offered = [keep, other];
+  l.requests[0]!.holdCleanup = [{ holdId: "old", account: ACCOUNT }];
+  const booked = recordBooking(l, "r_1", ev, ACCOUNT, T0).ledger.requests[0]!;
+  assert.deepEqual(booked.holdCleanup!.map((h) => h.holdId).sort(), ["h_other", "old", "t_other"]);
+  assert.deepEqual(booked.booked!.travel, keep.travel);
+  // Re-recording a move (already booked) queues nothing more.
+  const again = recordBooking({ requests: [booked] }, "r_1", ev, ACCOUNT, T0).ledger.requests[0]!;
+  assert.deepEqual(again.holdCleanup!.map((h) => h.holdId).sort(), ["h_other", "old", "t_other"]);
+});
+
 test("a booking at an owner-approved time that is no offer takes the buffers held on the pending approval", () => {
   const travel = [{ holdId: "t_before", account: ACCOUNT }, { holdId: "t_after", account: ACCOUNT }];
   const l = offered("in_person");

@@ -275,12 +275,14 @@ lunch with Ana", "remove all my appointments today", "move the call to 3pm"):
      booking's travel buffers for the cleanup poll in that same write). If the event delete
      fails, change nothing else, tell the owner and send nothing to the
      group.
-   - **Move:** for an in-person meeting with travel buffers (`request.booked.travel`), first run the
+   - **Move:** for an in-person meeting, the buffers follow the current
+     `config.travelMin`, not what the booking happens to hold. With it set, first run the
      exact-time check ("Travel time") at the new time with the event id and
-     every id in `booked.travel` in `--allow-overlap`, reading the calendar fresh
+     every id in `booked.travel` (if any) in `--allow-overlap`, reading the calendar fresh
      first (if `degraded` is not empty, stop and say which account could not be
      read); if it is not free, tell the owner and do not move. Otherwise create both
-     buffers at the new time and stage them with `ledger.ts stage-travel --id
+     buffers at the new time (also when the booking has none because the setting was
+     turned on after it was booked) and stage them with `ledger.ts stage-travel --id
      <id> --json-file F` (`{"travel":[…],"start":"<new start>","end":"<new end>"}`;
      it prints a `revision`). If it refuses because another move is in progress,
      delete the buffers you just created (queue failed deletes in `holdCleanup`)
@@ -294,7 +296,11 @@ lunch with Ana", "remove all my appointments today", "move the call to 3pm"):
      read the event again and record what the calendar now shows, changing
      nothing else. If the update fails, run nothing more: after 15 minutes the poll
      reads the live event and either gives the booking the staged buffers (the
-     calendar took the move) or queues them for cleanup (it did not).
+     calendar took the move) or queues them for cleanup (it did not). With `config.travelMin` unset,
+     run the check without `--travel` (still allowing the event id and `booked.travel`)
+     and, if the booking holds buffers (the setting was cleared), stage
+     `{"travel":[],…}` so the move releases the old ones atomically; with no setting and
+     no buffers just update the event and record it.
    - If a step after the calendar change fails, retry it once in this turn,
      and still send the group message (step 4). If it still fails, tell the
      owner exactly which steps are left and for which meeting. A deleted
@@ -471,7 +477,10 @@ the meeting thread to answer there, and make no calendar changes.
      event". `record-booking.ts` records the booking, clears `pendingOwner`
      and, in that same write, copies that offer's `travel[]` refs into the
      booking (`booked.travel`).
-  4. Delete all the request's other meeting and travel holds.
+  4. Delete all the request's other meeting and travel holds: `record-booking.ts`
+     already queued them in `holdCleanup` in the booking write, so delete each
+     (after each successful delete run `ledger.ts cleanup-remove`), or leave the
+     deletion to the cleanup poll.
   5. If the format is still `unknown`, ask it in the group, once.
   6. Confirm once in the group for both the owner and guest.
   7. If it is no longer free, explain in the group, and offer new
@@ -679,7 +688,8 @@ in `overlaps` as this request's own event), and create both travel holds. Only
 then record `in_person`, and save the holds on the booking with
 `ledger.ts set-travel --id <id> --json-file <file>`
 (`{"travel":[…]}`, no `start`); if that write fails, delete both holds and put the
-previous format back. If the check is not free or a hold cannot be created (delete any
+previous format back. A location answer on a meeting that already holds buffers
+(`booked.travel`) needs no new check and no new holds: keep them. If the check is not free or a hold cannot be created (delete any
 already made), change nothing: the booking keeps its format and the owner is told. If the format changes away from in person,
 delete the booking's travel holds and clear them with `{"travel":[]}`;
 record any failed deletes in `holdCleanup`.

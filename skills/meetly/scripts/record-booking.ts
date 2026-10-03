@@ -4,7 +4,7 @@
 import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
 import { readEvent, type EventInfo } from "./event.ts";
-import { updateRequest, type Ledger, type Patch, type Request } from "./ledger.ts";
+import { holdRefs, mergeRefs, updateRequest, type Ledger, type Patch, type Request } from "./ledger.ts";
 import { file } from "./paths.ts";
 import { updateJson } from "./store.ts";
 
@@ -36,6 +36,13 @@ export function recordBooking(ledger: Ledger, id: string, event: EventInfo, acco
   const travel = request.status === "booked" ? request.booked?.travel
     : request.offered.find((o) => forStart(o))?.travel ?? forStart(request.pendingOwner)?.travel;
   if (travel?.length) patch.booked = { ...patch.booked!, travel };
+  // A first booking queues every unselected offer's holds (meeting and buffers) for cleanup in the same write, so a
+  // turn that stops before the deletion step leaves them to the cleanup poll instead of blocking the calendar forever.
+  if (request.status !== "booked") {
+    const others = request.offered.filter((o) => !forStart(o));
+    const refs = mergeRefs(request.holdCleanup ?? [], holdRefs(others));
+    if (refs.length) patch.holdCleanup = refs;
+  }
   // A reminder belongs to one start time: a moved meeting gets a new one.
   if (request.booked && Date.parse(request.booked.start) !== Date.parse(event.start)) patch.reminder = null;
   const next = updateRequest(ledger, id, patch, now);

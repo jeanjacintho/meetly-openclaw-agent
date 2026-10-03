@@ -130,6 +130,10 @@ test("moving a meeting: one move at a time, the new buffers out of cleanup's rea
   assert.deepEqual(accepted.booked!.travel, newTravel);
   assert.deepEqual(accepted.holdCleanup!.map((h) => h.holdId).sort(), ["t1", "t2"]);
   assert.deepEqual(dueReminders(staged, late, 10).map((r) => r.id), ["r_1"]);
+  // Clearing the setting: staging no buffers releases the old ones atomically with the move.
+  const cleared = commitTravel(stageTravel(l, "r_1", [], target, T0, "rc"), "r_1", "rc", T0).ledger.requests[0]!;
+  assert.deepEqual(cleared.booked!.travel, []);
+  assert.deepEqual(cleared.holdCleanup!.map((h) => h.holdId).sort(), ["t1", "t2"]);
   assert.throws(() => stageTravel(empty(), "nope", newTravel, target, T0), /no request/);
   // A booked meeting that closes (the owner cancels it) queues its buffers and any staged ones in the same write.
   const cancelled = updateRequest(staged, "r_1", { status: "cancelled" }, T0).requests[0]!;

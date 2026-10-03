@@ -224,11 +224,11 @@ export function addRequest(ledger: Ledger, input: NewRequest, now: number, id: s
 }
 
 // An offer's holds: the meeting hold and its travel blocks.
-const holdRefs = (offers: Offer[]): HoldRef[] => offers.flatMap((o) => [
+export const holdRefs = (offers: Offer[]): HoldRef[] => offers.flatMap((o) => [
   ...(o.holdId ? [{ holdId: o.holdId, account: o.account }] : []),
   ...(o.travel ?? []),
 ]);
-const mergeRefs = (...lists: HoldRef[][]): HoldRef[] => lists.flat()
+export const mergeRefs = (...lists: HoldRef[][]): HoldRef[] => lists.flat()
   .filter((hold, i, all) => all.findIndex((h) => h.holdId === hold.holdId && h.account === hold.account) === i);
 const withoutRefs = (refs: HoldRef[], keep: HoldRef[]): HoldRef[] =>
   refs.filter((hold) => !keep.some((h) => h.holdId === hold.holdId && h.account === hold.account));
@@ -311,7 +311,7 @@ export function discardStaleOffers(ledger: Ledger, now: number, maxAgeMs: number
 // which the cleanup poll ignores, and a second stage is refused while one is
 // pending. `commit` makes them the meeting's buffers and queues the old ones,
 // in one write, only after the calendar update succeeded.
-export const TRAVEL_STAGE_MAX_MS = 15 * 60_000;
+const TRAVEL_STAGE_MAX_MS = 15 * 60_000;
 
 export function stageTravel(ledger: Ledger, id: string, refs: HoldRef[], target: { start: string; end: string }, now: number, revision = id): Ledger {
   checkHoldRefs(refs, "travel hold");
@@ -393,7 +393,7 @@ export function setTravel(ledger: Ledger, id: string, refs: HoldRef[], start: st
 // the stage timeout the poll reads the live event and decides: if the calendar
 // accepted the move (the event is at the target time) the booking takes the new
 // buffers and time; otherwise the staged buffers go to cleanup.
-export const staleTravelStage = (r: Request, now: number): boolean =>
+const staleTravelStage = (r: Request, now: number): boolean =>
   r.pendingTravel !== undefined && now - Date.parse(r.pendingTravel.at) > TRAVEL_STAGE_MAX_MS;
 
 export function reconcileTravel(ledger: Ledger, id: string, event: { start: string; end: string }, now: number): Ledger {
