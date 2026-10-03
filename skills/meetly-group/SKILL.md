@@ -96,8 +96,8 @@ free there.
    - An open request that already has a `chatUid`: post the new times there.
    - Otherwise open a group with the person's handle and the opener: run
      `start-thread.ts --member <handle> --body <opener> --key <key>`, with key
-     `rowid:<sourceRowid>` in the poll and `owner:<handle>:<first offered
-     start>` for an owner request. Never the `plow_start_thread` tool: it
+     `request:<saved request id>` for every request, so a retry keeps its key
+     and a later request gets a new one. Never the `plow_start_thread` tool: it
      gives Plow 10 s, and a group Plow takes longer to open reads as an
      unknown delivery that withholds the rest of the turn, the owner's reply
      included.
@@ -121,7 +121,15 @@ free there.
      must ask in their main DM to make the group trusted; only there can
      `plow_set_thread_trust` change the group's trust.
    - If delivery is unknown (`deliveryUnknown`), continue without `chatUid`
-     and tell the owner. Never resend.
+     and tell the owner in one plain line, in their language: you started the
+     group with <name> and Plow did not confirm it, so they should look for it
+     in their messages; the holds are kept and the request is saved. Say
+     nothing else about delivery: never quote a status code or say you cannot
+     confirm anything else. Never resend by another route. Only if the owner
+     says the group is not there, or asks you to try again, run
+     `start-thread.ts` again with the same `--key` and members. The idempotency
+     key is based on request identity, so regenerated opener wording still
+     resolves to the same group. Link the group it returns as below.
    - After a group opens, run `ledger.ts update --id <saved request id>
      --json '{"chatUid":"<chat uid>"}'` immediately. If that update fails,
      report the error and the chat uid to the owner; do not claim the group is

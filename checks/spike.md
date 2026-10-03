@@ -30,7 +30,8 @@ Options considered:
    like `owner-chat.ts`. This keeps "don't wait for me", but it copies base
    plugin behaviour that could change under us, and it has no delivery-state
    tracking. An uncertain result is treated as "uncertain delivery"
-   (§6: record without `chatUid`, never resend).
+   (§6: record without `chatUid`, never resend on its own; only when the owner
+   says the group is not there, run it again with the same `--key`).
 2. **The poll asks the owner first.** The poll DMs the owner "X wants to set
    up Y; reply ok and I'll open the group". The owner's reply is an inbound
    message, so `plow_start_thread` works in that turn. This breaks the

@@ -32,7 +32,7 @@ exits non-zero: report that line; never guess a result. State lives in
 | | `--in busy.json --at <ISO or YYYY-MM-DDTHH:MM in the owner's zone> [--duration N] [--allow-overlap ID]… [--locale TAG]` | `{slot, free, reason?: busy\|too-soon\|unknown, outsideHours, degraded}` |
 | `owner-chat.ts` | | `{chatUid}`: the owner's DM |
 | `group-contact.ts` | `--chat U` | `{contact:{handle,name}}` for an active group with this agent, the owner and exactly one reachable contact; otherwise `{contact:null}` |
-| `start-thread.ts` | `--member <+E164 or email> [--member …] --body TEXT --key K` | `{chatUid, messageSent:true}` or `{chatUid:null, deliveryUnknown:true}` |
+| `start-thread.ts` | `--member <+E164 or email> [--member …] --body TEXT --key K` | `{chatUid, messageSent:true}` or `{chatUid:null, deliveryUnknown:true}`. After an unknown delivery, running it again with the same `--key` and members (only when the owner asks; the opener wording may be regenerated) returns the group if Plow had opened it |
 | `contact.ts` | `--handle <+E164 or email>` | `{found:true, handle, name, phones, emails, matches}`, `{found:false, handle}` or `{found:false, handle, reason:"mac-unavailable"}` |
 | `reachable-handle.ts` | `--handle <+E164 or email> [--handle …]` | `{handle, via:"iMessage"}`, `{handle:null, reason:"not-on-imessage", services}` or `{handle:null, reason:"mac-unavailable"}` |
 

@@ -192,7 +192,8 @@ message is skipped.
   owner requests and the scheduled poll; an owner request made in an existing
   one-contact group reuses it. It calls `POST /v1/chats` with the owner plus the
   contact, trusted, and an idempotency key. An uncertain delivery is
-  recorded without a chat and never resent. Meeting confirmations and
+  recorded without a chat and never resent on its own; if you say the group
+  is not there, Meetly tries again with the same key. Meeting confirmations and
   approval asks stay in that group; the owner is a participant.
 - **Scripts.** Small TypeScript CLIs in `skills/meetly/scripts/`, run directly
   by the image's Node (`node <script>.ts`, no build): setup, the message
