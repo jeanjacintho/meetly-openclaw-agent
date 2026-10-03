@@ -131,6 +131,7 @@ test("meeting notifications and approvals stay in the meeting thread", () => {
     "ledger.ts promote-offer --id <id> --revision <pendingOffer.revision>",
     "ledger.ts discard-offer --id <id> --revision <pendingOffer.revision>",
     "If either command returns `settled: false`",
+    "do not delete them yourself",
     "never say the new request was sent",
     "Only after the group opened or the send succeeded, reply to the owner in one line",
     "If it failed, reply with the error from \"Offer times\" step 6 instead",

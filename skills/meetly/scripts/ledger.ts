@@ -209,6 +209,7 @@ const withoutRefs = (refs: HoldRef[], keep: HoldRef[]): HoldRef[] =>
 // has a group, the new offer is only staged (`pendingOffer`, with a fresh
 // `revision`): the delivered offer and its holds stay current until
 // `settleOffer` promotes the new one after a successful send or discards it.
+// A staged offer is an exclusive in-flight state: no second save may replace it.
 export function saveRequest(ledger: Ledger, input: NewRequest, now: number, id: string, revision = id): Ledger {
   const existing = findOpenByHandle(ledger, input.handle);
   if (!existing) return addRequest(ledger, input, now, id);
@@ -230,13 +231,11 @@ export function saveRequest(ledger: Ledger, input: NewRequest, now: number, id: 
   const next = holdRefs(validated.offered);
   let replacement: Request;
   if (existing.chatUid !== undefined) {
-    // A staged offer that this one replaces gives up its holds, except any it reuses.
-    const abandoned = withoutRefs(holdRefs(existing.pendingOffer?.offered ?? []), [...next, ...holdRefs(existing.offered)]);
+    if (existing.pendingOffer) throw new Error(`request ${existing.id} already has an offer being sent; wait for it to settle, or for the cleanup poll to discard it`);
     replacement = {
       ...fields,
       offered: existing.offered,
       offeredAt: existing.offeredAt,
-      holdCleanup: mergeRefs(existing.holdCleanup ?? [], abandoned),
       pendingOffer: { revision, offered: validated.offered, offeredAt: validated.offeredAt },
     };
   } else {
@@ -331,7 +330,8 @@ export function updateRequest(ledger: Ledger, id: string, patch: Patch, now: num
 }
 
 export function expiredRequests(ledger: Ledger, hours: number, now: number): Request[] {
-  return ledger.requests.filter((r) => r.status === "offered" && now - Date.parse(r.offeredAt) >= hours * 3600_000);
+  // A request with an offer being sent is not expired: its send settles first.
+  return ledger.requests.filter((r) => r.status === "offered" && !r.pendingOffer && now - Date.parse(r.offeredAt) >= hours * 3600_000);
 }
 
 // Open requests waiting for the owner to confirm an out-of-hours time.
@@ -420,7 +420,9 @@ if (isMain(import.meta.url)) {
         const before = readJson<Ledger>(path, EMPTY).requests.find((r) => r.id === values.id);
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => settleOffer(l, values.id!, values.revision!, outcome, now));
         const request = ledger.requests.find((r) => r.id === values.id);
-        return { request, settled: before?.pendingOffer?.revision === values.revision && request?.pendingOffer === undefined };
+        // Settled only when this revision really took effect: a promotion needs the request to still be open.
+        const matched = before?.pendingOffer?.revision === values.revision;
+        return { request, settled: matched && (outcome === "discard" || before?.status === "offered") };
       }
       case "cleanup-remove": {
         if (!values.id) throw new Error("usage: ledger.ts cleanup-remove --id X --json-file F");

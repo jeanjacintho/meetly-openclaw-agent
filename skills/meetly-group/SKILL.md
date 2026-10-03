@@ -86,14 +86,14 @@ free there.
      the new times current and queues the replaced holds for the cleanup poll.
      If the send fails, run `ledger.ts discard-offer --id <id> --revision
      <pendingOffer.revision>` instead: the old times stay current and the new
-     holds are queued. Then delete the queued holds ("Holds"); after each
-     successful delete, write `{ "holdId": "...", "account": "..." }` to a
-     JSON file and run `ledger.ts cleanup-remove --id <id> --json-file
-     <file>`. A failed delete stays queued for the poll. Tell the owner the
+     holds are queued, and the cleanup poll deletes whatever the ledger queued,
+     here and after a promotion; do not delete them yourself. Tell the owner the
      specific send error and that the old times stand; never say the new
-     request was sent. If either command returns `settled: false`, another
-     turn replaced this offer: delete nothing and say only what the ledger now
-     shows. A staged offer left by a turn that died is discarded by the
+     request was sent. If either command returns `settled: false`, the offer is
+     no longer the one staged (the request closed or the poll discarded it):
+     delete nothing and say only what the ledger now shows. A `save` on a
+     request that already has an offer being sent is refused: tell the owner
+     to try again in a few minutes. A staged offer left by a turn that died is discarded by the
      cleanup poll after 15 minutes.
    - Otherwise open a group with the person's handle and the opener: run
      `start-thread.ts --member <handle> --body <opener> --key <key>`, with key
@@ -415,9 +415,11 @@ offer.
      the other holds. Its fresh handle lookup is already satisfied by step 7.
   3. Send the booking confirmation to the request's `chatUid` using the normal
      meeting-thread send path.
-- **Another day or time:** delete the current holds. Run `slots.ts` narrowed
-  to what they said (plus the owner's original constraints for
-  `origin: owner`), hold again, offer again, and update `offered`.
+- **Another day or time:** leave the current holds as they are. Run `slots.ts`
+  narrowed to what they said (plus the owner's original constraints for
+  `origin: owner`), then follow "Offer times" from step 4 (hold, `save`, send,
+  `promote-offer` or `discard-offer`): the current holds are queued for
+  cleanup only once the new times were sent.
 - **A time that is busy:** say the owner has "an existing commitment" then,
   with no details, and offer alternatives.
 - **Only a time outside the owner's hours:** follow "Outside the owner's
