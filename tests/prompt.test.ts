@@ -190,7 +190,7 @@ test("closed request responses are limited to scheduling intent, not acknowledge
   assert.ok(group.includes("For a conversational acknowledgement or other message unrelated to scheduling"));
   assert.ok(group.includes("do not reply and do not alert the owner"));
   assert.ok(group.includes("decline, cancel or give up"));
-  assert.ok(group.includes("**They decline or give up:** delete the holds"));
+  assert.ok(group.includes("**They decline or give up:** delete the meeting and travel holds"));
   assert.ok(group.includes("use this only when a scheduling-related message tries to choose, change or resume the request, or asks its status"));
 });
 
@@ -315,7 +315,7 @@ test("an owner who cancels or moves a booked meeting has Meetly tell the other p
   assert.ok(group.includes("tell them in their group (the request's `chatUid`) with `plow_reply_to`"));
   assert.ok(group.includes("A Google cancellation email is not a message from Meetly"));
   // A failed step after the calendar change is retried, the group still hears, and the owner learns what is left.
-  assert.ok(group.includes("If the delete fails, change nothing else, tell the owner and send nothing to the group"));
+  assert.ok(group.includes("If the event delete fails, change nothing else, tell the owner and send nothing to the group"));
   assert.ok(group.includes("retry it once in this turn, and still send the group message"));
   assert.ok(group.includes("tell the owner exactly which steps are left"));
   assert.ok(group.includes("For `cancelled`, say the owner cancelled that meeting and ask the owner to follow up here"));
@@ -370,6 +370,15 @@ test("do not contact is checked before every contact-visible message and stored 
   assert.ok(poll.includes("not update the reminder timestamp"));
 });
 
+test("travel buffer references are persisted before an outside-hours booking", () => {
+  const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
+  assert.ok(group.includes("Immediately after both buffers exist, persist their refs in an `offered[]` entry"));
+  assert.ok(group.includes("Do this before creating the event"));
+  assert.ok(group.includes("If this write fails, delete both buffers"));
+  assert.ok(group.includes("while keeping its `travel[]` refs"));
+  assert.ok(group.includes("If saving those refs fails, delete both travel holds"));
+});
+
 test("an out-of-hours time with insufficient notice is not described as a calendar conflict", () => {
   const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
   assert.ok(group.includes("`reason: \"too-soon\"`: say there is not enough notice"));
@@ -382,4 +391,17 @@ test("a blocked person gets no calendar notice either, and the do-not-contact en
   assert.ok(group.includes("Run the same check before any calendar command that notifies the person (`--send-updates all`"));
   assert.ok(group.includes("use `--send-updates none` and send no group message"));
   assert.ok(!group.includes("--name <name>"));
+});
+
+test("travel: one exact-time check, cancel and move handle the buffers, and a pick reaches the travel path", () => {
+  const moveGroup = groupSkill();
+  for (const rule of ["`ledger.ts stage-travel --id <id> --json-file F`", "Only after it succeeds, run `ledger.ts commit-travel`", "every hold id in the booked offer's `travel[]` in `--allow-overlap`"])
+    assert.ok(moveGroup.includes(rule), rule);
+  const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
+  assert.ok(group.includes("**Exact-time check.** Read the calendar (`busy.ts --fetch`), then run `slots.ts --in /var/lib/plow/meetly/tmp/busy.json --at <start>"));
+  assert.ok(group.includes("the buffers are `slot.travel.before` and `slot.travel.after`"));
+  assert.ok(group.includes("Then delete the travel holds in the booked offer's `travel[]`"));
+  assert.ok(group.includes("first run the exact-time check (\"Travel time\") at the new time"));
+  assert.ok(group.includes("the picked offer has no `travel[]`, follow \"Travel time\" before booking"));
+  assert.ok(group.includes("`record-booking.ts` records the booking, clears `pendingOwner` and, in that same write"));
 });

@@ -76,6 +76,9 @@ to install anything else.
   `record-setup.ts --field <field> --value <v>`, with the same normalization,
   then confirm in one line. During setup the owner can change the name the
   same way before answering the current question.
+- "Leave an hour for travel around in-person meetings" →
+  `record-setup.ts --field travel --value <minutes>`; accept minutes or hours
+  from 1 minute to 3 hours. `none` clears the buffer. The default is no buffer.
 - "I use Zoom, here is my room: <link>" → `record-setup.ts --field videoProvider --value <their Zoom room link>`;
   "use Google Meet" → `meet`. Meetly posts that room and cannot create new Zoom links.
 - "I need at least 3 hours notice" → `record-setup.ts --field minNotice --value <hours, like 3h>`.
@@ -88,5 +91,6 @@ to install anything else.
 - "Status" → summarize `setup-status.ts`: days, window, duration, horizon,
   the minimum notice (2 hours when `config.minNoticeMin` is unset),
   default meeting type (or "ask each time" when `config.defaultFormat` is
+  unset), travel buffer when set, calendars, and whether it is paused.
   unset), video provider (Google Meet, or Zoom when
   `config.zoomRoomUrl` is set), calendars, and whether it is paused.
