@@ -201,7 +201,8 @@ message is skipped.
   contact, trusted, and an idempotency key. An uncertain delivery is
   recorded without a chat and never resent on its own; if you say the group
   is not there, Meetly tries again with the same key. Meeting confirmations and
-  approval asks stay in that group; the owner is a participant.
+  approval asks stay in that group; the owner is a participant. The one
+  exception is the owner gate, which asks you in your DM before any group exists.
 - **Scripts.** Small TypeScript CLIs in `skills/meetly/scripts/`, run directly
   by the image's Node (`node <script>.ts`, no build): setup, the message
   cursor, the request ledger, busy/free-slot math in your time zone, cron

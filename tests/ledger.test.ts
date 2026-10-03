@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  addRequest, approveRequest, saveRequest, settleOffer, discardStaleOffers, removeCleanupRef, appendLog, cleanupList, pendingOwnerList, ownerApprovalList, expiredRequests, expireRequests, monitor, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, pipeline, stageOf,
+  addRequest, approveRequest, declineRequest, saveRequest, settleOffer, discardStaleOffers, removeCleanupRef, appendLog, cleanupList, pendingOwnerList, ownerApprovalList, expiredRequests, expireRequests, monitor, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, pipeline, stageOf,
   type Ledger, type NewRequest,
 } from "../skills/meetly/scripts/ledger.ts";
 import { cli, tmpHome, handlesFile } from "./helpers.ts";
@@ -357,8 +357,15 @@ test("the owner's yes is claimed atomically: only a request still open and waiti
   const claimed = approveRequest(waiting, "r_1", T0 + HOUR);
   assert.equal(claimed.approved, true);
   assert.equal(claimed.ledger.requests[0]!.ownerApprovedAt, new Date(T0 + HOUR).toISOString());
-  // A second approval, an unknown id, or a request the poll already expired all lose.
-  assert.equal(approveRequest(claimed.ledger, "r_1", T0 + 2 * HOUR).approved, false);
+  // Approved but never opened: approving again resumes it (opening the group is idempotent), and it is still listed.
+  assert.equal(approveRequest(claimed.ledger, "r_1", T0 + 2 * HOUR).approved, true);
+  assert.deepEqual(ownerApprovalList(claimed.ledger).map((r) => [r.id, r.state]), [["r_1", "approved-unsent"]]);
+  assert.deepEqual(ownerApprovalList(waiting).map((r) => [r.id, r.state]), [["r_1", "waiting"]]);
+  // Once it has a group, approving again does nothing and it leaves the list.
+  const opened = updateRequest(claimed.ledger, "r_1", { chatUid: "g1" }, T0 + 3 * HOUR);
+  assert.equal(approveRequest(opened, "r_1", T0 + 4 * HOUR).approved, false);
+  assert.deepEqual(ownerApprovalList(opened), []);
+  // An unknown id, or a request the poll already expired, loses.
   assert.equal(approveRequest(waiting, "nope", T0).approved, false);
   const expired = expireRequests(waiting, 48, T0 + 49 * HOUR).ledger;
   assert.equal(approveRequest(expired, "r_1", T0 + 50 * HOUR).approved, false);
@@ -368,6 +375,21 @@ test("the owner's yes is claimed atomically: only a request still open and waiti
   // A re-offer to a group the request already has is never gated.
   const linked = addRequest(empty(), input({ chatUid: "g1" }), T0, "r_2");
   assert.throws(() => saveRequest(linked, input({ chatUid: "g1", ownerApprovalAt: gate }), T0, "r_3"), /already has a group/);
+});
+
+test("the owner's no closes the request and queues every hold in one write, only while it is waiting", () => {
+  const gate = new Date(T0).toISOString();
+  const waiting = saveRequest(empty(), input({ ownerApprovalAt: gate, offered: [{ ...offer, holdId: "h1" }, { ...offer, start: "2026-09-30T12:00:00-03:00", end: "2026-09-30T12:30:00-03:00", holdId: "h2" }] }), T0, "r_1");
+  const out = declineRequest(waiting, "r_1", T0 + HOUR);
+  assert.equal(out.declined, true);
+  const r = out.ledger.requests[0]!;
+  assert.deepEqual([r.status, r.ownerApprovalAt], ["dropped", undefined]);
+  assert.deepEqual(r.holdCleanup!.map((h) => h.holdId).sort(), ["h1", "h2"]);
+  assert.deepEqual(ownerApprovalList(out.ledger), []);
+  // Already decided, expired or approved: no change.
+  assert.equal(declineRequest(out.ledger, "r_1", T0 + 2 * HOUR).declined, false);
+  assert.equal(declineRequest(approveRequest(waiting, "r_1", T0).ledger, "r_1", T0).declined, false);
+  assert.equal(declineRequest(waiting, "nope", T0).declined, false);
 });
 
 test("CLI add, find, update and cleanup round-trip", () => {

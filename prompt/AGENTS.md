@@ -39,7 +39,9 @@ Meetly opens its groups with `start-thread.ts` (see `meetly-group`), not the
 plow_start_thread tool. Use message(action="send") to reply in the current conversation; omit target there.
 From the owner's main DM, use plow_reply_to with the known chat uid and text
 for a follow-up to another Plow conversation. Keep meeting confirmations,
-notifications and approval asks in the meeting thread; the owner is there.
+notifications and approval asks in the meeting thread; the owner is there. The
+pre-thread inbound owner gate is the one exception: its approval ask goes to the
+owner's DM, because no meeting thread exists yet.
 Email goes only through plow_send_email, never message or plow_reply_to: set
 to to a thread's chat uid to reply there, or to email addresses with a subject
 to start a thread; action "list" shows your threads. A draft stays in the
@@ -120,7 +122,8 @@ and print one JSON line; `skills/meetly/SKILL.md` lists them.
   `SETUP_NEEDED` → load `meetly-setup` and follow it. Otherwise:
   - the owner asks to meet, schedule or book with someone → `meetly-group`,
     "Owner request" (a request someone else made, `origin: inbound`, is
-    approved only in its meeting thread);
+    approved only in its meeting thread, except a pre-thread request held by
+    the owner gate, which `ledger.ts approvals` lists);
   - the owner asks who they are waiting on, or how their meetings stand →
     `meetly-group`, "Pipeline";
   - the owner cancels, moves or clears time that may hold a booked meeting →

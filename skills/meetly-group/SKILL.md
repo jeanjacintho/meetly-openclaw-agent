@@ -203,7 +203,7 @@ or no as a new scheduling instruction, run `ledger.ts approvals` and check
 whether the owner is answering a pending inbound request. Match by the person
 and topic in the approval message; if more than one fits, ask which one.
 
-- **Yes:** first claim the approval with `ledger.ts approve --id <id>`. If
+- **Yes:** first claim the approval with `ledger.ts approve --id <id>` (also to resume a yes that was interrupted: `ledger.ts approvals` lists those as `approved-unsent`, and opening the group again is safe because `start-thread.ts` is idempotent). If
   `approved` is false the request was already closed (the poll expired it) or
   approved: do nothing else, delete nothing, and tell the owner what the
   ledger now shows. Only a claimed request is acted on; `start-thread.ts`
@@ -221,11 +221,12 @@ and topic in the approval message; if more than one fits, ask which one.
   cleanup in the same write (never delete the old holds yourself, so an
   interrupted turn never leaves the request pointing at deleted holds), and
   the owner approves those exact times.
-- **No:** delete every hold recorded in `offered[]`, then
-  update the request to `{"status":"dropped","ownerApprovalAt":null}`.
-  If any delete fails, record that `{holdId, account}` in `holdCleanup` before
-  closing the request.
-  No message has gone to the other person, so do not contact them.
+- **No:** run `ledger.ts decline --id <id>`: in one write it closes the
+  request and queues every hold for the cleanup poll, which deletes them (never
+  delete them yourself, so an interruption leaves nothing pointing at deleted
+  holds). If `declined` is false the request was no longer waiting: say what
+  the ledger shows. No message has gone to the other person, so do not contact
+  them.
 - **No clear answer:** leave the request and holds as they are and ask whether
   to approve or decline.
 

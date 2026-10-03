@@ -453,12 +453,30 @@ export function pendingOwnerList(ledger: Ledger): Request[] {
 // is claimed the expiry clock restarts from the approval (`expiredRequests`).
 export function approveRequest(ledger: Ledger, id: string, now: number): { ledger: Ledger; approved: boolean } {
   const r = ledger.requests.find((x) => x.id === id);
-  if (!r || r.status !== "offered" || !awaitingOwnerApproval(r)) return { ledger, approved: false };
+  if (!r || r.status !== "offered") return { ledger, approved: false };
+  // Already approved but never opened (the turn died, or the group failed): resumable, through the idempotent start-thread.ts.
+  if (approvedUnsent(r)) return { ledger, approved: true };
+  if (!awaitingOwnerApproval(r)) return { ledger, approved: false };
   return { ledger: updateRequest(ledger, id, { ownerApprovedAt: new Date(now).toISOString() }, now), approved: true };
 }
 
-export function ownerApprovalList(ledger: Ledger): Request[] {
-  return ledger.requests.filter((r) => r.status === "offered" && awaitingOwnerApproval(r));
+// Approved by the owner but no group yet: the opener may not have gone out.
+const approvedUnsent = (r: Request): boolean => r.ownerApprovedAt !== undefined && r.ownerApprovalAt !== undefined && r.chatUid === undefined;
+
+// The owner's no, in one write: the request closes and every hold goes to the
+// cleanup queue before any is deleted, so an interruption never leaves a pending
+// request pointing at deleted holds.
+export function declineRequest(ledger: Ledger, id: string, now: number): { ledger: Ledger; declined: boolean } {
+  const r = ledger.requests.find((x) => x.id === id);
+  if (!r || r.status !== "offered" || !awaitingOwnerApproval(r)) return { ledger, declined: false };
+  const next = updateRequest(ledger, id, { status: "dropped", ownerApprovalAt: null, holdCleanup: mergeRefs(r.holdCleanup ?? [], holdRefs(r.offered)) }, now);
+  return { ledger: next, declined: true };
+}
+
+// Requests the owner still has to decide on, and ones they approved that have not been opened yet.
+export function ownerApprovalList(ledger: Ledger): (Request & { state: "waiting" | "approved-unsent" })[] {
+  return ledger.requests.filter((r) => r.status === "offered" && (awaitingOwnerApproval(r) || approvedUnsent(r)))
+    .map((r) => ({ ...r, state: awaitingOwnerApproval(r) ? "waiting" as const : "approved-unsent" as const }));
 }
 
 // Booked meetings to re-read from the calendar: from `leadMin` before the
@@ -707,6 +725,16 @@ if (isMain(import.meta.url)) {
         });
         return { approved, request: ledger.requests.find((r) => r.id === values.id) ?? null };
       }
+      case "decline": {
+        if (!values.id) throw new Error("usage: ledger.ts decline --id X");
+        let declined = false;
+        const ledger = updateJson<Ledger>(path, EMPTY, (l) => {
+          const out = declineRequest(l, values.id!, now);
+          declined = out.declined;
+          return out.ledger;
+        });
+        return { declined, request: ledger.requests.find((r) => r.id === values.id) ?? null };
+      }
       case "approvals":
         return { requests: ownerApprovalList(readJson<Ledger>(path, EMPTY)) };
       case "cleanup":
@@ -717,7 +745,7 @@ if (isMain(import.meta.url)) {
         return { requests: dueReminders(readJson<Ledger>(path, EMPTY), now, lead) };
       }
       default:
-        throw new Error("usage: ledger.ts find | add | save | update | promote-offer | discard-offer | cleanup-remove | expire | approve | pending | approvals | pipeline | monitor | history | log | cleanup | reminders");
+        throw new Error("usage: ledger.ts find | add | save | update | promote-offer | discard-offer | cleanup-remove | expire | approve | decline | pending | approvals | pipeline | monitor | history | log | cleanup | reminders");
     }
   });
 }

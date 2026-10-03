@@ -130,6 +130,9 @@ test("routine meeting notifications stay in the group and pre-thread gate approv
   assert.ok(group.includes("when `origin` is `inbound`, `config.ownerGate` is true and the request has no `chatUid` yet"));
   assert.ok(group.includes("first claim the approval with `ledger.ts approve --id <id>`"));
   assert.ok(group.includes("Create the fresh holds first and save them"));
+  assert.ok(group.includes("run `ledger.ts decline --id <id>`: in one write it closes the request and queues every hold"));
+  assert.ok(group.includes("`approved-unsent`"));
+  assert.ok(flat(prompt).includes("The pre-thread inbound owner gate is the one exception"));
   assert.ok(group.includes("The configured pre-thread owner gate is the exception"));
   assert.ok(group.includes("Approval authorizes only sending the displayed times"));
   assert.ok(flat(prompt).includes("matching `ledger.ts approvals` entry"));
