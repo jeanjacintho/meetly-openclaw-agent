@@ -11,13 +11,13 @@ import { status } from "./setup-status.ts";
 import { writeJson } from "./store.ts";
 import { zonedToUtc } from "./time.ts";
 
-// `movable`: the owner listed a word from the title of a block the owner
-// organized (`organizer.self`, which Latch reports) and nobody else is invited to,
-// so Meetly may offer times over it. A title alone never qualifies: an invitation
-// or an event a collaborator put on a shared calendar can carry any words, so an
-// event whose organizer is not proven to be the owner stays hard-busy (and with a
-// Latch that does not report the organizer, nothing is movable). The title itself
-// never leaves this script.
+// `movable`: the owner listed a word from the title of a block the owner created
+// and nobody else is invited to, so Meetly may offer times over it. A title alone
+// never qualifies: an invitation or an event a collaborator wrote onto a calendar
+// the owner shares can carry any words. Google's `organizer.self` and `creator.self`
+// only say the event is on the calendar being read, so they prove nothing; the
+// creator's address against the queried account does. An event whose creator is not
+// proven to be the owner stays hard-busy. The title itself never leaves this script.
 export type Busy = { start: string; end: string; id?: string; account?: string; movable?: true };
 export type BusyResult = { busy: Busy[]; unknownAfter?: string; degraded: string[] };
 
@@ -37,8 +37,10 @@ export type CalEvent = {
   status?: string;
   // Latch lists only the others invited, by address; the raw Google shape lists everyone as objects.
   attendees?: (string | { self?: boolean; resource?: boolean; responseStatus?: string })[];
-  // Latch keeps only whether the owner organized it (`{self:true}`); the raw Google shape carries the whole organizer.
-  organizer?: { self?: boolean; email?: string };
+  // The raw Google listing (what a single-account read returns) names the creator; Latch's compact listing
+  // says only `createdByOwner` (creator address equals the account), never an address.
+  creator?: { email?: string; self?: boolean };
+  createdByOwner?: boolean;
 };
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
@@ -104,7 +106,7 @@ export function toBusy(results: unknown[], opts: { tz: string; max: number; mova
       const b: Busy = { start: new Date(start).toISOString(), end: new Date(end).toISOString() };
       if (e.id !== undefined) b.id = e.id;
       if (e.account !== undefined) b.account = e.account;
-      if (e.organizer?.self === true && !hasOthers(e) && !MEETLY_HOLD.test(e.summary ?? "") && e.summary && opts.movable?.some((w) => titleHasWordOrPhrase(e.summary!, w))) b.movable = true;
+      if (createdByOwner(e) && !hasOthers(e) && !MEETLY_HOLD.test(e.summary ?? "") && e.summary && opts.movable?.some((w) => titleHasWordOrPhrase(e.summary!, w))) b.movable = true;
       busy.push(b);
     }
     for (const { count, last } of perAccount.values()) {
@@ -119,6 +121,11 @@ export function toBusy(results: unknown[], opts: { tz: string; max: number; mova
 
 // Meetly's own holds ("Hold: <topic> with <name>") carry the topic and no guests: never movable, or the same time could be offered twice.
 const MEETLY_HOLD = /^\s*hold:/i;
+
+// The event was created by the account's owner: Latch's flag, or the creator's address equal to the account it was read from.
+const createdByOwner = (e: CalEvent): boolean =>
+  e.createdByOwner === true ||
+  (typeof e.creator?.email === "string" && typeof e.account === "string" && e.creator.email.toLowerCase() === e.account.toLowerCase());
 
 // Anyone besides the owner on the event: Latch's list of other addresses, or the raw objects that are not the owner or a room.
 const hasOthers = (e: CalEvent): boolean =>
