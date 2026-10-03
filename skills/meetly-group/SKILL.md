@@ -84,8 +84,11 @@ free there.
    owner gate below applies; include `holdCleanup` when earlier
    deletes failed. `save` creates a request or updates the
    existing open request for that person, preserving its id and existing
-   `chatUid` when the new value is absent. Holds from the replaced offer are
-   moved to `holdCleanup` automatically so the cleanup poll can delete them.
+   `chatUid` when the new value is absent. When the request already has a
+   `chatUid`, the new times are only staged: its `offered[]` (what the person
+   last saw) and their holds stay current, and the result carries
+   `pendingOffer.revision`. Otherwise holds from the replaced offer are moved
+   to `holdCleanup` automatically so the cleanup poll can delete them.
    If it fails, delete each meeting and travel hold just
    created, stop and report the ledger error to the owner; do not send an
    offer. If any deletion fails, report those hold ids too.
@@ -100,6 +103,23 @@ free there.
      normally if the owner does not answer.
 6. Deliver the times:
    - An open request that already has a `chatUid`: post the new times there.
+     From the owner's main DM use `plow_reply_to` with that `chatUid` and the
+     new times; in the poll use `message` with that chat uid as its target;
+     in the group itself reply normally. Say the new times were sent only
+     after that send succeeded, and right after it run `ledger.ts
+     promote-offer --id <id> --revision <pendingOffer.revision>`: that makes
+     the new times current and queues the replaced holds for the cleanup poll.
+     If the send fails, run `ledger.ts discard-offer --id <id> --revision
+     <pendingOffer.revision>` instead: the old times stay current and the new
+     holds are queued, and the cleanup poll deletes whatever the ledger queued,
+     here and after a promotion; do not delete them yourself. Tell the owner the
+     specific send error and that the old times stand; never say the new
+     request was sent. If either command returns `settled: false`, the offer is
+     no longer the one staged (the request closed or the poll discarded it):
+     delete nothing and say only what the ledger now shows. A `save` on a
+     request that already has an offer being sent is refused: tell the owner
+     to try again in a few minutes. A staged offer left by a turn that died is discarded by the
+     cleanup poll after 15 minutes.
    - Otherwise open a group with the person's handle and the opener: run
      `start-thread.ts --member <handle> --body <opener> --key <key> --request <saved
      request id>`, the `request.id` that `save` returned: it refuses any other
@@ -163,10 +183,12 @@ In the owner's DM:
 4. If `ledger.ts find --handle <handle>` has an open request, reuse its group
    ("Offer times" step 5).
 5. Follow "Offer times" with `origin: owner`.
-6. Reply to the owner in one line: group opened, times offered and held.
-   When the group offered more than one time, end it with the rule, in the
-   owner's language: say "book it" and Meetly takes the first option, or name
-   another.
+6. Only after the group opened or the send succeeded, reply to the owner in
+   one line: the group opened, or for an existing group the new times sent to
+   that group, and the times held. If it failed, reply with the error from
+   "Offer times" step 6 instead. When the group offered more than one time,
+   end it with the rule, in the owner's language: say "book it" and Meetly
+   takes the first option, or name another.
 7. When the owner's message only tells you to book or schedule a request of
    theirs that is already open (`origin: owner`), with no time, resolve it in
    the owner's DM with `ledger.ts find --handle <contact handle>`. Re-read it
@@ -560,16 +582,18 @@ offer.
      the other holds. Its fresh handle lookup is already satisfied by step 7.
   3. Send the booking confirmation to the request's `chatUid` using the normal
      meeting-thread send path.
-- **Another day or time:** delete the current meeting and travel holds. Run `slots.ts` narrowed
-  to what they said (plus the owner's original constraints for
-  `origin: owner`), hold again, offer again, and update `offered`.
+- **Another day or time:** leave the current holds as they are. Run `slots.ts`
+  narrowed to what they said (plus the owner's original constraints for
+  `origin: owner`), then follow "Offer times" from step 4 (hold, `save`, send,
+  `promote-offer` or `discard-offer`): the current holds are queued for
+  cleanup only once the new times were sent.
 - **None of these times work:** treat this as a request for another offer, not
   a decline. Use any availability or date range they gave to narrow the next
   search; when they gave no new constraint, keep the request's original
   constraints and search the remaining configured horizon. Re-read the
   calendar, find and hold up to three fresh slots (including travel buffers),
   save them through the normal "Offer times" flow, then send the new options
-  in this thread. The ledger replacement queues old holds for cleanup. If
+  in this thread. The old holds are queued for cleanup once the new times were sent. If
   there are no fresh slots, tell them and ask for a date range; never claim a
   slot is free from an earlier calendar read.
 - **A time that is busy:** say the owner has "an existing commitment" then,

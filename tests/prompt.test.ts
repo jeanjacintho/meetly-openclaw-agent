@@ -131,6 +131,23 @@ test("routine meeting notifications stay in the group and pre-thread gate approv
   assert.ok(group.includes("The configured pre-thread owner gate is the exception"));
   assert.ok(group.includes("Approval authorizes only sending the displayed times"));
   assert.ok(flat(prompt).includes("matching `ledger.ts approvals` entry"));
+  assert.ok(!/owner in their DM|and to the owner|then tell the owner/.test(group));
+  assert.ok(!flat(prompt).includes("send the owner its specified brief alert in the owner's DM"));
+  // A new offer for an open group goes there by the route that reaches it, is reported only once sent, and a failed send restores the last delivered offer.
+  const sent = [
+    "An open request that already has a `chatUid`: post the new times there.",
+    "From the owner's main DM use `plow_reply_to` with that `chatUid` and the new times",
+    "in the poll use `message` with that chat uid as its target",
+    "Say the new times were sent only after that send succeeded",
+    "ledger.ts promote-offer --id <id> --revision <pendingOffer.revision>",
+    "ledger.ts discard-offer --id <id> --revision <pendingOffer.revision>",
+    "If either command returns `settled: false`",
+    "do not delete them yourself",
+    "never say the new request was sent",
+    "Only after the group opened or the send succeeded, reply to the owner in one line",
+    "If it failed, reply with the error from \"Offer times\" step 6 instead",
+  ];
+  for (const rule of sent) assert.ok(group.includes(rule), `missing rule: ${rule}`);
 });
 
 test("a group pick re-reads the current request and never substitutes pending", () => {

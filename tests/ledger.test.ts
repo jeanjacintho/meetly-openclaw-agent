@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  addRequest, saveRequest, appendLog, cleanupList, pendingOwnerList, ownerApprovalList, expiredRequests, expireRequests, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, monitor, pipeline, stageOf,
+  addRequest, saveRequest, settleOffer, discardStaleOffers, removeCleanupRef, appendLog, cleanupList, pendingOwnerList, ownerApprovalList, expiredRequests, expireRequests, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, monitor, pipeline, stageOf,
   type Ledger, type NewRequest,
 } from "../skills/meetly/scripts/ledger.ts";
 import { cli, tmpHome } from "./helpers.ts";
@@ -58,13 +58,12 @@ test("a second open request for the same person is refused until the first close
   assert.equal(findOpenByHandle(l, "+15551234567")?.id, "r_2");
 });
 
-test("save replaces a duplicate open offer by normalized handle and preserves its id and chat link", () => {
-  const original = addRequest(empty(), input({ chatUid: "chat_1" }), T0, "r_1");
+test("save replaces a duplicate open offer by normalized handle and preserves its id", () => {
+  const original = addRequest(empty(), input(), T0, "r_1");
   const updatedOffer = { ...offer, start: "2026-09-30T12:00:00-03:00", holdId: "h2" };
   const saved = saveRequest(original, input({ handle: "5551234567", offered: [updatedOffer] }), T0 + HOUR, "r_2");
   assert.equal(saved.requests.length, 1);
   assert.equal(saved.requests[0]!.id, "r_1");
-  assert.equal(saved.requests[0]!.chatUid, "chat_1");
   assert.deepEqual(saved.requests[0]!.offered, [updatedOffer]);
   assert.deepEqual(saved.requests[0]!.holdCleanup, [{ holdId: "h1", account: offer.account }]);
   assert.equal(saved.requests[0]!.offeredAt, new Date(T0 + HOUR).toISOString());
@@ -95,6 +94,63 @@ test("monitor nudges the other person once after a day, and a fresh offer resets
   const refreshed = saveRequest(nudged, input({ chatUid: "chat_1", offered: [{ ...offer, holdId: "h2" }] }), T0 + 30 * HOUR, "r_2");
   assert.equal(refreshed.requests[0]!.personNudgedAt, undefined);
   assert.equal(monitor(refreshed, T0 + 54 * HOUR).waitingOnThem.length, 1);
+});
+
+test("a re-offer to an existing group stays staged until its send succeeds", () => {
+  const original = addRequest(empty(), input({ chatUid: "chat_1" }), T0 - 10 * HOUR, "r_1");
+  const newOffer = { ...offer, start: "2026-09-30T12:00:00-03:00", holdId: "h_new" };
+  const staged = saveRequest(original, input({ chatUid: "chat_1", offered: [newOffer] }), T0, "r_2", "rev1");
+  const request = staged.requests[0]!;
+  // The delivered offer, its age and its holds are untouched, and nothing is queued for deletion yet.
+  assert.deepEqual(request.offered, original.requests[0]!.offered);
+  assert.equal(request.offeredAt, original.requests[0]!.offeredAt);
+  assert.deepEqual(request.holdCleanup, []);
+  assert.deepEqual(request.pendingOffer, { revision: "rev1", offered: [newOffer], offeredAt: new Date(T0).toISOString() });
+  // The poll's expiry and cleanup reads never see the staged holds as current or deletable.
+  assert.deepEqual(cleanupList(staged), []);
+
+  const promoted = settleOffer(staged, "r_1", "rev1", "promote", T0 + HOUR).requests[0]!;
+  assert.deepEqual(promoted.offered, [newOffer]);
+  assert.equal(promoted.offeredAt, new Date(T0 + HOUR).toISOString());
+  assert.equal(promoted.pendingOffer, undefined);
+  assert.deepEqual(promoted.holdCleanup, [{ holdId: "h1", account: offer.account }]);
+
+  const discarded = settleOffer(staged, "r_1", "rev1", "discard", T0 + HOUR).requests[0]!;
+  assert.deepEqual(discarded.offered, original.requests[0]!.offered);
+  assert.equal(discarded.offeredAt, original.requests[0]!.offeredAt);
+  assert.equal(discarded.pendingOffer, undefined);
+  assert.deepEqual(discarded.holdCleanup, [{ holdId: "h_new", account: offer.account }]);
+});
+
+test("an offer being sent is exclusive: no second save, no expiry, and only its own revision settles it", () => {
+  const original = addRequest(empty(), input({ chatUid: "chat_1" }), T0 - 10 * HOUR, "r_1");
+  const first = saveRequest(original, input({ chatUid: "chat_1", offered: [{ ...offer, holdId: "h_a" }] }), T0, "r_2", "rev1");
+  // A second save is refused while the first is in flight, so it cannot queue the first one's holds.
+  assert.throws(() => saveRequest(first, input({ chatUid: "chat_1", offered: [{ ...offer, holdId: "h_b" }] }), T0 + HOUR / 2, "r_3", "rev2"), /already has an offer being sent/);
+  // Nor does the 48-hour expiry close a request whose send has not settled.
+  assert.deepEqual(expiredRequests(first, 48, T0 + 100 * HOUR), []);
+  assert.equal(expiredRequests(original, 48, T0 + 100 * HOUR).length, 1);
+  // A revision that is not the staged one changes nothing.
+  assert.equal(settleOffer(first, "r_1", "other", "promote", T0 + HOUR), first);
+  assert.equal(settleOffer(first, "r_1", "other", "discard", T0 + HOUR), first);
+  // A stage that reuses the delivered hold does not queue it on discard or promote.
+  const reuse = saveRequest(original, input({ chatUid: "chat_1", offered: [offer] }), T0, "r_2", "rev3");
+  assert.deepEqual(settleOffer(reuse, "r_1", "rev3", "discard", T0 + HOUR).requests[0]!.holdCleanup, []);
+  assert.deepEqual(settleOffer(reuse, "r_1", "rev3", "promote", T0 + HOUR).requests[0]!.holdCleanup, []);
+  // A request that closed while the send was in flight keeps its old holds and drops the staged ones.
+  const booked = updateRequest(first, "r_1", { status: "booked", eventId: "e1" }, T0 + HOUR);
+  const closed = settleOffer(booked, "r_1", "rev1", "promote", T0 + 2 * HOUR).requests[0]!;
+  assert.deepEqual(closed.offered, original.requests[0]!.offered);
+  assert.deepEqual(closed.holdCleanup, [{ holdId: "h_a", account: offer.account }]);
+});
+
+test("a staged offer left by a dead turn is discarded after fifteen minutes", () => {
+  const original = addRequest(empty(), input({ chatUid: "chat_1" }), T0 - 10 * HOUR, "r_1");
+  const staged = saveRequest(original, input({ chatUid: "chat_1", offered: [{ ...offer, holdId: "h_a" }] }), T0, "r_2", "rev1");
+  assert.equal(discardStaleOffers(staged, T0 + 14 * 60_000, 15 * 60_000), staged);
+  const swept = discardStaleOffers(staged, T0 + 16 * 60_000, 15 * 60_000).requests[0]!;
+  assert.equal(swept.pendingOffer, undefined);
+  assert.deepEqual(swept.holdCleanup, [{ holdId: "h_a", account: offer.account }]);
 });
 
 test("find by chat and sender resolves a replacement offer without a chat link", () => {
@@ -310,11 +366,40 @@ test("CLI add, find, update and cleanup round-trip", () => {
   assert.equal(saved.status, 0, saved.stderr);
   assert.equal(saved.json.request.id, id);
   assert.equal(saved.json.request.chatUid, "chat_1");
-  assert.equal(saved.json.request.offered[0].holdId, "h2");
-  assert.deepEqual(saved.json.request.holdCleanup, [
+  // The person already has a group: the new offer is staged and the delivered one stays current.
+  assert.equal(saved.json.request.offered[0].holdId, offer.holdId);
+  assert.equal(saved.json.request.pendingOffer.offered[0].holdId, "h2");
+  const revision = saved.json.request.pendingOffer.revision;
+  assert.match(revision, /^[0-9a-f]{8}$/);
+  const stale = cli("ledger.ts", ["discard-offer", "--id", id, "--revision", "0000"], env);
+  assert.equal(stale.status, 0, stale.stderr);
+  assert.equal(stale.json.settled, false);
+  const discarded = cli("ledger.ts", ["discard-offer", "--id", id, "--revision", revision], env);
+  assert.equal(discarded.status, 0, discarded.stderr);
+  assert.equal(discarded.json.settled, true);
+  assert.equal(discarded.json.request.offered[0].holdId, offer.holdId);
+  assert.deepEqual(discarded.json.request.holdCleanup, [
     { holdId: "h1", account: "a" },
-    { holdId: "h1", account: offer.account },
+    { holdId: "h2", account: offer.account },
   ]);
+  const restaged = cli("ledger.ts", ["save", "--json", JSON.stringify(input({ offered: [{ ...offer, holdId: "h3" }] }))], env);
+  const promoted = cli("ledger.ts", ["promote-offer", "--id", id, "--revision", restaged.json.request.pendingOffer.revision], env);
+  assert.equal(promoted.json.settled, true);
+  assert.equal(promoted.json.request.offered[0].holdId, "h3");
+  assert.equal(promoted.json.request.pendingOffer, undefined);
+  assert.deepEqual(promoted.json.request.holdCleanup.map((h: { holdId: string }) => h.holdId), ["h1", "h2", "h1"]);
+  const deleted = join(home, "deleted.json");
+  writeFileSync(deleted, JSON.stringify({ holdId: "h2", account: offer.account }));
+  const cleanup = cli("ledger.ts", ["cleanup-remove", "--id", id, "--json-file", deleted], env);
+  assert.equal(cleanup.status, 0, cleanup.stderr);
+  assert.deepEqual(cleanup.json.request.holdCleanup, [{ holdId: "h1", account: "a" }, { holdId: "h1", account: offer.account }]);
+  // A promotion that did not take effect (the request closed first) is not reported as settled.
+  const again = cli("ledger.ts", ["save", "--json", JSON.stringify(input({ offered: [{ ...offer, holdId: "h4" }] }))], env);
+  cli("ledger.ts", ["update", "--id", id, "--json", '{"status":"dropped"}'], env);
+  const closedPromote = cli("ledger.ts", ["promote-offer", "--id", id, "--revision", again.json.request.pendingOffer.revision], env);
+  assert.equal(closedPromote.status, 0, closedPromote.stderr);
+  assert.equal(closedPromote.json.settled, false);
+  assert.equal(closedPromote.json.request.offered[0].holdId, "h3");
 });
 
 test("a corrupt ledger.json fails loudly", () => {
