@@ -488,7 +488,9 @@ export function monitor(ledger: Ledger, now: number): {
 // Everything the ledger holds for one person, newest first: what the meeting
 // was for, how it was to happen, where, for how long.
 export function historyFor(ledger: Ledger, handle: string): Pick<Request, "id" | "status" | "name" | "topic" | "format" | "location" | "durationMin" | "createdAt">[] {
-  return ledger.requests.filter((r) => sameHandle(r.handle, handle))
+  // Exact, not suffix, matching: a similar number must never see this person's meetings.
+  const who = normalizeHandle(handle);
+  return ledger.requests.filter((r) => normalizeHandle(r.handle) === who)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .map(({ id, status, name, topic, format, location, durationMin, createdAt }) => ({ id, status, name, topic, format, location, durationMin, createdAt }));
 }

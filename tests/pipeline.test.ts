@@ -77,6 +77,9 @@ test("history lists everything with a person, newest first, so the goal and the 
   assert.deepEqual([h[1]!.topic, h[1]!.format, h[1]!.location, h[1]!.durationMin], ["lunch", "in_person", "Paulista", 30]);
   assert.equal("booked" in h[0]!, false);
   assert.deepEqual(historyFor(l, "+15559999999"), []);
+  // A number from another country that merely ends in this person's digits never sees their meetings.
+  assert.deepEqual(historyFor(l, "+9915550000002"), []);
+  assert.deepEqual(historyFor(l, "5550000002"), []);
 });
 
 test("the CLI prints the pipeline and a person's history", () => {
@@ -86,7 +89,7 @@ test("the CLI prints the pipeline and a person's history", () => {
   assert.equal(p.status, 0, p.stderr);
   assert.deepEqual(Object.keys(p.json), ["waitingOnOwner", "deliveryUnknown", "waitingOnThem", "booked", "closed"]);
   assert.equal(p.json.deliveryUnknown[0].name, "Ana");
-  const h = cli("ledger.ts", ["history", "--handle", "5550000001"], env);
+  const h = cli("ledger.ts", ["history", "--handle", "+15550000001"], env);
   assert.equal(h.json.requests[0].topic, "coffee");
   assert.notEqual(cli("ledger.ts", ["history"], env).status, 0);
 });
