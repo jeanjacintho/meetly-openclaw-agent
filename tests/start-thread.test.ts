@@ -43,7 +43,7 @@ test("posts the same chat the plow_start_thread tool would", async () => {
   assert.match(body.idempotency_key, /^[0-9a-f]{64}$/);
 });
 
-test("the same key, people and text give the same idempotency key", async () => {
+test("the same request key and people give the same idempotency key even if wording changes", async () => {
   const keys: string[] = [];
   const fetch = fakeFetch(() => new Response('{"uid":"c"}', { status: 200 }), []);
   const spy = (async (url: string | URL | Request, init?: RequestInit) => {
@@ -52,9 +52,11 @@ test("the same key, people and text give the same idempotency key", async () => 
   }) as typeof fetch;
   await startThread({ ...args, fetch: spy, base, token: "t" });
   await startThread({ ...args, fetch: spy, base, token: "t" });
+  await startThread({ ...args, body: "Hi Ana, here are the times Jean can meet.", fetch: spy, base, token: "t" });
   await startThread({ ...args, key: "rowid:43", fetch: spy, base, token: "t" });
   assert.equal(keys[0], keys[1]);
-  assert.notEqual(keys[0], keys[2]);
+  assert.equal(keys[0], keys[2]);
+  assert.notEqual(keys[0], keys[3]);
 });
 
 test("a server error or a lost connection means delivery is unknown", async () => {
