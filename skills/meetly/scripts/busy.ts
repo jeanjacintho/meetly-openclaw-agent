@@ -11,8 +11,9 @@ import { status } from "./setup-status.ts";
 import { writeJson } from "./store.ts";
 import { zonedToUtc } from "./time.ts";
 
-// `movable`: the owner listed a word from this block's title, so Meetly may offer
-// times over it. The title itself never leaves this script.
+// `movable`: the owner listed a word from the title of a block the owner
+// organized (`organizer.self`: an invited or shared event could carry any title),
+// so Meetly may offer times over it. The title itself never leaves this script.
 export type Busy = { start: string; end: string; id?: string; account?: string; movable?: true };
 export type BusyResult = { busy: Busy[]; unknownAfter?: string; degraded: string[] };
 
@@ -31,6 +32,7 @@ export type CalEvent = {
   declined?: boolean;
   status?: string;
   attendees?: { self?: boolean; responseStatus?: string }[];
+  organizer?: { self?: boolean; email?: string };
 };
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
@@ -96,7 +98,7 @@ export function toBusy(results: unknown[], opts: { tz: string; max: number; mova
       const b: Busy = { start: new Date(start).toISOString(), end: new Date(end).toISOString() };
       if (e.id !== undefined) b.id = e.id;
       if (e.account !== undefined) b.account = e.account;
-      if (e.summary && opts.movable?.some((w) => titleHasWordOrPhrase(e.summary!, w))) b.movable = true;
+      if (e.organizer?.self === true && e.summary && opts.movable?.some((w) => titleHasWordOrPhrase(e.summary!, w))) b.movable = true;
       busy.push(b);
     }
     for (const { count, last } of perAccount.values()) {

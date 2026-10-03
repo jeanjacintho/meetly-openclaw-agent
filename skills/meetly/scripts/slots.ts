@@ -217,7 +217,9 @@ if (isMain(import.meta.url)) {
       if (values.duration !== undefined) check.durationMin = positiveInt(values.duration, "--duration");
       if (values["allow-overlap"]) check.allowOverlap = values["allow-overlap"];
       if (values.locale !== undefined) check.locale = values.locale;
-      return { ...checkTime(check), degraded };
+      const result = checkTime(check);
+      // An account that could not be read may hold a hard conflict: never call the time free.
+      return degraded.length ? { ...result, free: false, reason: "unknown", degraded } : { ...result, degraded };
     }
     const q: SlotQuery = { now, config, busy: input.busy };
     if (input.unknownAfter !== undefined) q.unknownAfter = input.unknownAfter;

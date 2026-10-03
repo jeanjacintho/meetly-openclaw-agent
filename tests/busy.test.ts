@@ -139,15 +139,19 @@ test("the CLI's --fetch writes tmp/busy.json for slots.ts and prints only a shor
   assert.deepEqual(JSON.parse(readFileSync(join(home, "tmp", "busy.json"), "utf8")), { busy: [], degraded: ["owner@example.com"] });
 });
 
-test("a block whose title has an owner-listed word is marked movable, and no title leaves the script", () => {
+test("a block the owner organized, whose title has an owner-listed word, is marked movable; no title leaves the script", () => {
+  const own = { organizer: { self: true } };
   const items = [
-    { id: "p1", account: "owner@example.com", summary: "Hold, prayer time", startLocal: "2026-09-28T07:00:00-03:00", endLocal: "2026-09-28T08:00:00-03:00" },
-    { id: "m1", account: "owner@example.com", summary: "Board meeting", startLocal: "2026-09-28T09:00:00-03:00", endLocal: "2026-09-28T10:00:00-03:00" },
-    { id: "s1", account: "owner@example.com", summary: "Sprint planning", startLocal: "2026-09-28T10:00:00-03:00", endLocal: "2026-09-28T11:00:00-03:00" },
-    { id: "p2", account: "owner@example.com", summary: "Project Prayer Sync", startLocal: "2026-09-28T11:00:00-03:00", endLocal: "2026-09-28T12:00:00-03:00" },
+    { id: "p1", account: "owner@example.com", summary: "Hold, prayer time", startLocal: "2026-09-28T07:00:00-03:00", endLocal: "2026-09-28T08:00:00-03:00", ...own },
+    { id: "m1", account: "owner@example.com", summary: "Board meeting", startLocal: "2026-09-28T09:00:00-03:00", endLocal: "2026-09-28T10:00:00-03:00", ...own },
+    { id: "s1", account: "owner@example.com", summary: "Sprint planning", startLocal: "2026-09-28T10:00:00-03:00", endLocal: "2026-09-28T11:00:00-03:00", ...own },
+    { id: "p2", account: "owner@example.com", summary: "Project Prayer Sync", startLocal: "2026-09-28T11:00:00-03:00", endLocal: "2026-09-28T12:00:00-03:00", ...own },
+    // Someone else's invitation, or an event with no provenance, never becomes movable by its title.
+    { id: "x1", account: "owner@example.com", summary: "Prayer: urgent", startLocal: "2026-09-28T12:00:00-03:00", endLocal: "2026-09-28T13:00:00-03:00", organizer: { self: false } },
+    { id: "x2", account: "owner@example.com", summary: "Prayer: urgent", startLocal: "2026-09-28T13:00:00-03:00", endLocal: "2026-09-28T14:00:00-03:00" },
   ];
   const r = toBusy([{ items }], { tz: TZ, max: 100, movable: ["prayer"] });
-  assert.deepEqual(r.busy.map((b) => [b.id, b.movable]), [["p1", true], ["m1", undefined], ["s1", undefined], ["p2", true]]);
+  assert.deepEqual(r.busy.map((b) => [b.id, b.movable]), [["p1", true], ["m1", undefined], ["s1", undefined], ["p2", true], ["x1", undefined], ["x2", undefined]]);
   assert.equal(JSON.stringify(r).includes("prayer"), false);
   assert.equal(JSON.stringify(r).includes("Board"), false);
   assert.equal(toBusy([{ items }], opts).busy.some((b) => b.movable), false);

@@ -59,6 +59,19 @@ test("requests only narrow the configured days and window", () => {
   assert.deepEqual(labels({ after: "07:00", before: "09:30", count: 2 }), ["tue 29/9 09:00", "wed 30/9 09:00"]);
 });
 
+test("an exact-time check over a calendar that was not fully read is never free", async () => {
+  const home = tmpHome();
+  writeFileSync(join(home, "config.json"), JSON.stringify({ ...CONFIG, setupDoneAt: "2026-09-28T12:00:00.000Z" }));
+  const read = (degraded: string[]) => {
+    const path = join(home, "busy.json");
+    writeFileSync(path, JSON.stringify({ busy: [], degraded }));
+    return cli("slots.ts", ["--in", path, "--at", "2026-09-29T10:00:00-03:00", "--now", "2026-09-28T12:00:00Z"], { MEETLY_HOME: home }).json;
+  };
+  assert.equal(read([]).free, true);
+  const unread = read(["other@example.com"]);
+  assert.deepEqual([unread.free, unread.reason], [false, "unknown"]);
+});
+
 test("a movable block is offered over and reported as an overlap, while any other block still blocks", () => {
   // Mon 28/9 10:00-11:30 local: one block the owner marked movable, then a hard one at 11:30-12:30.
   const busy: Busy[] = [
@@ -145,7 +158,8 @@ test("the CLI reads busy.ts output and the stored config", () => {
   assert.equal(at.status, 0, at.stderr);
   assert.deepEqual(at.json, {
     slot: { start: "2026-10-03T10:00:00-03:00", end: "2026-10-03T11:00:00-03:00", dayOfWeek: "sat", label: "sáb., 03/10, 10:00" },
-    free: true,
+    free: false,
+    reason: "unknown",
     outsideHours: true,
     degraded: ["other@example.com"],
   });
