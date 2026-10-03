@@ -68,8 +68,9 @@ signed as Meetly.
   This is on by default, including for existing configurations. If you tell
   Meetly to answer meeting requests without asking first, that is standing
   authorization for automatic replies.
-- **Holds expire.** No answer in 48 hours: the holds are deleted and the
-  group is told the times were released.
+- **Holds expire.** No answer in 48 hours: the holds are deleted. If you
+  never approved, only you are told; once a group exists, it is told the times
+  were released.
 - **Overlaps only with your word.** Meetly books over an existing event only
   when you named that event in your request, said yes in the group, or listed
   a word from its title as movable ("prayer", "gym"). People in the group can

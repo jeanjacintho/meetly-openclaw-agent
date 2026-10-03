@@ -88,7 +88,8 @@ Shortcuts:
 9. [ ] **Expiry.** Set `MEETLY_HOLD_HOURS=0.1` in compose, then make a request
    and don't answer.
    - Expect: within ~15 min the holds are deleted, the status is `expired`,
-     the group is told the times were released, and the owner is told.
+     and the owner is told. If the owner never approved, no group exists and
+     nobody else is told; for a linked group, it is told the times were released.
 10. [ ] **Mac asleep.** Put the Mac to sleep (or quit Latch) for 35 min, then
     wake it.
     - Expect: exactly one DM to the owner saying Meetly can't read messages.

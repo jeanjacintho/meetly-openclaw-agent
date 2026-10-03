@@ -232,7 +232,10 @@ export function addRequest(ledger: Ledger, input: NewRequest, now: number, id: s
 export function saveRequest(ledger: Ledger, input: NewRequest, now: number, id: string): Ledger {
   const existing = findOpenByHandle(ledger, input.handle);
   if (!existing) return addRequest(ledger, input, now, id);
-  if (existing.ownerApprovalAt !== undefined && existing.ownerApprovedAt === undefined) throw new Error(`request ${existing.id} is waiting for owner approval; do not replace or link its offer`);
+  // A pending request may only be replaced by a fresh offer that is itself pending approval.
+  if (existing.ownerApprovalAt !== undefined && existing.ownerApprovedAt === undefined && input.ownerApprovalAt === undefined) {
+    throw new Error(`request ${existing.id} is waiting for owner approval; do not replace or link its offer`);
+  }
 
   // Reuse addRequest's validation and timestamp behavior, then apply its new
   // offer to the existing record. An absent chatUid must not erase the link.

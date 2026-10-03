@@ -220,6 +220,12 @@ test("save records the owner approval hold together with the offer", () => {
   const reoffered = saveRequest(updateRequest(l, "r_1", { ownerApprovedAt: at }, T0), input({ origin: "inbound", ownerApprovalAt: at }), T0 + HOUR, "r_2");
   assert.equal(reoffered.requests[0]!.ownerApprovedAt, undefined);
   assert.equal(reoffered.requests[0]!.ownerApprovalAt, at);
+  // Stale options: a fresh offer that is itself pending replaces the pending request in place.
+  const fresh = saveRequest(l, input({ origin: "inbound", ownerApprovalAt: at, offered: [{ ...offer, holdId: "h_fresh" }] }), T0 + HOUR, "r_2");
+  assert.equal(fresh.requests.length, 1);
+  assert.equal(fresh.requests[0]!.id, "r_1");
+  assert.equal(fresh.requests[0]!.offered[0]!.holdId, "h_fresh");
+  assert.equal(fresh.requests[0]!.ownerApprovedAt, undefined);
 });
 
 test("owner gate requests wait for owner approval and appear in the approvals list", () => {

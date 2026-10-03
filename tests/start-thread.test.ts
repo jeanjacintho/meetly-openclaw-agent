@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { startThread } from "../skills/meetly/scripts/start-thread.ts";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { cli } from "./helpers.ts";
 
 const identity = {
@@ -92,4 +95,26 @@ test("an iMessage email is a member like a phone, which is how an Android owner 
   const out = await startThread({ ...args, members: ["ana@example.com"], fetch: fakeFetch(() => new Response('{"uid":"chat_e"}', { status: 200 }), calls), base, token: "tok" });
   assert.deepEqual(out, { chatUid: "chat_e", messageSent: true });
   assert.deepEqual(JSON.parse(String(calls[1]!.init?.body)).members, ["+5511999990000", "ana@example.com"]);
+});
+
+test("refuses a person whose inbound request still waits for the owner, and sends once it is approved", async () => {
+  const home = mkdtempSync(join(tmpdir(), "meetly-"));
+  const prior = process.env.MEETLY_HOME;
+  process.env.MEETLY_HOME = home;
+  try {
+    const request = {
+      id: "r_1", origin: "inbound", handle: "+15551234567", topic: "coffee", durationMin: 30, status: "offered",
+      offered: [], offeredAt: "2026-09-28T12:00:00.000Z", createdAt: "2026-09-28T12:00:00.000Z", updatedAt: "2026-09-28T12:00:00.000Z",
+      ownerApprovalAt: "2026-09-28T12:00:00.000Z",
+    };
+    writeFileSync(join(home, "ledger.json"), JSON.stringify({ requests: [request] }));
+    const calls: Call[] = [];
+    const fetch = fakeFetch(() => new Response('{"uid":"chat_9"}', { status: 201 }), calls);
+    await assert.rejects(startThread({ ...args, fetch, base, token: "tok" }), /waiting for the owner's approval/);
+    assert.equal(calls.length, 0);
+    writeFileSync(join(home, "ledger.json"), JSON.stringify({ requests: [{ ...request, ownerApprovedAt: "2026-09-28T12:05:00.000Z" }] }));
+    assert.deepEqual(await startThread({ ...args, fetch, base, token: "tok" }), { chatUid: "chat_9", messageSent: true });
+  } finally {
+    if (prior === undefined) delete process.env.MEETLY_HOME; else process.env.MEETLY_HOME = prior;
+  }
 });

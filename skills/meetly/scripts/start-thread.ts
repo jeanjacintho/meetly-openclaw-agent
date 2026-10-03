@@ -13,7 +13,10 @@ import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
 import { isBlocked, loadBlocked } from "./blocklist.ts";
 import { fetchIdentity, findOwnerDm, plowApi, type ApiOptions } from "./owner-chat.ts";
+import { findOpenByHandle, type Ledger } from "./ledger.ts";
+import { file } from "./paths.ts";
 import { isHandle } from "./reachable-handle.ts";
+import { readJson } from "./store.ts";
 
 export type Started = { chatUid: string; messageSent: true } | { chatUid: null; deliveryUnknown: true };
 
@@ -28,6 +31,14 @@ export async function startThread(opts: ApiOptions & { members: string[]; body: 
   const blockedInitially = loadBlocked();
   for (const m of opts.members) if (isBlocked(blockedInitially, m)) {
     throw new Error(`do not contact: ${m} is on the owner's do-not-contact list; the owner must take them off it first`);
+  }
+  // An inbound request still waiting for the owner never reaches the person.
+  const ledger = readJson<Ledger>(file("ledger.json"), { requests: [] });
+  for (const m of opts.members) {
+    const open = findOpenByHandle(ledger, m);
+    if (open?.ownerApprovalAt !== undefined && open.ownerApprovedAt === undefined) {
+      throw new Error(`request ${open.id} is waiting for the owner's approval: nothing may be sent to ${m} yet`);
+    }
   }
   if (!opts.body.trim()) throw new Error("the body is empty");
   if (!opts.key.trim()) throw new Error("the key is empty");
