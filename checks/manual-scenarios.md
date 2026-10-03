@@ -46,7 +46,11 @@ Shortcuts:
    - Expect: running `m/register-crons.ts` again prints `"actions":[]`.
 3. [ ] **Inbound request.** From the second phone, iMessage the owner: "want
    to grab coffee next week?".
-   - Expect, within ~10 min: a Plow group with the owner and that phone.
+   - Expect, within ~10 min: 3 calendar holds and a private owner approval
+     request showing the person, topic and held options. No group or contact
+     message is sent yet; the ledger has `ownerApprovalAt` and no `chatUid`.
+   - In the owner's DM, approve that request. Expect one Plow group with the
+     owner and that phone, using the same held options.
    - Expect: the opener is in the third person, in the sender's language, and
      lists 3 labels in the sender's locale format.
    - Expect: 3 `Hold: …` events on the owner's primary calendar.
@@ -84,7 +88,8 @@ Shortcuts:
 9. [ ] **Expiry.** Set `MEETLY_HOLD_HOURS=0.1` in compose, then make a request
    and don't answer.
    - Expect: within ~15 min the holds are deleted, the status is `expired`,
-     the group is told the times were released, and the owner is told.
+     and the owner is told. If the owner never approved, no group exists and
+     nobody else is told; for a linked group, it is told the times were released.
 10. [ ] **Mac asleep.** Put the Mac to sleep (or quit Latch) for 35 min, then
     wake it.
     - Expect: exactly one DM to the owner saying Meetly can't read messages.
@@ -140,7 +145,7 @@ ahead so its reminder fires during the run.
     reminder still carries the calendar's link.
 22. [ ] **Hold deletes.** After any pick, the other `Hold:` events are gone
     (this needs `--force`; see `checks/spike.md`).
-24. [ ] **Inbound owner gate.** Turn `ownerGate` on and send a scheduling
+24. [ ] **Inbound owner gate.** With default settings, send a scheduling
      request from a second account.
     - Expect: Meetly creates holds and asks the owner privately; it opens no
       group and sends no proposed time to the contact before approval.

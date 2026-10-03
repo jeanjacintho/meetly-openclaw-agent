@@ -13,11 +13,14 @@ import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
 import { isBlocked, loadBlocked } from "./blocklist.ts";
 import { fetchIdentity, findOwnerDm, plowApi, type ApiOptions } from "./owner-chat.ts";
+import { isAwaitingOwnerApproval, sameHandle, type Ledger } from "./ledger.ts";
+import { file } from "./paths.ts";
 import { isHandle } from "./reachable-handle.ts";
+import { readJson } from "./store.ts";
 
 export type Started = { chatUid: string; messageSent: true } | { chatUid: null; deliveryUnknown: true };
 
-export async function startThread(opts: ApiOptions & { members: string[]; body: string; key: string }): Promise<Started> {
+export async function startThread(opts: ApiOptions & { members: string[]; body: string; key: string; requestId: string }): Promise<Started> {
   if (opts.members.length === 0) throw new Error("give at least one phone number");
   // A phone in E.164 or an iMessage email: reachable-handle.ts says which one.
   for (const m of opts.members) {
@@ -29,6 +32,12 @@ export async function startThread(opts: ApiOptions & { members: string[]; body: 
   for (const m of opts.members) if (isBlocked(blockedInitially, m)) {
     throw new Error(`do not contact: ${m} is on the owner's do-not-contact list; the owner must take them off it first`);
   }
+  // The group is opened for one saved, open request, and only for its person; an
+  // inbound request still waiting for the owner never reaches them.
+  const request = readJson<Ledger>(file("ledger.json"), { requests: [] }).requests.find((r) => r.id === opts.requestId);
+  if (!request || request.status !== "offered") throw new Error(`request ${opts.requestId} is not an open request: save the offer first`);
+  if (isAwaitingOwnerApproval(request)) throw new Error(`request ${request.id} is waiting for the owner's approval: nothing may be sent yet`);
+  if (!opts.members.every((m) => sameHandle(m, request.handle))) throw new Error(`the member must be the request's person (${request.handle})`);
   if (!opts.body.trim()) throw new Error("the body is empty");
   if (!opts.key.trim()) throw new Error("the key is empty");
   const api = plowApi(opts);
@@ -71,10 +80,11 @@ export async function startThread(opts: ApiOptions & { members: string[]; body: 
 if (isMain(import.meta.url)) {
   run(() => {
     const { values } = parseArgs({
-      options: { member: { type: "string", multiple: true }, body: { type: "string" }, key: { type: "string" } },
+      options: { member: { type: "string", multiple: true }, body: { type: "string" }, key: { type: "string" }, request: { type: "string" } },
     });
     if (!values.key) throw new Error("pass --key (e.g. request:<the saved request id>) so a retry cannot open a second group");
     if (values.body === undefined) throw new Error("pass --body");
-    return startThread({ members: values.member ?? [], body: values.body, key: values.key });
+    if (!values.request) throw new Error("pass --request <the saved request id>");
+    return startThread({ members: values.member ?? [], body: values.body, key: values.key, requestId: values.request });
   });
 }

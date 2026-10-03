@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -7,6 +7,16 @@ const SCRIPTS = resolve(import.meta.dirname, "..", "skills", "meetly", "scripts"
 
 export function tmpHome(): string {
   return mkdtempSync(join(tmpdir(), "meetly-"));
+}
+
+// A ledger holding one open request, for the scripts that act on a saved request.
+export function seedRequest(home: string, over: Record<string, unknown> = {}): void {
+  const at = "2026-09-28T12:00:00.000Z";
+  const request = {
+    id: "r_1", origin: "owner", handle: "+15551234567", topic: "coffee", durationMin: 30, status: "offered",
+    offered: [], offeredAt: at, createdAt: at, updatedAt: at, ...over,
+  };
+  writeFileSync(join(home, "ledger.json"), JSON.stringify({ requests: [request] }));
 }
 
 export type CliResult = { status: number | null; stdout: string; stderr: string; json: any };

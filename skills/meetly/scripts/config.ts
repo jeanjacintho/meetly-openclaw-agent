@@ -47,6 +47,8 @@ export const DEFAULTS = {
   windowEnd: "18:00",
   durationMin: 30,
   horizonDays: 14,
+  // Inbound contacts never receive an offer until the owner approves it.
+  ownerGate: true,
 };
 
 export const QUESTIONS: Record<RequiredField, string> = {
@@ -227,23 +229,28 @@ export function validateConfig(partial: Partial<Config>): Config {
     windowEnd: p.windowEnd,
     durationMin: p.durationMin,
     horizonDays: p.horizonDays,
-    calendars: readableCalendars(p.calendars, p.defaultAccount),
+    calendars: p.calendars,
     defaultAccount: p.defaultAccount,
   };
-  if (p.ownerGate !== undefined) {
-    if (typeof p.ownerGate !== "boolean") throw new Error("ownerGate must be true or false");
-    config.ownerGate = p.ownerGate;
-  }
+  if (p.ownerGate !== undefined && typeof p.ownerGate !== "boolean") throw new Error("ownerGate must be true or false");
+  config.ownerGate = p.ownerGate;
   if (p.minNoticeMin !== undefined) config.minNoticeMin = p.minNoticeMin;
   if (p.defaultFormat !== undefined) config.defaultFormat = p.defaultFormat;
   if (p.setupDoneAt !== undefined) config.setupDoneAt = p.setupDoneAt;
   if (p.paused !== undefined) config.paused = p.paused;
-  return config;
+  return normalizeConfig(config);
+}
+
+export function normalizeConfig(config: Config): Config {
+  return {
+    ...config,
+    ownerGate: config.ownerGate ?? DEFAULTS.ownerGate,
+    calendars: readableCalendars(config.calendars, config.defaultAccount),
+  };
 }
 
 export function loadConfig(): Config {
   const config = readJson<Config | null>(file("config.json"), null);
   if (!config?.setupDoneAt) throw new Error("Meetly is not set up yet");
-  // A config saved before readableCalendars may still list `primary`.
-  return { ...config, calendars: readableCalendars(config.calendars, config.defaultAccount) };
+  return normalizeConfig(config);
 }

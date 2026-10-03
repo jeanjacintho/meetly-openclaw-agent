@@ -75,7 +75,9 @@ const LOG_TEXT_MAX = 300;
 export type Ledger = { requests: Request[] };
 
 export type NewRequest = Omit<Request,
-  "id" | "status" | "eventId" | "pendingOwner" | "ownerApprovalAt" | "ownerApprovedAt" | "booked" | "meetUrl" | "reminder" | "offeredAt" | "closedAt" | "log" | "createdAt" | "updatedAt">;
+  "id" | "status" | "eventId" | "pendingOwner" | "ownerApprovalAt" | "ownerApprovedAt" | "booked" | "meetUrl" | "reminder" | "offeredAt" | "closedAt" | "log" | "createdAt" | "updatedAt">
+  // Saved with the offer, so an inbound request is never open without its approval hold.
+  & { ownerApprovalAt?: string };
 export type Patch = Partial<Pick<Request,
   "status" | "chatUid" | "eventId" | "offered" | "holdCleanup" | "name" | "location" | "allowOverlap" | "constraints" | "topic" | "format" | "locale">> & {
   attendeeEmail?: string;
@@ -155,19 +157,22 @@ export function findOpenByHandle(ledger: Ledger, handle: string): Request | unde
   return ledger.requests.find((r) => r.status === "offered" && sameHandle(r.handle, handle));
 }
 
+// An inbound request the owner has not approved yet: nothing may reach the person.
+export const isAwaitingOwnerApproval = (r: Request): boolean => r.ownerApprovalAt !== undefined && r.ownerApprovedAt === undefined;
+
 export function findByChat(ledger: Ledger, chatUid: string, handle?: string): Request | undefined {
   // Resolve an open request for the sender even when it has not been linked
   // yet. This lets a replacement offer supersede a closed request in the chat.
   if (handle !== undefined) {
     const openForHandle = findOpenByHandle(ledger, handle);
-  if (openForHandle && (openForHandle.ownerApprovalAt === undefined || openForHandle.ownerApprovedAt !== undefined)
+  if (openForHandle && !isAwaitingOwnerApproval(openForHandle)
       && (openForHandle.chatUid === undefined || openForHandle.chatUid === chatUid)) {
       return openForHandle;
     }
   }
   // A chat remains a Meetly group after its request closes.
   return ledger.requests.findLast((r) => r.chatUid === chatUid && r.status === "offered"
-    && (r.ownerApprovalAt === undefined || r.ownerApprovedAt !== undefined))
+    && !isAwaitingOwnerApproval(r))
     ?? ledger.requests.findLast((r) => r.chatUid === chatUid);
 }
 
@@ -208,10 +213,13 @@ export function addRequest(ledger: Ledger, input: NewRequest, now: number, id: s
   const attendeeEmail = input.attendeeEmail === undefined ? undefined : checkEmail(input.attendeeEmail);
   const open = findOpenByHandle(ledger, input.handle);
   if (open) throw new Error(`open request ${open.id} already exists for this person; update it instead`);
+  if (input.ownerApprovalAt !== undefined && (input.origin !== "inbound" || !isDate(input.ownerApprovalAt))) {
+    throw new Error(`ownerApprovalAt must be a time and only applies to an inbound request, got ${JSON.stringify(input.ownerApprovalAt)}`);
+  }
   const at = new Date(now).toISOString();
   // A new offer is never booked: a booking, its link and its reminder are
   // only ever set through update, where they are validated.
-  const { booked: _b, meetUrl: _m, reminder: _r, closedAt: _c, ownerApprovalAt: _oa, ownerApprovedAt: _oap, log: _l, ...fields } = input as NewRequest & Partial<Pick<Request, "booked" | "meetUrl" | "reminder" | "closedAt" | "ownerApprovalAt" | "ownerApprovedAt" | "log">>;
+  const { booked: _b, meetUrl: _m, reminder: _r, closedAt: _c, ownerApprovedAt: _oap, log: _l, ...fields } = input as NewRequest & Partial<Pick<Request, "booked" | "meetUrl" | "reminder" | "closedAt" | "ownerApprovalAt" | "ownerApprovedAt" | "log">>;
   const request: Request = { ...fields, ...(attendeeEmail ? { attendeeEmail } : {}), format, id, status: "offered", offeredAt: at, createdAt: at, updatedAt: at };
   return { requests: [...ledger.requests, request] };
 }
@@ -233,7 +241,10 @@ const withoutRefs = (refs: HoldRef[], keep: HoldRef[]): HoldRef[] =>
 export function saveRequest(ledger: Ledger, input: NewRequest, now: number, id: string, revision = id): Ledger {
   const existing = findOpenByHandle(ledger, input.handle);
   if (!existing) return addRequest(ledger, input, now, id);
-  if (existing.ownerApprovalAt !== undefined && existing.ownerApprovedAt === undefined) throw new Error(`request ${existing.id} is waiting for owner approval; do not replace or link its offer`);
+  // A pending request may only be replaced by a fresh offer that is itself pending approval.
+  if (isAwaitingOwnerApproval(existing) && input.ownerApprovalAt === undefined) {
+    throw new Error(`request ${existing.id} is waiting for owner approval; do not replace or link its offer`);
+  }
 
   // Reuse addRequest's validation and timestamp behavior, then apply its new
   // offer to the existing record. An absent chatUid must not erase the link.
@@ -246,7 +257,7 @@ export function saveRequest(ledger: Ledger, input: NewRequest, now: number, id: 
     // A new offer that does not name a format keeps the one already answered.
     format: validated.format === "unknown" ? existing.format ?? "unknown" : validated.format,
     locale: input.locale ?? existing.locale,
-    ownerApprovalAt: undefined,
+    ownerApprovalAt: validated.ownerApprovalAt,
     ownerApprovedAt: undefined,
     createdAt: existing.createdAt,
     updatedAt: new Date(now).toISOString(),
@@ -338,8 +349,7 @@ export function updateRequest(ledger: Ledger, id: string, patch: Patch, now: num
   const index = ledger.requests.findIndex((r) => r.id === id);
   if (index < 0) throw new Error(`no request ${id}`);
   const currentRequest = ledger.requests[index]!;
-  const approvalPending = currentRequest.ownerApprovalAt !== undefined && currentRequest.ownerApprovedAt === undefined;
-  if (approvalPending) {
+  if (isAwaitingOwnerApproval(currentRequest)) {
     if (patch.chatUid !== undefined && patch.ownerApprovedAt === undefined) {
       throw new Error(`request ${id} is waiting for owner approval; chatUid cannot be linked before owner approval`);
     }
@@ -393,13 +403,26 @@ export function expiredRequests(ledger: Ledger, hours: number, now: number): Req
   return ledger.requests.filter((r) => r.status === "offered" && !r.pendingOffer && now - Date.parse(r.offeredAt) >= hours * 3600_000);
 }
 
+// Close, in one locked write, every open request whose holds have run out, and
+// queue its holds for cleanup. The rows returned are the ones
+// this write claimed, as they were: a request that a refresh replaced in the
+// meantime is not expired, and a hold is only ever queued once.
+export function expireRequests(ledger: Ledger, hours: number, now: number): { ledger: Ledger; claimed: Request[] } {
+  const claimed = expiredRequests(ledger, hours, now);
+  const next = claimed.reduce((l, r) => updateRequest(l, r.id, {
+    status: "expired", pendingOwner: null, ownerApprovalAt: null,
+    holdCleanup: mergeRefs(r.holdCleanup ?? [], holdRefs(r.offered)),
+  }, now), ledger);
+  return { ledger: next, claimed };
+}
+
 // Open requests waiting for the owner to confirm an out-of-hours time.
 export function pendingOwnerList(ledger: Ledger): Request[] {
   return ledger.requests.filter((r) => r.status === "offered" && r.pendingOwner !== undefined);
 }
 
 export function ownerApprovalList(ledger: Ledger): Request[] {
-  return ledger.requests.filter((r) => r.status === "offered" && r.ownerApprovalAt !== undefined && r.ownerApprovedAt === undefined);
+  return ledger.requests.filter((r) => r.status === "offered" && isAwaitingOwnerApproval(r));
 }
 
 // Booked Meets whose link is due in the group: from `leadMin` before the
@@ -453,7 +476,7 @@ const NEXT_STEP: Record<Stage, string> = {
 export function stageOf(r: Request, now: number): Stage {
   if (r.status === "booked") return "confirmed";
   if (r.status !== "offered") return "passed";
-  if (r.pendingOwner || (r.ownerApprovalAt && !r.ownerApprovedAt)) return "waiting_on_us";
+  if (r.pendingOwner || isAwaitingOwnerApproval(r)) return "waiting_on_us";
   if (!r.chatUid) return "delivery_unknown";
   return hoursSince(r.offeredAt, now) >= STALE_HOURS ? "waiting_on_them" : "sent";
 }
@@ -577,10 +600,12 @@ if (isMain(import.meta.url)) {
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => removeCleanupRef(l, values.id!, ref, now));
         return { request: ledger.requests.find((r) => r.id === values.id) };
       }
-      case "expired": {
+      case "expire": {
         const hours = values.hours !== undefined ? Number(values.hours) : holdHours();
         if (!Number.isFinite(hours) || hours < 0) throw new Error(`--hours must be a number >= 0, got ${values.hours}`);
-        return { requests: expiredRequests(readJson<Ledger>(path, EMPTY), hours, now) };
+        let claimed: Request[] = [];
+        updateJson<Ledger>(path, EMPTY, (l) => { const out = expireRequests(l, hours, now); claimed = out.claimed; return out.ledger; });
+        return { requests: claimed };
       }
       case "log": {
         if (!values.id) throw new Error("usage: ledger.ts log --id X [--text T]");
@@ -610,7 +635,7 @@ if (isMain(import.meta.url)) {
         return { requests: dueReminders(readJson<Ledger>(path, EMPTY), now, lead) };
       }
       default:
-        throw new Error("usage: ledger.ts find | add | save | update | promote-offer | discard-offer | cleanup-remove | expired | pending | approvals | pipeline | history | log | cleanup | reminders");
+        throw new Error("usage: ledger.ts find | add | save | update | promote-offer | discard-offer | cleanup-remove | expire | pending | approvals | pipeline | history | log | cleanup | reminders");
     }
   });
 }
