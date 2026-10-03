@@ -158,6 +158,21 @@ test("a request keeps a dated log of what happened, newest last, bounded, and re
   assert.equal(cli("ledger.ts", ["log", "--id", id], env).json.log.length, 1);
 });
 
+test("a gated inbound request counts as waiting on the owner everywhere: stage, pipeline time and the 4-hour reminder", () => {
+  const asked = new Date(T0 - 5 * HOUR).toISOString();
+  const gated = addRequest({ requests: [] }, input("+15550009999", { origin: "inbound", ownerApprovalAt: asked }), T0 - 5 * HOUR, "r_gate");
+  const request = gated.requests[0]!;
+  assert.equal(request.chatUid, undefined);
+  // The pipeline lists it under the owner, with the hours since the approval ask.
+  const p = pipeline(gated, T0);
+  assert.deepEqual(p.waitingOnOwner.map((i) => [i.id, i.stage, i.hoursWaiting]), [["r_gate", "waiting_on_us", 5]]);
+  // The monitor reminds the owner after four hours, with no chat uid (so the poll reminds them in their DM), and once.
+  const m = monitor(gated, T0);
+  assert.deepEqual(m.ownerWaiting.map((i) => [i.id, i.hoursWaiting, i.chatUid]), [["r_gate", 5, undefined]]);
+  assert.deepEqual(monitor(gated, T0 - 2 * HOUR).ownerWaiting, []);
+  assert.deepEqual(monitor(updateRequest(gated, "r_gate", { nudgedAt: new Date(T0).toISOString() }, T0), T0 + HOUR).ownerWaiting, []);
+});
+
 test("the monitor lists owner decisions, unknown delivery warnings and contact nudges once", () => {
   const l = sample();
   // Ana waits on the owner; Bia's group delivery is unknown (never retry).

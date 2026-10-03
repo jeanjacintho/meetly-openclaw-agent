@@ -662,10 +662,14 @@ const NEXT_STEP: Record<Stage, string> = {
   passed: "none, unless the owner wants to meet again",
 };
 
+// When the owner was asked to decide: a time outside their hours (`pendingOwner`), or a gated inbound request waiting for
+// approval. One definition for the stage, the pipeline's waiting time and the monitor's reminders.
+const ownerDecisionAt = (r: Request): string | undefined => r.pendingOwner?.askedAt ?? (awaitingOwnerApproval(r) ? r.ownerApprovalAt : undefined);
+
 export function stageOf(r: Request, now: number): Stage {
   if (r.status === "booked") return "confirmed";
   if (r.status !== "offered") return "passed";
-  if (r.pendingOwner || awaitingOwnerApproval(r)) return "waiting_on_us";
+  if (ownerDecisionAt(r)) return "waiting_on_us";
   if (!r.chatUid) return "delivery_unknown";
   return hoursSince(r.offeredAt, now) >= STALE_HOURS ? "waiting_on_them" : "sent";
 }
@@ -685,8 +689,7 @@ export function pipeline(ledger: Ledger, now: number, blocked: string[] = []): {
   waitingOnOwner: PipelineItem[]; deliveryUnknown: PipelineItem[]; waitingOnThem: PipelineItem[]; booked: PipelineItem[]; closed: PipelineItem[];
 } {
   const item = (r: Request, extra: Partial<PipelineItem> = {}) => pipelineItem(r, now, extra);
-  const waiting = (r: Request) => ({ hoursWaiting: hoursSince(r.pendingOwner?.askedAt
-    ?? (r.ownerApprovedAt ? r.offeredAt : r.ownerApprovalAt ?? r.offeredAt), now) });
+  const waiting = (r: Request) => ({ hoursWaiting: hoursSince(ownerDecisionAt(r) ?? r.offeredAt, now) });
   const requests = ledger.requests.filter((r) => !blocked.some((b) => sameHandle(b, r.handle)));
   const open = requests.filter((r) => r.status === "offered");
   const upcoming = requests.filter((r) => r.status === "booked" && (!r.booked || Date.parse(r.booked.start) >= now));
@@ -711,7 +714,7 @@ export const PERSON_NUDGE_HOURS = 24;
 export function monitor(ledger: Ledger, now: number): {
   ownerWaiting: (PipelineItem & { chatUid?: string; handle: string })[]; deliveryUnknown: PipelineItem[]; waitingOnThem: (PipelineItem & { chatUid: string; handle: string })[];
 } {
-  const asked = (r: Request) => r.pendingOwner?.askedAt;
+  const asked = ownerDecisionAt;
   const due = (r: Request, since: string, hours: number) =>
     hoursSince(since, now) >= hours && (!r.nudgedAt || Date.parse(r.nudgedAt) < Date.parse(since));
   const personDue = (r: Request) => hoursSince(r.offeredAt, now) >= PERSON_NUDGE_HOURS &&
@@ -814,9 +817,14 @@ if (isMain(import.meta.url)) {
         // is a trustworthy substitute, and using it wrongly gates the owner's own requests.
         const gateOn = loadConfig().ownerGate === true;
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => {
-          const hasGroup = (findOpenByHandle(l, input.handle)?.chatUid ?? input.chatUid) !== undefined;
+          // "Already has a group" is judged from the ledger, never from the payload: a `chatUid` the model supplies counts only
+          // when the ledger knows that chat (it is, or was, a group Meetly linked to a request). An unknown one is dropped
+          // and the request is gated like any other, so a made-up chat uid cannot skip the owner's approval.
+          const knownChat = input.chatUid !== undefined && l.requests.some((r) => r.chatUid === input.chatUid);
+          const hasGroup = findOpenByHandle(l, input.handle)?.chatUid !== undefined || knownChat;
           if (gateOn && input.origin === "inbound" && !hasGroup) {
             input.ownerApprovalAt = new Date(now).toISOString();
+            delete input.chatUid;
           }
           return saveRequest(l, input, now, id, revision);
         });

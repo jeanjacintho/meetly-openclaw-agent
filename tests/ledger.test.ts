@@ -550,14 +550,22 @@ test("CLI add, find, update and cleanup round-trip", () => {
   assert.equal(typeof gated.ownerApprovalAt, "string");
   // An owner request, and a request that already has a group, are never gated.
   assert.equal(cli("ledger.ts", ["save", "--json", JSON.stringify(input({ handle: "+15556660000", origin: "owner" }))], env).json.request.ownerApprovalAt, undefined);
-  assert.equal(cli("ledger.ts", ["save", "--json", JSON.stringify(input({ handle: "+15555550000", chatUid: "g1" }))], env).json.request.ownerApprovalAt, undefined);
+  // A chat uid the model supplies counts as "already has a group" only when the ledger knows that chat: an owner request
+  // linked to g1 makes g1 a known group, so an inbound re-offer there is not gated; a made-up uid is dropped and gated.
+  assert.equal(cli("ledger.ts", ["save", "--json", JSON.stringify(input({ handle: "+15555550000", origin: "owner", chatUid: "g1" }))], env).json.request.chatUid, "g1");
+  assert.equal(cli("ledger.ts", ["save", "--json", JSON.stringify(input({ handle: "+15554440001", chatUid: "g1" }))], env).json.request.ownerApprovalAt, undefined);
+  const synthetic = cli("ledger.ts", ["save", "--json", JSON.stringify(input({ handle: "+15554440002", chatUid: "made-up" }))], env).json.request;
+  assert.equal(typeof synthetic.ownerApprovalAt, "string");
+  assert.equal(synthetic.chatUid, undefined);
   // The owner turned it off: nothing is gated.
   const off = JSON.parse(readFileSync(join(home, "config.json"), "utf8"));
   writeFileSync(join(home, "config.json"), JSON.stringify({ ...off, ownerGate: false }));
   assert.equal(cli("ledger.ts", ["save", "--json", JSON.stringify(input({ handle: "+15554440000" }))], env).json.request.ownerApprovalAt, undefined);
   writeFileSync(join(home, "config.json"), JSON.stringify(off));
-  assert.deepEqual(cli("ledger.ts", ["approvals"], env).json.requests.map((r: { id: string }) => r.id), [gated.id]);
+  // Both the plain inbound request and the one with a made-up chat uid wait for the owner.
+  assert.deepEqual(cli("ledger.ts", ["approvals"], env).json.requests.map((r: { id: string }) => r.id).sort(), [gated.id, synthetic.id].sort());
   assert.equal(cli("ledger.ts", ["approve", "--id", gated.id], env).json.approved, true);
+  assert.equal(cli("ledger.ts", ["decline", "--id", synthetic.id], env).json.declined, true);
   assert.deepEqual(cli("ledger.ts", ["approvals"], env).json.requests, []);
   assert.equal(cli("ledger.ts", ["decline", "--id", gated.id], env).json.declined, false);
   // No way to create an inbound request that skips the owner gate: `add` takes only the owner's own requests (refusing a second one for the person), and inbound goes through `save`.

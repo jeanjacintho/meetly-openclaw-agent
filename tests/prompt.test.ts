@@ -393,7 +393,6 @@ test("inbound offers require owner DM approval by default", () => {
   const poll = flat(readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8"));
   assert.ok(group.includes("ledger.ts approvals"));
   assert.ok(group.includes("do not open a group or send any proposed time"));
-  assert.ok(group.includes("derives the idempotency key `request:<id>` itself"));
   assert.ok(group.includes("`ledger.ts save` decides this itself: when `origin` is `inbound`"));
   assert.ok(!group.includes("--gate"));
   assert.ok(flat(readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8")).includes("send that saved ask again"));

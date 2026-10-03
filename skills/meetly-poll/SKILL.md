@@ -117,7 +117,11 @@ still explain why no contact message was sent.
      one line and in their language, that the time they were asked about is
      still waiting for their yes or no, with its `nextStep`, then run
      `ledger.ts update --id <id> --json '{"nudgedAt":"<now ISO>"}'` so it is
-     sent once. For each
+     sent once. For an `ownerWaiting` item with no `chatUid` (a gated inbound
+     request that has no group yet), remind the owner in their DM instead
+     (`owner-chat.ts`, then `message` to its `chatUid`): the contact is not
+     messaged, so no blocklist check is needed; run the same `nudgedAt` update.
+     For each
      `deliveryUnknown` item, tell the owner in their DM that Meetly cannot
      confirm whether the group offer arrived, ask them to check Messages
      manually, and explicitly say never to resend. Do not open another group
