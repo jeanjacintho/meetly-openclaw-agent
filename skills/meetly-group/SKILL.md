@@ -473,7 +473,12 @@ offer.
      request** and do not use `ledger.ts pending` as a substitute. Select the
      hold only from this request's `offered[]`. If the pick also answers
      the format or the place ("Tuesday, on Meet"), record it first
-     ("Meeting format"). Then run
+     ("Meeting format"). Then read the calendar again (`busy.ts --fetch`) and
+     run `slots.ts --at <the chosen start> --allow-overlap <the chosen hold id>`
+     (plus the request's `allowOverlap`): if `free` is false a hard conflict
+     appeared since the offer, so do not book; say the time is no longer free
+     and offer new times. Use this fresh result's `overlaps` for
+     `--confirm-conflict`, also on the fallback `create`. Then run
      `plow-gog calendar update primary <holdId> --account <account>` with
      the final title (the topic and the person's name, without "Hold:"), the
      location, and the person's `attendeeEmail` as an attendee when there is one,
