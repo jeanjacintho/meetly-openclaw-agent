@@ -89,7 +89,8 @@ free there.
    created, stop and report the ledger error to the owner; do not send an
    offer. If any deletion fails, report those hold ids too.
    - **Owner gate:** when `origin` is `inbound` and `config.ownerGate` is
-     true, update the saved request with `ownerApprovalAt: <now ISO>`. Do not
+     true, put `ownerApprovalAt: <now ISO>` in the step 5 `ledger.ts save`
+     payload, so the request is saved already gated in one write. Do not
      open a group or send any proposed time to the other person yet. Run
      `owner-chat.ts`, then use `message` (`action: send`, channel `plow`,
      accountId `chat`, target its `chatUid`) to send the owner one private
@@ -201,8 +202,8 @@ and topic in the approval message; if more than one fits, ask which one.
   held time, passing that offer's hold ids with `--allow-overlap`. If the
   times are still free, open the group using the saved offer and its existing
   holds; do not run "Offer times" or `ledger.ts save` again. Keep
-  `ownerApprovalAt` set while opening it, using idempotency key
-  `owner-gate:<id>`. After `start-thread.ts` returns either a chat uid or
+  `ownerApprovalAt` set while opening it, using the usual key
+  `request:<saved request id>`. After `start-thread.ts` returns either a chat uid or
   `deliveryUnknown`, write `ownerApprovedAt: <now ISO>` to a JSON file and
   include `chatUid` only when it returned one; apply the patch in one
   `ledger.ts update --id <id> --json-file <file>`. This records the owner's
@@ -210,8 +211,9 @@ and topic in the approval message; if more than one fits, ask which one.
   `chatUid` absent and follow the no-retry rule. If any held time
   is no longer free, do not send the stale
   options: clean the old holds (queue failed deletes in `holdCleanup`),
-  calculate and save fresh options, set a new `ownerApprovalAt`, and ask the
-  owner to approve those exact times.
+  calculate fresh options and save them with `ledger.ts save`, passing a new
+  `ownerApprovalAt` in that payload (the ledger replaces a gated offer only
+  with a fresh one), and ask the owner to approve those exact times.
 - **No:** delete every hold recorded in `offered[]`, then
   update the request to `{"status":"dropped","ownerApprovalAt":null}`.
   If any delete fails, record that `{holdId, account}` in `holdCleanup` before

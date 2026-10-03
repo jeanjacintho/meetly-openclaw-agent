@@ -69,7 +69,7 @@ test("every script the prompt or a skill names exists", () => {
 
 test("the poll message is what the prompt keys on", () => {
   assert.ok(POLL_MESSAGE.startsWith("Meetly poll."));
-  assert.ok(readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8").includes("start-thread.ts"));
+  assert.ok(flat(readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8")).includes("`meetly-group` decides whether the group opens now or waits for the owner's approval"));
 });
 
 test("Meetly introduces itself as Meetly, never by the configured name, as the owner or as a Plow assistant", () => {
@@ -370,7 +370,10 @@ test("the optional owner gate holds inbound times until an owner DM approval", (
   const poll = flat(readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8"));
   assert.ok(group.includes("ledger.ts approvals"));
   assert.ok(group.includes("Do not open a group or send any proposed time"));
-  assert.ok(group.includes("owner-gate:<id>"));
+  assert.ok(group.includes("using the usual key `request:<saved request id>`"));
+  assert.ok(group.includes("put `ownerApprovalAt: <now ISO>` in the step 5 `ledger.ts save` payload"));
+  assert.ok(flat(prompt).includes("except when it has `ownerApprovalAt` and no `ownerApprovedAt`: never link that request"));
+  assert.ok(!poll.includes("Open the group with `start-thread.ts"));
   assert.ok(setup.includes("record-setup.ts --field ownerGate --value on"));
   assert.ok(poll.includes("Never contact the other person before approval"));
 });
