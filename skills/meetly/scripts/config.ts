@@ -1,4 +1,5 @@
 // The owner's scheduling config: types, answer parsing and validation.
+import { isZoomRoomUrl } from "./event.ts";
 import { file } from "./paths.ts";
 import { readJson } from "./store.ts";
 import { DAYS, type Day } from "./time.ts";
@@ -22,6 +23,8 @@ export type Config = {
   horizonDays: number;
   calendars: Calendar[];
   defaultAccount: string;
+  // The owner's personal Zoom room; unset means Google Meet.
+  zoomRoomUrl?: string;
   // Minutes of notice a time needs before it is offered; unset means MIN_NOTICE_MIN.
   minNoticeMin?: number;
   defaultFormat?: DefaultFormat;
@@ -30,7 +33,7 @@ export type Config = {
 };
 
 // Every setting the owner can change.
-export const FIELDS = ["ownerName", "timezone", "days", "window", "durationMin", "horizonDays", "calendars", "minNotice", "defaultFormat"] as const;
+export const FIELDS = ["ownerName", "timezone", "days", "window", "durationMin", "horizonDays", "calendars", "videoProvider", "minNotice", "defaultFormat"] as const;
 export type Field = (typeof FIELDS)[number];
 
 // What setup cannot start without, in the order it asks: nobody but the owner,
@@ -156,6 +159,12 @@ export function parseField(field: string, value: string): Partial<Config> {
       return { durationMin: integer(value, "the duration in minutes", 15, 240) };
     case "horizonDays":
       return { horizonDays: integer(value, "the number of days", 1, 30) };
+    case "videoProvider": {
+      const v = value.trim();
+      if (v === "meet") return { zoomRoomUrl: undefined };
+      if (!isZoomRoomUrl(v)) throw new Error(`the video provider is meet, or your Zoom room link (https://zoom.us/j/... or /my/...), got "${value}"`);
+      return { zoomRoomUrl: v };
+    }
     case "minNotice": {
       const raw = value.trim().toLowerCase();
       if (raw === "default") return { minNoticeMin: undefined };
@@ -222,6 +231,7 @@ export function validateConfig(partial: Partial<Config>): Config {
     calendars: readableCalendars(p.calendars, p.defaultAccount),
     defaultAccount: p.defaultAccount,
   };
+  if (p.zoomRoomUrl !== undefined) config.zoomRoomUrl = p.zoomRoomUrl;
   if (p.minNoticeMin !== undefined) config.minNoticeMin = p.minNoticeMin;
   if (p.defaultFormat !== undefined) config.defaultFormat = p.defaultFormat;
   if (p.setupDoneAt !== undefined) config.setupDoneAt = p.setupDoneAt;
