@@ -277,13 +277,18 @@ lunch with Ana", "remove all my appointments today", "move the call to 3pm"):
      delete fails, change nothing else, tell the owner and send nothing to the
      group.
    - **Move:** for an in-person meeting with travel buffers, first run the
-     exact-time check ("Travel time") at the new time with the event id in
-     `--allow-overlap`; if it is not free, tell the owner and do not move.
-     Otherwise create both buffers at the new time and persist them as that
-     offer's new `travel[]` (keeping the old refs queued in `holdCleanup`), then
-     `plow-gog calendar update <calendarId> <eventId> --from <start>
-     --to <end> --send-updates all --account <account> --json`, record it as in
-     "Book the event" steps 1 and 2, and delete the old buffers.
+     exact-time check ("Travel time") at the new time with the event id and
+     every hold id in the booked offer's `travel[]` in `--allow-overlap`; if it
+     is not free, tell the owner and do not move. Otherwise create both
+     buffers at the new time and stage them with `ledger.ts stage-travel --id
+     <id> --json-file F` (`{"travel":[…]}`), so they are cleaned up if the move
+     never completes. Then `plow-gog calendar update <calendarId> <eventId>
+     --from <start> --to <end> --send-updates all --account <account> --json`.
+     Only after it succeeds, run `ledger.ts commit-travel` with the same file
+     (the new buffers become `travel[]`, the old ones are queued for cleanup),
+     and record the move as in "Book the event" steps 1 and 2. If the update
+     fails, run nothing more: the old buffers stay and the cleanup poll deletes
+     the staged ones.
    - If a step after the calendar change fails, retry it once in this turn,
      and still send the group message (step 4). If it still fails, tell the
      owner exactly which steps are left and for which meeting. A deleted

@@ -295,6 +295,33 @@ export function discardStaleOffers(ledger: Ledger, now: number, maxAgeMs: number
     ? settleOffer(l, r.id, r.pendingOffer.revision, "discard", now) : l, ledger);
 }
 
+// Moving a booked meeting that has travel buffers. The new buffers are staged
+// in the cleanup queue first, so a turn that dies before the calendar update
+// leaves them to the cleanup poll and the old buffers stay owned; only after
+// the update does `commit` swap ownership in one write.
+export function moveTravel(ledger: Ledger, id: string, step: "stage" | "commit", refs: HoldRef[], now: number): Ledger {
+  checkHoldRefs(refs, "travel hold");
+  const index = ledger.requests.findIndex((r) => r.id === id);
+  if (index < 0) throw new Error(`no request ${id}`);
+  const current = ledger.requests[index]!;
+  const requests = [...ledger.requests];
+  const updatedAt = new Date(now).toISOString();
+  if (step === "stage") {
+    requests[index] = { ...current, holdCleanup: mergeRefs(current.holdCleanup ?? [], refs), updatedAt };
+    return { requests };
+  }
+  const owner = current.offered.findIndex((o) => o.holdId === current.eventId || Date.parse(o.start) === Date.parse(current.booked?.start ?? ""));
+  if (current.status !== "booked" || owner < 0) throw new Error(`request ${id} is not a booked meeting with an offer to move`);
+  const old = current.offered[owner]!.travel ?? [];
+  requests[index] = {
+    ...current,
+    offered: current.offered.map((o, i) => (i === owner ? { ...o, travel: refs } : o)),
+    holdCleanup: mergeRefs(withoutRefs(current.holdCleanup ?? [], refs), withoutRefs(old, refs)),
+    updatedAt,
+  };
+  return { requests };
+}
+
 export function removeCleanupRef(ledger: Ledger, id: string, ref: HoldRef, now: number): Ledger {
   checkHoldRefs([ref], "hold");
   const index = ledger.requests.findIndex((r) => r.id === id);
@@ -576,6 +603,13 @@ if (isMain(import.meta.url)) {
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => removeCleanupRef(l, values.id!, ref, now));
         return { request: ledger.requests.find((r) => r.id === values.id) };
       }
+      case "stage-travel":
+      case "commit-travel": {
+        if (!values.id) throw new Error(`usage: ledger.ts ${cmd} --id X --json-file F ({"travel":[{holdId,account},…]})`);
+        const { travel } = jsonArg(values) as { travel: HoldRef[] };
+        const ledger = updateJson<Ledger>(path, EMPTY, (l) => moveTravel(l, values.id!, cmd === "stage-travel" ? "stage" : "commit", travel, now));
+        return { request: ledger.requests.find((r) => r.id === values.id) };
+      }
       case "expired": {
         const hours = values.hours !== undefined ? Number(values.hours) : holdHours();
         if (!Number.isFinite(hours) || hours < 0) throw new Error(`--hours must be a number >= 0, got ${values.hours}`);
@@ -607,7 +641,7 @@ if (isMain(import.meta.url)) {
         return { requests: dueReminders(readJson<Ledger>(path, EMPTY), now, lead) };
       }
       default:
-        throw new Error("usage: ledger.ts find | add | save | update | promote-offer | discard-offer | cleanup-remove | expired | pending | pipeline | history | log | cleanup | reminders");
+        throw new Error("usage: ledger.ts find | add | save | update | promote-offer | discard-offer | cleanup-remove | stage-travel | commit-travel | expired | pending | pipeline | history | log | cleanup | reminders");
     }
   });
 }

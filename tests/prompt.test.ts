@@ -394,6 +394,9 @@ test("a blocked person gets no calendar notice either, and the do-not-contact en
 });
 
 test("travel: one exact-time check, cancel and move handle the buffers, and a pick reaches the travel path", () => {
+  const moveGroup = groupSkill();
+  for (const rule of ["`ledger.ts stage-travel --id <id> --json-file F`", "Only after it succeeds, run `ledger.ts commit-travel`", "every hold id in the booked offer's `travel[]` in `--allow-overlap`"])
+    assert.ok(moveGroup.includes(rule), rule);
   const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
   assert.ok(group.includes("**Exact-time check.** Read the calendar (`busy.ts --fetch`), then run `slots.ts --in /var/lib/plow/meetly/tmp/busy.json --at <start>"));
   assert.ok(group.includes("the buffers are `slot.travel.before` and `slot.travel.after`"));

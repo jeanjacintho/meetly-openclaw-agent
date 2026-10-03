@@ -13,7 +13,7 @@ import { loadConfig, MIN_NOTICE_MIN, minutes, parseTime, SLOT_COUNT, STEP_MIN, t
 import type { Busy } from "./busy.ts";
 import { addDays, DAYS, localIso, wallParts, zonedToUtc, type Day } from "./time.ts";
 
-export type TravelWindow = { start: string; end: string };
+type TravelWindow = { start: string; end: string };
 export type Slot = { start: string; end: string; dayOfWeek: Day; label: string; travel?: { before: TravelWindow; after: TravelWindow } };
 
 export type SlotQuery = {
