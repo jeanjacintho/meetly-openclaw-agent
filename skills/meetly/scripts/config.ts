@@ -7,6 +7,11 @@ export { DAYS, type Day };
 
 export type Calendar = { account: string; id: string };
 
+// How the owner usually meets, used when a request names no format. Unset
+// means ask, as before.
+export const DEFAULT_FORMATS = ["meet", "in_person", "phone"] as const;
+export type DefaultFormat = (typeof DEFAULT_FORMATS)[number];
+
 export type Config = {
   ownerName: string;
   timezone: string;
@@ -19,12 +24,13 @@ export type Config = {
   defaultAccount: string;
   // Minutes of notice a time needs before it is offered; unset means MIN_NOTICE_MIN.
   minNoticeMin?: number;
+  defaultFormat?: DefaultFormat;
   setupDoneAt?: string;
   paused?: boolean;
 };
 
 // Every setting the owner can change.
-export const FIELDS = ["ownerName", "timezone", "days", "window", "durationMin", "horizonDays", "calendars", "minNotice"] as const;
+export const FIELDS = ["ownerName", "timezone", "days", "window", "durationMin", "horizonDays", "calendars", "minNotice", "defaultFormat"] as const;
 export type Field = (typeof FIELDS)[number];
 
 // What setup cannot start without, in the order it asks: nobody but the owner,
@@ -160,6 +166,12 @@ export function parseField(field: string, value: string): Partial<Config> {
       }
       return { minNoticeMin: minutesAhead };
     }
+    case "defaultFormat": {
+      const format = value.trim();
+      if (format === "ask") return { defaultFormat: undefined };
+      if (!(DEFAULT_FORMATS as readonly string[]).includes(format)) throw new Error(`the meeting format must be meet, in_person, phone or ask, got "${value}"`);
+      return { defaultFormat: format as DefaultFormat };
+    }
     case "calendars": {
       let parsed: unknown;
       try {
@@ -211,6 +223,7 @@ export function validateConfig(partial: Partial<Config>): Config {
     defaultAccount: p.defaultAccount,
   };
   if (p.minNoticeMin !== undefined) config.minNoticeMin = p.minNoticeMin;
+  if (p.defaultFormat !== undefined) config.defaultFormat = p.defaultFormat;
   if (p.setupDoneAt !== undefined) config.setupDoneAt = p.setupDoneAt;
   if (p.paused !== undefined) config.paused = p.paused;
   return config;

@@ -79,7 +79,11 @@ to install anything else.
 - "I need at least 3 hours notice" → `record-setup.ts --field minNotice --value <hours, like 3h>`.
   `0` allows a time right away, and `default` goes back to 2 hours. Same-day
   times are offered whenever they clear that notice.
+- "Always online" or "I prefer in person" → `record-setup.ts --field defaultFormat --value meet|in_person|phone`;
+  "ask me each time" → `ask`. Without one, Meetly asks how to meet when a
+  request does not say.
 - "Pause Meetly" → `register-crons.ts --pause`. "Resume" → `register-crons.ts --resume`.
 - "Status" → summarize `setup-status.ts`: days, window, duration, horizon,
-  the minimum notice (2 hours when `config.minNoticeMin` is unset), calendars,
-  and whether it is paused.
+  the minimum notice (2 hours when `config.minNoticeMin` is unset),
+  default meeting type (or "ask each time" when `config.defaultFormat` is
+  unset), calendars, and whether it is paused.
