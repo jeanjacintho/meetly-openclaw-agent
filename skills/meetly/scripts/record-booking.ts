@@ -3,17 +3,16 @@
 // every create or update that books a request or changes its format.
 import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
-import type { Config } from "./config.ts";
 import { readEvent, type EventInfo } from "./event.ts";
 import { updateRequest, type Ledger, type Patch, type Request } from "./ledger.ts";
 import { file } from "./paths.ts";
-import { readJson, updateJson } from "./store.ts";
+import { updateJson } from "./store.ts";
 
 export type Recorded = { ledger: Ledger; meetUrl: string | null; warning?: "no-meet-link" };
 
-// `room` is the owner's Zoom room from their configuration: when it is set, a
-// video meeting keeps it as its link instead of a Google Meet one.
-export function recordBooking(ledger: Ledger, id: string, event: EventInfo, account: string, now: number, room?: string): Recorded {
+// The event is the one snapshot: a video meeting keeps the Zoom room that the
+// event's own location shows (the owner's room), else the event's Meet link.
+export function recordBooking(ledger: Ledger, id: string, event: EventInfo, account: string, now: number): Recorded {
   const request = ledger.requests.find((r) => r.id === id);
   if (!request) throw new Error(`no request ${id}`);
   if (request.status !== "offered" && request.status !== "booked") throw new Error(`request ${id} is ${request.status}, not open`);
@@ -27,15 +26,15 @@ export function recordBooking(ledger: Ledger, id: string, event: EventInfo, acco
     status: "booked",
     eventId: event.id,
     booked: { start: event.start, end: event.end, account },
-    meetUrl: isMeet && !room ? event.meetUrl : null,
-    roomUrl: isMeet && room ? room : null,
+    meetUrl: isMeet && !event.roomUrl ? event.meetUrl : null,
+    roomUrl: isMeet ? event.roomUrl : null,
     pendingOwner: null,
   };
   // A reminder belongs to one start time: a moved meeting gets a new one.
   if (request.booked && Date.parse(request.booked.start) !== Date.parse(event.start)) patch.reminder = null;
   const next = updateRequest(ledger, id, patch, now);
   const meetUrl = (next.requests.find((r) => r.id === id) as Request).meetUrl ?? null;
-  return { ledger: next, meetUrl, ...(isMeet && !room && !meetUrl ? { warning: "no-meet-link" as const } : {}) };
+  return { ledger: next, meetUrl, ...(isMeet && !event.roomUrl && !meetUrl ? { warning: "no-meet-link" as const } : {}) };
 }
 
 if (isMain(import.meta.url)) {
@@ -47,7 +46,7 @@ if (isMain(import.meta.url)) {
     const event = readEvent(values["event-file"]);
     let result: Recorded | undefined;
     updateJson<Ledger>(file("ledger.json"), { requests: [] }, (l) => {
-      result = recordBooking(l, values.id!, event, values.account!, Date.now(), readJson<Config | null>(file("config.json"), null)?.zoomRoomUrl);
+      result = recordBooking(l, values.id!, event, values.account!, Date.now());
       return result.ledger;
     });
     const { ledger, ...rest } = result!;

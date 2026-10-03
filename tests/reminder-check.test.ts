@@ -46,10 +46,13 @@ test("a booking in the owner's Zoom room sends that room, and a cancelled event 
   const room = "https://zoom.us/j/123456789";
   const zoom = bookedMeet({ meetUrl: null, roomUrl: room });
   const noLink = event({ meetUrl: null });
-  const out = check(zoom, noLink, START - 8 * MIN);
+  const out = check(zoom, event({ meetUrl: null, roomUrl: room }), START - 8 * MIN);
   assert.equal(out.action, "send");
   assert.equal(out.send!.meetUrl, room);
-  assert.equal(check(zoom, event({ meetUrl: null, status: "cancelled" }), START - 8 * MIN).action, "cancelled");
+  // The live event no longer shows the saved room (location removed or changed): nothing is sent.
+  assert.equal(check(zoom, noLink, START - 8 * MIN).action, "no-link");
+  assert.equal(check(zoom, event({ meetUrl: null, roomUrl: "https://zoom.us/j/999999999" }), START - 8 * MIN).action, "no-link");
+  assert.equal(check(zoom, event({ meetUrl: null, roomUrl: room, status: "cancelled" }), START - 8 * MIN).action, "cancelled");
   // Neither a Meet link nor a room: nothing to send.
   assert.equal(check(bookedMeet({ meetUrl: null }), noLink, START - 8 * MIN).action, "no-link");
 });

@@ -321,7 +321,8 @@ their Zoom room (`config.zoomRoomUrl`). Then book it with `--location
 <config.zoomRoomUrl>` and no `--with-meet`, and say "video call" where this
 skill says "Google Meet". Meetly cannot create a Zoom link and never takes one
 from a message: the only Zoom link it posts is the owner's room, which
-`record-booking.ts` recorded from their configuration. Once the provider is
+`record-booking.ts` reads from the returned event's location, and the
+reminder goes out only while the event still shows that room. Once the provider is
 set, never ask the owner which to use.
 
 ## Book the event

@@ -7,7 +7,9 @@ import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
 
 export type EventStatus = "confirmed" | "tentative" | "cancelled";
-export type EventInfo = { id: string; status: EventStatus; start: string; end: string; meetUrl: string | null };
+// `roomUrl` is the owner's Zoom room as the live event's location says it, so a
+// room is only ever sent while the calendar still shows it.
+export type EventInfo = { id: string; status: EventStatus; start: string; end: string; meetUrl: string | null; roomUrl: string | null };
 
 const MEET_URL = /^https:\/\/meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}$/;
 const STATUSES: readonly EventStatus[] = ["confirmed", "tentative", "cancelled"];
@@ -33,6 +35,7 @@ type RawEvent = {
   start?: { dateTime?: unknown };
   end?: { dateTime?: unknown };
   hangoutLink?: unknown;
+  location?: unknown;
   conferenceData?: { entryPoints?: { entryPointType?: unknown; uri?: unknown }[] };
 };
 
@@ -73,7 +76,7 @@ export function parseEvent(text: string): EventInfo {
   const t = Date.parse(end);
   if (Number.isNaN(s) || Number.isNaN(t)) throw new Error(`the event times are not dates: ${start}, ${end}`);
   if (t <= s) throw new Error(`the event ends before it starts: ${start}, ${end}`);
-  return { id: e.id, status: status as EventStatus, start, end, meetUrl: meetLink(e) };
+  return { id: e.id, status: status as EventStatus, start, end, meetUrl: meetLink(e), roomUrl: isZoomRoomUrl(e.location) ? e.location : null };
 }
 
 export function readEvent(path: string): EventInfo {
