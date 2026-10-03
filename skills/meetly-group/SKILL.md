@@ -373,7 +373,8 @@ offer.
   3. Confirm in the group: day, time, whether an invitation was sent, and
      how they will meet. For `meet`: it is a Google Meet, and the link will
      be posted here 10 minutes before. Do not paste the link now. For
-     `in_person`: the place. For `unknown` (or `in_person` with no place):
+     `in_person`: the place, only if it was stated in this group or the owner
+     approved sharing it; otherwise omit it. For `unknown` (or `in_person` with no place):
      confirm, then clarify the missing format or place privately with the owner.
   4. The group confirmation also notifies the owner. Say "format not confirmed
      yet" when it is `unknown`, and that no reminder will go out when
