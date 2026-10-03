@@ -86,5 +86,4 @@ to install anything else.
 - "Status" → summarize `setup-status.ts`: days, window, duration, horizon,
   the minimum notice (2 hours when `config.minNoticeMin` is unset),
   default meeting type (or "ask each time" when `config.defaultFormat` is
-  unset),
-  calendars, and whether it is paused.
+  unset), calendars, and whether it is paused.
