@@ -267,13 +267,20 @@ lunch with Ana", "remove all my appointments today", "move the call to 3pm"):
 3. For each booked request, with `<account>` and `<calendarId>` those the
    event was read from (never assume `primary`):
    - **Cancel:** `plow-gog calendar delete <calendarId> <eventId> --send-updates
-     all --force --account <account>`. Then `ledger.ts update --id <id>
-     --json '{"status":"cancelled","pendingOwner":null}'`. If the delete
-     fails, change nothing else, tell the owner and send nothing to the
+     all --force --account <account>`. Then delete the travel holds in the
+     booked offer's `travel[]` (the offer whose `holdId` is the event id),
+     queueing any failed delete in `holdCleanup`, and run `ledger.ts update --id
+     <id> --json '{"status":"cancelled","pendingOwner":null}'`. If the event
+     delete fails, change nothing else, tell the owner and send nothing to the
      group.
-   - **Move:** `plow-gog calendar update <calendarId> <eventId> --from <start>
-     --to <end> --send-updates all --account <account> --json`, then
-     record it as in "Book the event" steps 1 and 2.
+   - **Move:** for an in-person meeting with travel buffers, first run the
+     exact-time check ("Travel time") at the new time with the event id in
+     `--allow-overlap`; if it is not free, tell the owner and do not move.
+     Otherwise create both buffers at the new time and persist them as that
+     offer's new `travel[]` (keeping the old refs queued in `holdCleanup`), then
+     `plow-gog calendar update <calendarId> <eventId> --from <start>
+     --to <end> --send-updates all --account <account> --json`, record it as in
+     "Book the event" steps 1 and 2, and delete the old buffers.
    - If a step after the calendar change fails, retry it once in this turn,
      and still send the group message (step 4). If it still fails, tell the
      owner exactly which steps are left and for which meeting. A deleted
@@ -410,8 +417,9 @@ A yes in the owner's DM does not approve the request: point them back to
 the meeting thread to answer there, and make no calendar changes.
 
 - **Yes:**
-  1. Re-check with `slots.ts --at <pendingOwner.start>`, adding
-     `--travel <config.travelMin>` for an in-person request when configured.
+  1. Re-check with the exact-time check ("Travel time") at
+     `<pendingOwner.start>` for an in-person request when `config.travelMin`
+     is set; for any other request run `slots.ts --in` and `--at` without `--travel`.
   2. If an in-person time needs travel buffers, create both travel holds
      before the meeting event. If either cannot be created, delete any buffer
      already made, keep failed deletes in `holdCleanup`, and do not book.
@@ -422,10 +430,9 @@ the meeting thread to answer there, and make no calendar changes.
      failed deletes in `holdCleanup`, and do not book.
   3. If it is still free, create the event with `plow-gog calendar create
      primary` using the final details ("Pick" step 1), following "Book the
-     event". That records the booking and clears `pendingOwner`. Then update
-     the same `offered[]` entry with the event's `holdId` and `account`; keep
-its persisted `travel[]` refs so later cleanup knows which buffers
-belong to it.
+     event". `record-booking.ts` records the booking, clears `pendingOwner`
+     and, in that same write, gives the `offered[]` entry for this start the
+     event's `holdId` and `account` while keeping its `travel[]` refs.
   4. Delete all the request's other meeting and travel holds.
   5. If the format is still `unknown`, ask it in the group, once.
   6. Confirm once in the group for both the owner and guest.
@@ -484,7 +491,9 @@ offer.
      request** and do not use `ledger.ts pending` as a substitute. Select the
      hold only from this request's `offered[]`. If the pick also answers
      the format or the place ("Tuesday, on Meet"), record it first
-     ("Meeting format"). Then run
+     ("Meeting format"). If the request is `in_person`, `config.travelMin` is
+     set and the picked offer has no `travel[]`, follow "Travel time" before
+     booking. Then run
      `plow-gog calendar update primary <holdId> --account <account>` with
      the final title (the topic and the person's name, without "Hold:"), the
      location, and the person's `attendeeEmail` as an attendee when there is one,
@@ -586,6 +595,13 @@ People in the group never can.
 
 ## Travel time
 
+**Exact-time check.** Read the calendar (`busy.ts --fetch`), then run
+`slots.ts --in /var/lib/plow/meetly/tmp/busy.json --at <start> --duration
+<the request's> --travel <config.travelMin> --allow-overlap <the booked or
+chosen hold id>`. It prints `{slot, free, reason?, outsideHours}`;
+the buffers are `slot.travel.before` and `slot.travel.after`. Every place that
+says "the exact-time check" means this command.
+
 The owner may set `travelMin` in setup. It defaults to no buffer and applies
 only to in-person meetings. Each returned slot has a `travel.before` and
 `travel.after` interval. Both must be free, within the owner's working window,
@@ -593,10 +609,8 @@ and at least the minimum notice ahead. Hold both intervals along with the
 meeting hold, and record both in the offer's `travel[]`.
 
 When the format is still unknown while times are offered, or an in-person offer
-has no travel refs because the setting changed later, do not book yet. Read the
-calendar again and run
-`slots.ts --at <chosen start> --travel <config.travelMin> --allow-overlap
-<chosen hold id>` before booking. If it is not free, explain that travel time
+has no travel refs because the setting changed later, do not book yet. Run
+the exact-time check at the chosen start before booking. If it is not free, explain that travel time
 does not fit and offer new times.
 If `outsideHours` is true, save the picked time in `pendingOwner` and ask the
 owner in this thread to approve the travel extension, following "Outside the

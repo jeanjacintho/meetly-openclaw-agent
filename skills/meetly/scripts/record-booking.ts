@@ -27,6 +27,10 @@ export function recordBooking(ledger: Ledger, id: string, event: EventInfo, acco
     meetUrl: isMeet ? event.meetUrl : null,
     pendingOwner: null,
   };
+  // The offer for this start now owns the booked event, in the same write as
+  // the booking, and keeps its travel refs so later cleanup knows its buffers.
+  const owned = request.offered.map((o) => Date.parse(o.start) === Date.parse(event.start) ? { ...o, holdId: event.id, account } : o);
+  if (owned.some((o, i) => o.holdId !== request.offered[i]!.holdId || o.account !== request.offered[i]!.account)) patch.offered = owned;
   // A reminder belongs to one start time: a moved meeting gets a new one.
   if (request.booked && Date.parse(request.booked.start) !== Date.parse(event.start)) patch.reminder = null;
   const next = updateRequest(ledger, id, patch, now);
