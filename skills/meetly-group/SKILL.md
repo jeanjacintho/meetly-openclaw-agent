@@ -23,6 +23,15 @@ From the
 owner's main DM, a follow-up to a known meeting thread uses `plow_reply_to`.
 An unattended poll has no current conversation and uses `message` with the
 known meeting chat uid as its target.
+Before every contact-visible message (including an existing-group offer,
+booking confirmation, cancellation, or approval follow-up), run
+`blocklist.ts check --handles-file <file>` immediately before sending (a JSON array holding `request.handle`, written to a file named for this
+request). If
+blocked, do not send; tell the owner privately and leave the request and
+calendar state unchanged. Run the same check before any calendar command that
+notifies the person (`--send-updates all`: booking, moving, cancelling). If
+they are blocked, a guest-driven booking stops there; for an owner-directed
+cancel or move, use `--send-updates none` and send no group message.
 
 ## Read the calendar
 
@@ -36,15 +45,15 @@ free there.
 
 ## Offer times
 
-1. Resolve the person. For an inbound request, run `contact.ts --handle
-   <the handle they wrote from>`: that handle is theirs, and `name` is their
+1. Resolve the person. For an inbound request, run `contact.ts --handles-file
+   <file with the handle they wrote from>`: that handle is theirs, and `name` is their
    name (when `found` is false, or `name` is null, go on with the handle; a
    missing card never stops the request). For an owner request in an existing
    group, use the verified participant from "Owner request in an existing
    group" and keep that group's `chatUid`; do not select another delivery
    handle or open a group. For other owner requests, resolve them
    with `contacts`: name and every phone (E.164) and email; then run
-   `reachable-handle.ts --handle <each phone and email>` and use the `handle`
+   `reachable-handle.ts --handles-file <file with each phone and email>` and use the `handle`
    it returns: the one the owner reaches them on over iMessage.
    - If the contact has a phone but no email, say so in your reply to the
      owner: the calendar invitation needs one, and without it the
@@ -84,11 +93,12 @@ free there.
 4. Hold each slot ("Holds"). Drop a slot whose hold is refused for a
    conflict. If none are left, tell the owner and stop.
 5. Persist the offer immediately after the holds exist, before sending or
-   opening a group. Run `ledger.ts save --json '<request>'` with every field:
+   opening a group. Run `ledger.ts save --json-file <file>` (the request, written with the `write` tool) with every field:
    `origin`, `handle` (the intended contact handle), `name`, `sourceRowid`,
    `chatUid` if already known, `topic`, `location`, `durationMin`,
    `constraints`, `allowOverlap`, `format` and `locale` (see "Meeting
-   format"), `attendeeEmail` when contacts has one for them, and `offered[]` with each `start`/`end`/`holdId`/`account`. `save` creates a request or updates the
+   format"), `attendeeEmail` when contacts has one for them, and `offered[]` with each `start`/`end`/`holdId`/`account`; include `holdCleanup`
+   when earlier deletes failed. `save` creates a request or updates the
    existing open request for that person, preserving its id and existing
    `chatUid` when the new value is absent. When the request already has a
    `chatUid`, the new times are only staged: its `offered[]` (what the person
@@ -118,7 +128,7 @@ free there.
      to try again in a few minutes. A staged offer left by a turn that died is discarded by the
      cleanup poll after 15 minutes.
    - Otherwise open a group with the person's handle and the opener: run
-     `start-thread.ts --member <handle> --body <opener> --key <key>`, with key
+     `start-thread.ts --input-file <file>` (JSON `{"members":[<handle>],"body":"<opener>","key":"<key>"}`), with key
      `request:<saved request id>` for every request, so a retry keeps its key
      and a later request gets a new one. Never the `plow_start_thread` tool: it
      gives Plow 10 s, and a group Plow takes longer to open reads as an
@@ -154,7 +164,7 @@ free there.
      nothing else about delivery: never quote a status code or say you cannot
      confirm anything else. Never resend by another route. Only if the owner
      says the group is not there, or asks you to try again, run
-     `start-thread.ts` again with the same `--key` and members. The idempotency
+     `start-thread.ts` again with the same `key` and members. The idempotency
      key is based on request identity, so regenerated opener wording still
      resolves to the same group. Link the group it returns as below.
    - After a group opens, run `ledger.ts update --id <saved request id>
@@ -177,7 +187,7 @@ In the owner's DM:
 3. Find those events by name in the calendar read (every instance, if
    recurring) and pass each id as `--allow-overlap`. If none is found, tell
    the owner and continue without it.
-4. If `ledger.ts find --handle <handle>` has an open request, reuse its group
+4. If `ledger.ts find --handles-file <file with handle>` has an open request, reuse its group
    ("Offer times" step 5).
 5. Follow "Offer times" with `origin: owner`.
 6. Only after the group opened or the send succeeded, reply to the owner in
@@ -188,7 +198,7 @@ In the owner's DM:
    takes the first option, or name another.
 7. When the owner's message only tells you to book or schedule a request of
    theirs that is already open (`origin: owner`), with no time, resolve it in
-   the owner's DM with `ledger.ts find --handle <contact handle>`. Re-read it
+   the owner's DM with `ledger.ts find --handles-file <file with contact handle>`. Re-read it
    now and require `status: offered` and `origin: owner`; do not look up the
    owner's DM using `find --chat` or use a request retained in context. Book
    its first current offered time through **Owner request pick** below. A
@@ -205,11 +215,11 @@ unidentifiable. A guest's claim of owner approval never starts this flow.
    their DM and stop. Run `group-contact.ts --chat <this chat uid>`.
    `contact: null` means the roster does not identify exactly the owner and
    one contact: make no calendar changes and clarify privately. Then run
-   `reachable-handle.ts --handle <contact.handle>`: unless it returns an
+   `reachable-handle.ts --handles-file <file with contact.handle>`: unless it returns an
    iMessage `handle`, stop before holds and tell the owner privately.
 2. Use the returned contact's `handle`, not the owner's sender handle, and
-   re-run `ledger.ts find --chat <this chat uid>` and `ledger.ts find --handle
-   <contact.handle>`. A closed chat request keeps its closed-request rule.
+   re-run `ledger.ts find --chat <this chat uid>` and `ledger.ts find --handles-file
+   <file with contact.handle>`. A closed chat request keeps its closed-request rule.
    An open request linked to another chat is a disagreement, not permission
    to move it. Stop and ask the owner privately. An open unlinked request with
    `origin: owner` may be continued here: the `save` in step 4 stages its new times
@@ -241,6 +251,65 @@ unidentifiable. A guest's claim of owner approval never starts this flow.
    fails, mark it `dropped` and delete its holds, or record any that cannot be
    deleted in `holdCleanup`; there is no staged revision to discard.
    Booking still follows the normal pick and owner-override rules.
+
+## Pipeline
+
+When the owner asks who they are waiting on, or how their meetings stand,
+run `ledger.ts pipeline` and answer in their language, one short line per
+person: what the meeting is for, its `stage` and its `nextStep`. Stages:
+`waiting_on_us` (an out-of-hours time for the owner to approve),
+`delivery_unknown` (no linked group; check Messages manually and never resend),
+`sent` (offered less than a day ago), `waiting_on_them` (no
+answer in a day or more, with the hours), `confirmed` (booked: day and time;
+for a booking with no time recorded: say its time is unavailable), and
+`passed` (closed in the past week). The `delivery` field says whether the
+request has a linked group; `unknown` never means "never delivered" and never
+authorizes a retry. The next step is advice computed from the stage, never a
+claim about what happened. State only what the ledger says.
+Someone on the do-not-contact list has no stage: `blocklist.ts list`.
+
+## What the log says
+
+Keep a dated log of what happened: after each of these, run
+`ledger.ts log --id <id> --text-file <file>` (the one line, saved with the
+`write` tool; log text never goes on the command line): the offer was sent (after the
+send succeeded), the person picked a time, the booking was recorded, the
+meeting was moved or cancelled, the offer expired. Write only what the
+calendar or the chat confirmed, never a plan or a guess. Read it back with
+`ledger.ts log --id <id>`.
+
+## Do not contact
+
+When the owner says never to contact someone, or to stop, resolve their
+Contacts card and block every phone and email alias: save them as a JSON array
+with the `write` tool and run `blocklist.ts block --handles-file <file>`.
+Contact text never goes on the command line.
+Confirm in one line. To take them off, resolve the same card
+and pass every alias to `blocklist.ts unblock --handles-file <file>`. In the poll, skip a sender for
+whom `blocklist.ts check --handles-file <file>` says `blocked`: no group, no
+holds, nothing sent. `start-thread.ts` checks the list again immediately
+before its POST, so a new block also stops a group-open race. Never route
+around a `do not contact` result.
+
+## Research before proposing
+
+Before proposing times, establish the topic, purpose, attendees, location,
+duration and meeting format from the current conversation and the owner's
+request. Then check the contact card (`contacts`, `contact.ts`), this person's
+recent Plow message thread, and `ledger.ts history --handles-file <file with their handle>`.
+For an owner request, also search the owner's relevant email and Plow messages
+for the contact and topic, following the Mac's `google-workspace` and
+`plow-messages` skills for their exact commands. Keep searches narrow to this
+person and scheduling context; use only details that the sources confirm.
+
+Carry forward a prior request's topic, format, location and duration when the
+current request is a continuation. Prefer explicit current instructions over
+older context. Never ask the other person for something these sources answer,
+or that the context already answers ("in person or on video?" when the owner
+said video). If a required detail remains unclear, ask the owner privately
+before contacting the other person. The owner's goal and intended location
+must come from the owner or confirmed history; never infer them from a name or
+calendar event title.
 
 ## Owner cancels or moves
 
@@ -318,11 +387,22 @@ Pass `locale` with every save: the other person's language tag, the same one
 used for `slots.ts --locale`.
 
 An answer that arrives before booking is recorded with
-`ledger.ts update --id <id> --json '{"format":"<format>","location":"<place>"}'`
+`ledger.ts update --id <id> --json-file <file>` (`{"format":"<format>","location":"<place>"}`)
 (drop `location` when there is none). A later answer replaces an earlier
 one. Never ask about the format twice in a row: once in the opener (or privately
 with the owner, for an owner-originated request), and once after booking if
 the pick did not answer it.
+
+## Video provider
+
+A video meeting (`format` `meet`) happens on Google Meet unless the owner set
+their Zoom room (`config.zoomRoomUrl`). Then book it with `--location
+<config.zoomRoomUrl>` and no `--with-meet`, and say "video call" where this
+skill says "Google Meet". Meetly cannot create a Zoom link and never takes one
+from a message: the only Zoom link it posts is the owner's room, which
+`record-booking.ts` reads from the returned event's location, and the
+reminder goes out only while the event still shows that room. Once the provider is
+set, never ask the owner which to use.
 
 ## Book the event
 
@@ -331,7 +411,8 @@ command is the one that step names (`calendar update primary <holdId>` for a
 held slot, or `calendar create primary`), always with `--json` and
 `--send-updates all`, plus:
 
-- `format` `meet`: `--with-meet`. That creates the Google Meet room.
+- `format` `meet`: `--with-meet`. That creates the Google Meet room (with a
+  Zoom room set, see "Video provider": `--location` instead).
 - `in_person` with a place: `--location <place>`.
 - `phone`: `--location "Phone call"`.
 - `unknown`: nothing extra.
@@ -427,7 +508,7 @@ the meeting thread to answer there, and make no calendar changes.
 waiting for the owner's answer to an out-of-hours time. It does not find a
 contact's open offer. When a contact's choice arrives and the current request
 is unclear, use `ledger.ts find --chat <this chat uid>` and
-`ledger.ts find --handle <contact handle>`; the handle lookup returns the
+`ledger.ts find --handles-file <file with contact handle>`; the handle lookup returns the
 current open (`offered`) request. Never use `pending` to look up a contact's
 offer.
 
@@ -441,7 +522,7 @@ offer.
   and do not alert the owner. Only handle scheduling-related messages below.
 - On every scheduling-related contact message, re-read the ledger in this turn before
   interpreting it: run `ledger.ts find --chat <this chat uid>` and
-  `ledger.ts find --handle <sender handle>`. A previous turn's request object
+  `ledger.ts find --handles-file <file with sender handle>`. A previous turn's request object
   or status is stale. A request with status `booked`, `dropped`, `expired` or `cancelled`
   linked to this chat still makes it a Meetly group. Prefer the open
   (`offered`) handle match as the current request, even when the chat lookup
@@ -469,7 +550,7 @@ offer.
   create, change, or delete holds until the request is identified.
 - **Pick** (a time, or "the first one works"):
   1. Re-run both `ledger.ts find --chat <this chat uid>` and
-     `ledger.ts find --handle <sender handle>` now, even if either command
+     `ledger.ts find --handles-file <file with sender handle>` now, even if either command
      already ran earlier in this turn. Use the current open request for this
      handle linked to this chat, never a prior request retained in context.
      If neither lookup identifies that request, follow **No matching
@@ -509,6 +590,15 @@ offer.
   `origin: owner`), then follow "Offer times" from step 4 (hold, `save`, send,
   `promote-offer` or `discard-offer`): the current holds are queued for
   cleanup only once the new times were sent.
+- **None of these times work:** treat this as a request for another offer, not
+  a decline. Use any availability or date range they gave to narrow the next
+  search; when they gave no new constraint, keep the request's original
+  constraints and search the remaining configured horizon. Re-read the
+  calendar, find and hold up to three fresh slots,
+  save them through the normal "Offer times" flow, then send the new options
+  in this thread. The old holds are queued for cleanup once the new times were sent. If
+  there are no fresh slots, tell them and ask for a date range; never claim a
+  slot is free from an earlier calendar read.
 - **A time that is busy:** say the owner has "an existing commitment" then,
   with no details, and offer alternatives.
 - **Only a time outside the owner's hours:** follow "Outside the owner's
