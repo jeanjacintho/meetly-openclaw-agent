@@ -25,3 +25,17 @@ export function cli(script: string, args: string[], env: Record<string, string>,
   }
   return { status: proc.status, stdout: proc.stdout, stderr: proc.stderr, json };
 }
+
+export type MacCall = { argv: string[] };
+
+// The Mac's Latch bridge as plow_run_command answers it: one SSE data line with the command's JSON result.
+export function macBridge(reply: (argv: string[]) => string | undefined, calls: MacCall[] = []): typeof fetch {
+  return (async (_url: string | URL | Request, init?: RequestInit) => {
+    const argv = JSON.parse(String(init?.body)).params.arguments.argv as string[];
+    calls.push({ argv });
+    const output = reply(argv);
+    const out = output === undefined ? { exit_code: 1, output: "gog: 401" } : { exit_code: 0, output };
+    const result = { content: [{ type: "text", text: JSON.stringify(out) }] };
+    return new Response(`event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", id: 1, result })}\n\n`);
+  }) as typeof fetch;
+}
