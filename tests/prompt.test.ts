@@ -94,6 +94,13 @@ test("setup fills the owner's name and time zone by itself and asks only when th
   assert.ok(setup.includes("translated into the owner's language"));
 });
 
+test("moving a meeting with travel buffers stages them, updates the calendar, then commits", () => {
+  const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
+  for (const rule of ["`ledger.ts stage-travel --id <id> --json-file F`", "Only after it succeeds run `ledger.ts commit-travel --id <id> --revision <that revision>`", "--at <new start> --duration <the request's durationMin> --travel", "If it prints `committed: false`, a newer move replaced this one", "passing the event id and every id in `booked.travel` with `--allow-overlap`", "the ledger queues the booking's travel buffers for the cleanup poll in that same write"])
+    assert.ok(group.includes(rule), rule);
+  assert.ok(flat(readFileSync(join(SKILLS, "meetly", "SKILL.md"), "utf8")).includes("`stage-travel --id X --json-file F` \\| `commit-travel --id X --revision R`"));
+});
+
 test("every Meetly group is opened with start-thread.ts, never the base's 10-second tool", () => {
   const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
   assert.ok(group.includes("`request:<saved request id>` for every request"));

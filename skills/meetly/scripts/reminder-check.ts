@@ -35,6 +35,7 @@ export function checkReminder(request: Request, event: EventInfo, now: number, o
   if (request.status !== "booked") return { action: "skip", patch: {} };
   if (event.id !== request.eventId) throw new Error(`event ${event.id} is not this request's event (${request.eventId})`);
   const at = new Date(now).toISOString();
+  // updateRequest queues the booked travel buffers when the meeting closes.
   if (event.status === "cancelled") return { action: "cancelled", patch: { status: "cancelled", reminder: { at, outcome: "cancelled" } } };
   // A cancellation is caught even after the reminder went out; nothing else is sent twice.
   if (request.format !== "meet" || request.reminder) return { action: "skip", patch: {} };
@@ -42,7 +43,7 @@ export function checkReminder(request: Request, event: EventInfo, now: number, o
   const patch: Patch = {};
   const booked = request.booked!;
   if (Date.parse(event.start) !== Date.parse(booked.start) || Date.parse(event.end) !== Date.parse(booked.end)) {
-    patch.booked = { start: event.start, end: event.end, account: booked.account };
+    patch.booked = { ...booked, start: event.start, end: event.end };
   }
   // The link is the one on the event, or the owner's Zoom room saved at booking
   // while the live event's location still shows that same room.
