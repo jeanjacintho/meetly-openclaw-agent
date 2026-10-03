@@ -77,6 +77,17 @@ test("too early is wait, and nothing changes", () => {
   assert.deepEqual(out.patch, {});
 });
 
+test("an in-person meeting cancelled outside the agent is recorded too, and one still on is left alone", () => {
+  const inPerson = bookedMeet({ meetUrl: null }, { format: "in_person" });
+  assert.equal(check(inPerson, parseEvent(fixture("event-cancelled")), START - 5 * MIN).action, "cancelled");
+  assert.equal(check(inPerson, event({ meetUrl: null }), START - 5 * MIN).action, "skip");
+});
+
+test("a meeting cancelled after its reminder went out is still recorded as cancelled", () => {
+  const reminded = bookedMeet({ reminder: { at: new Date(T0).toISOString(), outcome: "sent" } });
+  assert.equal(check(reminded, parseEvent(fixture("event-cancelled")), START - 1 * MIN).action, "cancelled");
+});
+
 test("a deleted or cancelled event is recorded as cancelled and nothing is sent", () => {
   const out = check(bookedMeet(), parseEvent(fixture("event-cancelled")), START - 5 * MIN);
   assert.equal(out.action, "cancelled");
@@ -178,7 +189,7 @@ test("CLI: the poll's full reminder sequence", () => {
   const marked = cli("reminder-check.ts", ["--id", id, "--sent"], env);
   assert.equal(marked.status, 0, marked.stderr);
   assert.equal(marked.json.request.reminder.outcome, "sent");
-  assert.deepEqual(cli("ledger.ts", ["reminders"], env).json, { requests: [] });
+  // Still re-read in the window, so a later cancellation is seen, but nothing is sent twice.
   assert.equal(cli("reminder-check.ts", ["--id", id, "--event-file", eventFile], env).json.action, "skip");
   assert.equal(cli("reminder-check.ts", ["--id", id, "--sent"], env).status, 1);
 

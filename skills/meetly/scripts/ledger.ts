@@ -356,7 +356,7 @@ export function updateRequest(ledger: Ledger, id: string, patch: Patch, now: num
   const at = new Date(now).toISOString();
   const updated: Request = { ...ledger.requests[index]!, updatedAt: at };
   if (currentRequest.status !== "offered" && currentRequest.status !== "booked" && !currentRequest.closedAt) {
-    updated.closedAt = currentRequest.log?.at(-1)?.at ?? currentRequest.createdAt;
+    updated.closedAt = currentRequest.log?.at(-1)?.at ?? currentRequest.updatedAt;
   }
   for (const [key, value] of Object.entries(patched)) {
     if (value === null && (NULLABLE as readonly string[]).includes(key)) delete updated[key as (typeof NULLABLE)[number]];
@@ -412,11 +412,12 @@ export function ownerApprovalList(ledger: Ledger): Request[] {
   return ledger.requests.filter((r) => r.status === "offered" && r.ownerApprovalAt !== undefined && r.ownerApprovedAt === undefined);
 }
 
-// Booked Meets whose link is due in the group: from `leadMin` before the
-// start until `graceMin` after it, once.
+// Booked meetings to re-read from the calendar: from `leadMin` before the
+// start until `graceMin` after it, once. A cancellation is caught for any
+// format; only a Meet with a link gets a reminder.
 export function dueReminders(ledger: Ledger, now: number, leadMin: number, graceMin = 5): Request[] {
   return ledger.requests.filter((r) => {
-    if (r.status !== "booked" || r.format !== "meet" || !(r.meetUrl || r.roomUrl) || !r.booked || r.reminder) return false;
+    if (r.status !== "booked" || !r.eventId || !r.booked) return false;
     const start = Date.parse(r.booked.start);
     return now >= start - leadMin * 60_000 && now < start + graceMin * 60_000;
   });
@@ -449,7 +450,7 @@ export type PipelineItem = {
 export const STALE_HOURS = 24;
 const WEEK = 7 * 24 * 3600_000;
 const hoursSince = (iso: string, now: number) => Math.max(0, Math.floor((now - Date.parse(iso)) / 3600_000));
-const closedWhen = (r: Request) => r.closedAt ?? r.log?.at(-1)?.at ?? r.createdAt;
+const closedWhen = (r: Request) => r.closedAt ?? r.log?.at(-1)?.at ?? r.updatedAt;
 
 const NEXT_STEP: Record<Stage, string> = {
   waiting_on_us: "owner decision needed",
@@ -472,7 +473,7 @@ export function stageOf(r: Request, now: number): Stage {
 // delivered (waiting on Meetly), offers the other person has to answer (oldest
 // first), meetings still to come (soonest first; one with no recorded time
 // last), and what closed in the past week.
-export function pipeline(ledger: Ledger, now: number): {
+export function pipeline(ledger: Ledger, now: number, blocked: string[] = []): {
   waitingOnOwner: PipelineItem[]; deliveryUnknown: PipelineItem[]; waitingOnThem: PipelineItem[]; booked: PipelineItem[]; closed: PipelineItem[];
 } {
   const item = (r: Request, extra: Partial<PipelineItem> = {}): PipelineItem => {
@@ -483,8 +484,9 @@ export function pipeline(ledger: Ledger, now: number): {
   };
   const waiting = (r: Request) => ({ hoursWaiting: hoursSince(r.pendingOwner?.askedAt
     ?? (r.ownerApprovedAt ? r.offeredAt : r.ownerApprovalAt ?? r.offeredAt), now) });
-  const open = ledger.requests.filter((r) => r.status === "offered");
-  const upcoming = ledger.requests.filter((r) => r.status === "booked" && (!r.booked || Date.parse(r.booked.start) >= now));
+  const requests = ledger.requests.filter((r) => !blocked.some((b) => sameHandle(b, r.handle)));
+  const open = requests.filter((r) => r.status === "offered");
+  const upcoming = requests.filter((r) => r.status === "booked" && (!r.booked || Date.parse(r.booked.start) >= now));
   const startOf = (r: Request) => (r.booked ? Date.parse(r.booked.start) : Infinity);
   const byStage = (stage: (r: Request) => boolean) => open.filter(stage).map((r) => item(r, waiting(r)));
   return {
@@ -492,7 +494,7 @@ export function pipeline(ledger: Ledger, now: number): {
     deliveryUnknown: byStage((r) => stageOf(r, now) === "delivery_unknown").sort((a, b) => b.hoursWaiting! - a.hoursWaiting!),
     waitingOnThem: byStage((r) => ["sent", "waiting_on_them"].includes(stageOf(r, now))).sort((a, b) => b.hoursWaiting! - a.hoursWaiting!),
     booked: upcoming.sort((a, b) => startOf(a) - startOf(b)).map((r) => item(r, r.booked ? { booked: { start: r.booked.start, end: r.booked.end } } : {})),
-    closed: ledger.requests.filter((r) => r.status !== "offered" && r.status !== "booked" && now - Date.parse(closedWhen(r)) <= WEEK)
+    closed: requests.filter((r) => r.status !== "offered" && r.status !== "booked" && now - Date.parse(closedWhen(r)) <= WEEK)
       .sort((a, b) => closedWhen(b).localeCompare(closedWhen(a))).slice(0, 10).map((r) => item(r, { closedAt: closedWhen(r) })),
   };
 }
@@ -530,7 +532,7 @@ if (isMain(import.meta.url)) {
         id: { type: "string" },
         revision: { type: "string" },
         json: { type: "string" },
-        text: { type: "string" },
+        "text-file": { type: "string" },
         "json-file": { type: "string" },
         hours: { type: "string" },
         "lead-min": { type: "string" },
@@ -593,17 +595,17 @@ if (isMain(import.meta.url)) {
         return { requests: expiredRequests(readJson<Ledger>(path, EMPTY), hours, now) };
       }
       case "log": {
-        if (!values.id) throw new Error("usage: ledger.ts log --id X [--text T]");
-        if (values.text === undefined) {
+        if (!values.id) throw new Error("usage: ledger.ts log --id X [--text-file F]");
+        if (values["text-file"] === undefined) {
           const request = readJson<Ledger>(path, EMPTY).requests.find((r) => r.id === values.id);
           if (!request) throw new Error(`no request ${values.id}`);
           return { log: request.log ?? [] };
         }
-        const ledger = updateJson<Ledger>(path, EMPTY, (l) => appendLog(l, values.id!, values.text!, now));
+        const ledger = updateJson<Ledger>(path, EMPTY, (l) => appendLog(l, values.id!, readFileSync(values["text-file"]!, "utf8").trim(), now));
         return { log: ledger.requests.find((r) => r.id === values.id)!.log };
       }
       case "pipeline":
-        return pipeline(readJson<Ledger>(path, EMPTY), now);
+        return pipeline(readJson<Ledger>(path, EMPTY), now, readJson<{ handle: string }[]>(file("blocked.json"), []).map((b) => b.handle));
       case "history": {
         if (values.handle === undefined) throw new Error("usage: ledger.ts history --handle H");
         return { requests: historyFor(readJson<Ledger>(path, EMPTY), values.handle) };

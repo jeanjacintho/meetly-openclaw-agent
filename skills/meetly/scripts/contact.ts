@@ -2,6 +2,7 @@
 // name, phones and emails, read-only across every AddressBook store (the root
 // one and one per sync source), in one Mac call. Never a note or an address.
 // A handle with no card is not an error: the request goes on with the handle.
+import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
 import { runOnMac, type BridgeOptions } from "./mac.ts";
@@ -73,8 +74,11 @@ export async function lookupContact(handle: string, opts: BridgeOptions = {}): P
 
 if (isMain(import.meta.url)) {
   run(() => {
-    const { values } = parseArgs({ options: { handle: { type: "string" } } });
-    if (!values.handle) throw new Error("usage: contact.ts --handle <+E164 or email>");
-    return lookupContact(values.handle);
+    // The handle came from a message: it goes in a one-element JSON array file, never on the command line.
+    const { values } = parseArgs({ options: { "handles-file": { type: "string" } } });
+    if (!values["handles-file"]) throw new Error("usage: contact.ts --handles-file F (a JSON array with the one phone or email)");
+    const [handle] = JSON.parse(readFileSync(values["handles-file"], "utf8")) as string[];
+    if (!handle) throw new Error("the handles file is empty");
+    return lookupContact(handle);
   });
 }
