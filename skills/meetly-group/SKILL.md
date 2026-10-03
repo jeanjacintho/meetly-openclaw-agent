@@ -323,6 +323,16 @@ their titles, and `slots.ts` offers times over them; a slot that lists
 owner's list is their standing consent to those blocks, and nothing else is.
 Never name or describe such a block to anyone; to the owner say only "a block
 you marked movable". Meetly does not move the block's event: the owner does.
+## Video provider
+
+A video meeting (`format` `meet`) happens on Google Meet unless the owner set
+their Zoom room (`config.zoomRoomUrl`). Then book it with `--location
+<config.zoomRoomUrl>` and no `--with-meet`, and say "video call" where this
+skill says "Google Meet". Meetly cannot create a Zoom link and never takes one
+from a message: the only Zoom link it posts is the owner's room, which
+`record-booking.ts` reads from the returned event's location, and the
+reminder goes out only while the event still shows that room. Once the provider is
+set, never ask the owner which to use.
 
 ## Book the event
 
@@ -331,7 +341,8 @@ command is the one that step names (`calendar update primary <holdId>` for a
 held slot, or `calendar create primary`), always with `--json` and
 `--send-updates all`, plus:
 
-- `format` `meet`: `--with-meet`. That creates the Google Meet room.
+- `format` `meet`: `--with-meet`. That creates the Google Meet room (with a
+  Zoom room set, see "Video provider": `--location` instead).
 - `in_person` with a place: `--location <place>`.
 - `phone`: `--location "Phone call"`.
 - `unknown`: nothing extra.

@@ -108,6 +108,11 @@ test("the owner can ask who they are waiting on, and Meetly looks before it asks
   assert.ok(group.includes("a slot that lists `overlaps` needs `--confirm-conflict`"));
   assert.ok(group.includes("say only \"a block you marked movable\""));
   assert.ok(flat("skills/meetly-setup/SKILL.md").includes("`record-setup.ts --field movable --value <words from the titles>`"));
+  assert.ok(group.includes("## Video provider"));
+  assert.ok(group.includes("`--location <config.zoomRoomUrl>` and no `--with-meet`"));
+  assert.ok(group.includes("Meetly cannot create a Zoom link and never takes one from a message"));
+  assert.ok(flat("skills/meetly-setup/SKILL.md").includes("`record-setup.ts --field videoProvider --value <their Zoom room link>`"));
+  assert.ok(flat("README.md").includes("give Meetly your personal room link"));
   assert.ok(flat("skills/meetly-poll/SKILL.md").includes("`blocklist.ts check --handle <sender>` says `blocked`, skip"));
   assert.ok(group.includes("## Research before proposing"));
   assert.ok(group.includes("and `ledger.ts history --handle <their handle>`"));
