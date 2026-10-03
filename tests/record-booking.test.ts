@@ -127,4 +127,8 @@ test("booking keeps the offer's travel refs on the booking, in the same write, a
   // Re-recording the booking for a time no offer has (a move) keeps the buffers the booking already owns.
   const moved = { ...plainEvent(), start: "2030-02-02T10:00:00Z", end: "2030-02-02T10:30:00Z" };
   assert.deepEqual(recordBooking(ledger, "r_1", moved, ACCOUNT, T0).ledger.requests[0]!.booked!.travel, travel);
+  // Moving back to a time that was in the original offer must not bring that offer's stale buffers back over the committed ones.
+  const fresh = [{ holdId: "t_new_before", account: ACCOUNT }, { holdId: "t_new_after", account: ACCOUNT }];
+  const committed = updateRequest(ledger, "r_1", { booked: { ...ledger.requests[0]!.booked!, travel: fresh } }, T0);
+  assert.deepEqual(recordBooking(committed, "r_1", plainEvent(), ACCOUNT, T0).ledger.requests[0]!.booked!.travel, fresh);
 });

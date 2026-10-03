@@ -62,6 +62,10 @@ export type Request = {
   offeredAt: string;
   // When it stopped being open (dropped, expired, ...), so later bookkeeping does not move it.
   closedAt?: string;
+  // When the owner was last reminded about this request, so a reminder goes out once per ask.
+  nudgedAt?: string;
+  // When the other person was last nudged about this offer.
+  personNudgedAt?: string;
   // What happened and was confirmed, dated, oldest first (the last LOG_MAX).
   log?: LogEntry[];
   createdAt: string;
@@ -75,7 +79,7 @@ const LOG_TEXT_MAX = 300;
 export type Ledger = { requests: Request[] };
 
 export type NewRequest = Omit<Request,
-  "id" | "status" | "eventId" | "pendingOwner" | "booked" | "meetUrl" | "roomUrl" | "reminder" | "offeredAt" | "closedAt" | "log" | "createdAt" | "updatedAt">;
+  "id" | "status" | "eventId" | "pendingOwner" | "booked" | "meetUrl" | "roomUrl" | "reminder" | "offeredAt" | "closedAt" | "nudgedAt" | "personNudgedAt" | "log" | "createdAt" | "updatedAt">;
 export type Patch = Partial<Pick<Request,
   "status" | "chatUid" | "eventId" | "offered" | "holdCleanup" | "name" | "location" | "allowOverlap" | "constraints" | "topic" | "format" | "locale">> & {
   attendeeEmail?: string;
@@ -84,16 +88,18 @@ export type Patch = Partial<Pick<Request,
   meetUrl?: string | null;
   roomUrl?: string | null;
   reminder?: Reminder | null;
+  nudgedAt?: string;
+  personNudgedAt?: string | null;
 };
 
 const FORMATS: readonly Format[] = [...DEFAULT_FORMATS, "unknown"];
 const OUTCOMES: readonly Reminder["outcome"][] = ["sent", "cancelled", "no-link"];
 const PATCH_KEYS = [
   "status", "chatUid", "eventId", "offered", "holdCleanup", "name", "location", "allowOverlap", "constraints", "topic", "pendingOwner",
-  "format", "locale", "booked", "meetUrl", "roomUrl", "reminder", "attendeeEmail",
+  "format", "locale", "booked", "meetUrl", "roomUrl", "reminder", "nudgedAt", "personNudgedAt", "attendeeEmail",
 ];
 // Keys a patch can clear with null.
-const NULLABLE = ["pendingOwner", "booked", "meetUrl", "roomUrl", "reminder"] as const;
+const NULLABLE = ["pendingOwner", "booked", "meetUrl", "roomUrl", "reminder", "personNudgedAt"] as const;
 
 const isDate = (t: unknown) => typeof t === "string" && !Number.isNaN(Date.parse(t));
 
@@ -211,7 +217,7 @@ export function addRequest(ledger: Ledger, input: NewRequest, now: number, id: s
   const at = new Date(now).toISOString();
   // A new offer is never booked: a booking, its link and its reminder are
   // only ever set through update, where they are validated.
-  const { booked: _b, meetUrl: _m, roomUrl: _z, reminder: _r, closedAt: _c, log: _l, ...fields } = input as NewRequest & Partial<Pick<Request, "booked" | "meetUrl" | "roomUrl" | "reminder" | "closedAt"  | "log">>;
+  const { booked: _b, meetUrl: _m, roomUrl: _z, reminder: _r, closedAt: _c, nudgedAt: _n, personNudgedAt: _pn, log: _l, ...fields } = input as NewRequest & Partial<Pick<Request, "booked" | "meetUrl" | "roomUrl" | "reminder" | "closedAt" | "nudgedAt" | "personNudgedAt" | "log">>;
   const request: Request = { ...fields, ...(attendeeEmail ? { attendeeEmail } : {}), format, id, status: "offered", offeredAt: at, createdAt: at, updatedAt: at };
   return { requests: [...ledger.requests, request] };
 }
@@ -264,7 +270,7 @@ export function saveRequest(ledger: Ledger, input: NewRequest, now: number, id: 
     };
   } else {
     const { pendingOffer: _p, ...rest } = fields;
-    replacement = { ...rest, holdCleanup: mergeRefs(existing.holdCleanup ?? [], validated.holdCleanup ?? [], withoutRefs(holdRefs(existing.offered), next)) };
+    replacement = { ...rest, personNudgedAt: undefined, holdCleanup: mergeRefs(existing.holdCleanup ?? [], validated.holdCleanup ?? [], withoutRefs(holdRefs(existing.offered), next)) };
   }
   return { requests: ledger.requests.map((r) => r.id === existing.id ? replacement : r) };
 }
@@ -285,7 +291,7 @@ export function settleOffer(ledger: Ledger, id: string, revision: string, outcom
   const requests = [...ledger.requests];
   requests[index] = {
     ...current,
-    ...(promote ? { offered: pendingOffer.offered, offeredAt: new Date(now).toISOString() } : {}),
+    ...(promote ? { offered: pendingOffer.offered, offeredAt: new Date(now).toISOString(), personNudgedAt: undefined } : {}),
     holdCleanup: mergeRefs(current.holdCleanup ?? [], withoutRefs(holdRefs(loser), holdRefs(winner))),
     updatedAt: new Date(now).toISOString(),
   };
@@ -378,6 +384,8 @@ export function updateRequest(ledger: Ledger, id: string, patch: Patch, now: num
   const patched = patch.attendeeEmail !== undefined ? { ...patch, attendeeEmail: checkEmail(patch.attendeeEmail) } : patch;
   if (patch.booked) checkBooked(patch.booked);
   if (patch.reminder) checkReminder(patch.reminder);
+  if (patch.nudgedAt !== undefined && !isDate(patch.nudgedAt)) throw new Error(`nudgedAt must be a time, got ${JSON.stringify(patch.nudgedAt)}`);
+  if (patch.personNudgedAt !== undefined && patch.personNudgedAt !== null && !isDate(patch.personNudgedAt)) throw new Error(`personNudgedAt must be a time, got ${JSON.stringify(patch.personNudgedAt)}`);
   if (patch.meetUrl !== undefined && patch.meetUrl !== null && !isMeetUrl(patch.meetUrl)) {
     throw new Error(`meetUrl must be a Google Meet link (https://meet.google.com/xxx-xxxx-xxx), got ${JSON.stringify(patch.meetUrl)}`);
   }
@@ -510,15 +518,17 @@ export function stageOf(r: Request, now: number): Stage {
 // delivered (waiting on Meetly), offers the other person has to answer (oldest
 // first), meetings still to come (soonest first; one with no recorded time
 // last), and what closed in the past week.
+const pipelineItem = (r: Request, now: number, extra: Partial<PipelineItem> = {}): PipelineItem => {
+  const stage = stageOf(r, now);
+  const out: PipelineItem = { id: r.id, topic: r.topic, status: r.status, stage, delivery: r.chatUid ? "linked" : "unknown", nextStep: NEXT_STEP[stage], ...extra };
+  if (r.name !== undefined) out.name = r.name;
+  return out;
+};
+
 export function pipeline(ledger: Ledger, now: number, blocked: string[] = []): {
   waitingOnOwner: PipelineItem[]; deliveryUnknown: PipelineItem[]; waitingOnThem: PipelineItem[]; booked: PipelineItem[]; closed: PipelineItem[];
 } {
-  const item = (r: Request, extra: Partial<PipelineItem> = {}): PipelineItem => {
-    const stage = stageOf(r, now);
-    const out: PipelineItem = { id: r.id, topic: r.topic, status: r.status, stage, delivery: r.chatUid ? "linked" : "unknown", nextStep: NEXT_STEP[stage], ...extra };
-    if (r.name !== undefined) out.name = r.name;
-    return out;
-  };
+  const item = (r: Request, extra: Partial<PipelineItem> = {}) => pipelineItem(r, now, extra);
   const waiting = (r: Request) => ({ hoursWaiting: hoursSince(r.pendingOwner?.askedAt ?? r.offeredAt, now) });
   const requests = ledger.requests.filter((r) => !blocked.some((b) => sameHandle(b, r.handle)));
   const open = requests.filter((r) => r.status === "offered");
@@ -532,6 +542,34 @@ export function pipeline(ledger: Ledger, now: number, blocked: string[] = []): {
     booked: upcoming.sort((a, b) => startOf(a) - startOf(b)).map((r) => item(r, r.booked ? { booked: { start: r.booked.start, end: r.booked.end } } : {})),
     closed: requests.filter((r) => r.status !== "offered" && r.status !== "booked" && now - Date.parse(closedWhen(r)) <= WEEK)
       .sort((a, b) => closedWhen(b).localeCompare(closedWhen(a))).slice(0, 10).map((r) => item(r, { closedAt: closedWhen(r) })),
+  };
+}
+
+export const OWNER_NUDGE_HOURS = 4;
+export const DELIVERY_UNKNOWN_NOTICE_HOURS = 1;
+export const PERSON_NUDGE_HOURS = 24;
+
+// What waits on the owner or on Meetly for too long, to be reminded once per
+// ask. The other person is nudged once per offer; replacing an offer resets it.
+export function monitor(ledger: Ledger, now: number): {
+  ownerWaiting: (PipelineItem & { chatUid?: string; handle: string })[]; deliveryUnknown: PipelineItem[]; waitingOnThem: (PipelineItem & { chatUid: string; handle: string })[];
+} {
+  const asked = (r: Request) => r.pendingOwner?.askedAt;
+  const due = (r: Request, since: string, hours: number) =>
+    hoursSince(since, now) >= hours && (!r.nudgedAt || Date.parse(r.nudgedAt) < Date.parse(since));
+  const personDue = (r: Request) => hoursSince(r.offeredAt, now) >= PERSON_NUDGE_HOURS &&
+    (!r.personNudgedAt || Date.parse(r.personNudgedAt) < Date.parse(r.offeredAt));
+  const view = (r: Request, since: string): PipelineItem => pipelineItem(r, now, { hoursWaiting: hoursSince(since, now) });
+  const open = ledger.requests.filter((r) => r.status === "offered");
+  return {
+    ownerWaiting: open.filter((r) => stageOf(r, now) === "waiting_on_us" && asked(r) && due(r, asked(r)!, OWNER_NUDGE_HOURS))
+      .map((r) => ({ ...view(r, asked(r)!), handle: r.handle, ...(r.chatUid !== undefined ? { chatUid: r.chatUid } : {}) }))
+      .sort((a, b) => b.hoursWaiting! - a.hoursWaiting!),
+    deliveryUnknown: open.filter((r) => stageOf(r, now) === "delivery_unknown" && due(r, r.offeredAt, DELIVERY_UNKNOWN_NOTICE_HOURS))
+      .map((r) => view(r, r.offeredAt)).sort((a, b) => b.hoursWaiting! - a.hoursWaiting!),
+    waitingOnThem: open.filter((r) => stageOf(r, now) === "waiting_on_them" && r.chatUid && !r.pendingOffer && personDue(r))
+      .map((r) => ({ ...view(r, r.offeredAt), chatUid: r.chatUid!, handle: r.handle }))
+      .sort((a, b) => b.hoursWaiting! - a.hoursWaiting!),
   };
 }
 
@@ -653,6 +691,8 @@ if (isMain(import.meta.url)) {
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => appendLog(l, values.id!, readFileSync(values["text-file"]!, "utf8").trim(), now));
         return { log: ledger.requests.find((r) => r.id === values.id)!.log };
       }
+      case "monitor":
+        return monitor(readJson<Ledger>(path, EMPTY), now);
       case "pipeline":
         return pipeline(readJson<Ledger>(path, EMPTY), now, readJson<{ handle: string }[]>(file("blocked.json"), []).map((b) => b.handle));
       case "history": {
@@ -669,7 +709,7 @@ if (isMain(import.meta.url)) {
         return { requests: dueReminders(readJson<Ledger>(path, EMPTY), now, lead) };
       }
       default:
-        throw new Error("usage: ledger.ts find | add | save | update | promote-offer | discard-offer | cleanup-remove | stage-travel | commit-travel | expired | pending | pipeline | history | log | cleanup | reminders");
+        throw new Error("usage: ledger.ts find | add | save | update | promote-offer | discard-offer | cleanup-remove | stage-travel | commit-travel | expired | pending | pipeline | monitor | history | log | cleanup | reminders");
     }
   });
 }
