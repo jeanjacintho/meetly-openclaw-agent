@@ -818,9 +818,10 @@ if (isMain(import.meta.url)) {
         const gateOn = loadConfig().ownerGate === true;
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => {
           // "Already has a group" is judged from the ledger, never from the payload: a `chatUid` the model supplies counts only
-          // when the ledger knows that chat (it is, or was, a group Meetly linked to a request). An unknown one is dropped
-          // and the request is gated like any other, so a made-up chat uid cannot skip the owner's approval.
-          const knownChat = input.chatUid !== undefined && l.requests.some((r) => r.chatUid === input.chatUid);
+          // when the ledger already linked that chat to a request of the same person. A made-up uid, or another contact's
+          // group, is dropped and the request is gated like any other, so neither can skip the owner's approval or send
+          // this person's times into someone else's chat.
+          const knownChat = input.chatUid !== undefined && l.requests.some((r) => r.chatUid === input.chatUid && sameHandle(r.handle, input.handle));
           const hasGroup = findOpenByHandle(l, input.handle)?.chatUid !== undefined || knownChat;
           if (gateOn && input.origin === "inbound" && !hasGroup) {
             input.ownerApprovalAt = new Date(now).toISOString();
