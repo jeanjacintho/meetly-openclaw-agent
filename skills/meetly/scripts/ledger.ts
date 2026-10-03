@@ -161,6 +161,8 @@ export function sameHandle(a: string, b: string): boolean {
   const nb = normalizeHandle(b);
   if (na === nb) return na !== "" && na !== "+";
   if (isEmail(na) || isEmail(nb)) return false;
+  // Two full international numbers are the same only when equal; the suffix rule is for a local number against an E.164 one.
+  if (na.startsWith("+") && nb.startsWith("+")) return false;
   const da = na.replace("+", "");
   const db = nb.replace("+", "");
   const [short, long] = da.length <= db.length ? [da, db] : [db, da];

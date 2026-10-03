@@ -422,3 +422,10 @@ test("a group opens only for a saved request, and expiry is one locked ledger tr
   assert.ok(poll.includes("Run `ledger.ts expire`: in one locked write it closes every request whose holds ran out"));
   assert.ok(!poll.includes("ledger.ts expired"));
 });
+
+test("a blocked person gets no calendar notice either, and the do-not-contact entry stores no free text", () => {
+  const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
+  assert.ok(group.includes("Run the same check before any calendar command that notifies the person (`--send-updates all`"));
+  assert.ok(group.includes("use `--send-updates none` and send no group message"));
+  assert.ok(!group.includes("--name <name>"));
+});
