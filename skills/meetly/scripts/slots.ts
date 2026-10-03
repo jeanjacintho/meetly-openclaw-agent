@@ -31,7 +31,8 @@ export type SlotQuery = {
   exclude?: string[];
   count?: number;
   locale?: string;
-  travelMin?: number;
+  // Leave the owner's configured travel time free around the meeting.
+  travel?: boolean;
 };
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -53,11 +54,6 @@ function label(ms: number, tz: string, format?: Intl.DateTimeFormat): string {
   return `${p.weekday} ${p.d}/${p.m} ${pad(p.hh)}:${pad(p.mm)}`;
 }
 
-const travelMinutes = (n = 0): number => {
-  if (!Number.isInteger(n) || n < 0 || n > 180) throw new Error("--travel must be a whole number from 0 to 180 minutes");
-  return n;
-};
-
 // The travel blocks around a meeting, as UTC instants, when a buffer is set.
 const travelWindow = (start: number, end: number, travelMin: number) => {
   if (travelMin === 0) return {};
@@ -72,18 +68,16 @@ export function findSlots(q: SlotQuery): { slots: Slot[]; unknownAfter?: string 
   const { config, now } = q;
   const tz = config.timezone;
   const duration = q.durationMin ?? config.durationMin;
-  const travelMin = travelMinutes(q.travelMin);
+  const travelMin = q.travel ? config.travelMin ?? 0 : 0;
   const count = q.count ?? SLOT_COUNT;
 
   const days = q.days ? config.days.filter((d) => q.days!.includes(d)) : config.days;
-  let startMin = minutes(config.windowStart);
-  let endMin = minutes(config.windowEnd);
+  // Keep both travel blocks inside the owner's working window only: the
+  // attendee's own after/before apply to the meeting, not to the owner's trip.
+  let startMin = minutes(config.windowStart) + travelMin;
+  let endMin = minutes(config.windowEnd) - travelMin;
   if (q.after) startMin = Math.max(startMin, minutes(q.after));
   if (q.before) endMin = Math.min(endMin, minutes(q.before));
-  // Keep both travel blocks inside the owner's working window. The notice
-  // period applies to the trip, so the meeting itself starts later by buffer.
-  startMin += travelMin;
-  endMin -= travelMin;
   startMin = Math.ceil(startMin / STEP_MIN) * STEP_MIN;
 
   const earliest = now + ((config.minNoticeMin ?? MIN_NOTICE_MIN) + travelMin) * 60_000;
@@ -158,10 +152,10 @@ export function checkTime(q: {
   durationMin?: number;
   allowOverlap?: string[];
   locale?: string;
-  travelMin?: number;
+  travel?: boolean;
 }): TimeCheck {
   const tz = q.config.timezone;
-  const travelMin = travelMinutes(q.travelMin);
+  const travelMin = q.travel ? q.config.travelMin ?? 0 : 0;
   // A wall time with no offset (2026-10-03T10:00) is the owner's clock.
   const wall = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(q.start);
   const start = wall
@@ -219,7 +213,7 @@ if (isMain(import.meta.url)) {
         at: { type: "string" },
         now: { type: "string" },
         locale: { type: "string" },
-        travel: { type: "string" },
+        travel: { type: "boolean" },
       },
     });
     const config = loadConfig();
@@ -239,7 +233,7 @@ if (isMain(import.meta.url)) {
       const check: Parameters<typeof checkTime>[0] = { now, config, busy: input.busy, start: values.at };
       if (input.unknownAfter !== undefined) check.unknownAfter = input.unknownAfter;
       if (values.duration !== undefined) check.durationMin = positiveInt(values.duration, "--duration");
-      if (values.travel !== undefined) check.travelMin = positiveInt(values.travel, "--travel");
+      if (values.travel) check.travel = true;
       if (values["allow-overlap"]) check.allowOverlap = values["allow-overlap"];
       if (values.locale !== undefined) check.locale = values.locale;
       return { ...checkTime(check), degraded };
@@ -247,7 +241,7 @@ if (isMain(import.meta.url)) {
     const q: SlotQuery = { now, config, busy: input.busy };
     if (input.unknownAfter !== undefined) q.unknownAfter = input.unknownAfter;
     if (values.duration !== undefined) q.durationMin = positiveInt(values.duration, "--duration");
-    if (values.travel !== undefined) q.travelMin = positiveInt(values.travel, "--travel");
+    if (values.travel) q.travel = true;
     if (values.count !== undefined) q.count = positiveInt(values.count, "--count");
     if (values.days !== undefined) {
       q.days = values.days.split(/[\s,]+/).filter(Boolean).map((d) => {
