@@ -268,21 +268,29 @@ lunch with Ana", "remove all my appointments today", "move the call to 3pm"):
      fails, change nothing else, tell the owner and send nothing to the
      group.
    - **Move:** when the booking has travel buffers (`request.booked.travel`),
-     first check the new time with `slots.ts --in /var/lib/plow/meetly/tmp/busy.json
+     first read the calendar fresh (`busy.ts --fetch`; if `degraded` is not
+     empty, stop and say which account could not be read), then check the new
+     time with `slots.ts --in /var/lib/plow/meetly/tmp/busy.json
      --at <new start> --duration <the request's durationMin> --travel`, passing the event id and every id in
      `booked.travel` with `--allow-overlap` (and the request's `allowOverlap`);
      if it is not free, tell the owner and do not move. Create both buffers
      at the new time and stage them with `ledger.ts stage-travel --id <id>
-     --json-file F` (`{"travel":[…]}`; it prints a `revision`). Then `plow-gog calendar update
+     --json-file F` (`{"travel":[…],"start":"<new start>","end":"<new end>"}`; it prints a
+     `revision`). If it refuses because another move is in progress, delete the
+     buffers you just created (queue failed deletes in `holdCleanup`) and tell
+     the owner to try again in a few minutes. Then `plow-gog calendar update
      <calendarId> <eventId> --from <start> --to <end> --send-updates all
      --account <account> --json`. Only after it succeeds run `ledger.ts
      commit-travel --id <id> --revision <that revision>` (the new buffers become the
      booking's, the old ones are queued for cleanup), then record the move as
-     in "Book the event" steps 1 and 2. If it prints `committed: false`, a newer
-     move replaced this one (its buffers are already queued for cleanup): read
-     the event again and record what the calendar now shows, changing nothing else. If the update fails, run nothing more: the staged buffers
-     are cleaned up after 15 minutes and the old ones stay. Without buffers,
-     just update the event and record it.
+     in "Book the event" steps 1 and 2. If it prints `committed: false`, the poll already
+     settled this move from the live event (see below): read the event again
+     and record what the calendar now shows, changing nothing else. If the
+     update fails, run nothing more: after 15 minutes the poll reads the live
+     event and either gives the booking the staged buffers (the calendar took the
+     move) or queues them for cleanup (it did not), so a turn that dies at any
+     point is settled from the calendar. Without buffers, just update the event
+     and record it.
    - If a step after the calendar change fails, retry it once in this turn,
      and still send the group message (step 4). If it still fails, tell the
      owner exactly which steps are left and for which meeting. A deleted

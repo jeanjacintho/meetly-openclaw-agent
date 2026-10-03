@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  addRequest, commitTravel, discardStaleTravel, saveRequest, stageTravel, settleOffer, discardStaleOffers, removeCleanupRef, appendLog, cleanupList, pendingOwnerList, expiredRequests, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, monitor, pipeline, stageOf,
+  addRequest, commitTravel, reconcileTravel, dueReminders, saveRequest, stageTravel, settleOffer, discardStaleOffers, removeCleanupRef, appendLog, cleanupList, pendingOwnerList, expiredRequests, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, monitor, pipeline, stageOf,
   type Ledger, type NewRequest,
 } from "../skills/meetly/scripts/ledger.ts";
 import { cli, tmpHome, handlesFile } from "./helpers.ts";
@@ -85,43 +85,47 @@ test("an offer's travel blocks are holds: validated, and queued for deletion whe
   assert.deepEqual(kept.requests[0]!.holdCleanup!.map((h) => h.holdId).sort(), ["h1", "t2"]);
 });
 
-test("moving a meeting stages the new buffers out of reach of cleanup and swaps ownership only on commit", () => {
+test("moving a meeting: one move at a time, the new buffers out of cleanup's reach, ownership swapped only on commit", () => {
   const acct = "jean@example.com";
   const oldTravel = [{ holdId: "t1", account: acct }, { holdId: "t2", account: acct }];
   const newTravel = [{ holdId: "t3", account: acct }, { holdId: "t4", account: acct }];
+  const target = { start: "2026-10-05T10:00:00-03:00", end: "2026-10-05T10:30:00-03:00" };
   let l = addRequest(empty(), input(), T0, "r_1");
   l = updateRequest(l, "r_1", { status: "booked", eventId: offer.holdId, booked: { start: offer.start, end: offer.end, account: acct, travel: oldTravel } }, T0);
   // Staged: the old buffers stay owned, the new ones are in neither the booking nor the cleanup queue.
-  const staged = stageTravel(l, "r_1", newTravel, T0);
+  const staged = stageTravel(l, "r_1", newTravel, target, T0);
   assert.deepEqual(staged.requests[0]!.booked!.travel, oldTravel);
   assert.deepEqual(staged.requests[0]!.pendingTravel!.refs, newTravel);
+  assert.equal(staged.requests[0]!.pendingTravel!.start, target.start);
   assert.deepEqual(cleanupList(staged), []);
+  // A second move is refused while one is pending (the caller deletes the buffers it just made); nothing changes.
+  assert.throws(() => stageTravel(staged, "r_1", [{ holdId: "t5", account: acct }], target, T0 + 60_000, "rev2"), /already has a move in progress/);
   // Committed: the new buffers are owned, the old ones queued, nothing pending.
   const done = commitTravel(staged, "r_1", "r_1", T0).ledger;
   assert.deepEqual(done.requests[0]!.booked!.travel, newTravel);
   assert.deepEqual(done.requests[0]!.holdCleanup!.map((h) => h.holdId).sort(), ["t1", "t2"]);
   assert.equal(done.requests[0]!.pendingTravel, undefined);
-  // A turn that died before the commit: after the timeout the staged buffers go to cleanup and the commit refuses.
-  const stale = discardStaleTravel(staged, T0 + 20 * 60_000, 15 * 60_000);
-  assert.deepEqual(stale.requests[0]!.holdCleanup!.map((h) => h.holdId).sort(), ["t3", "t4"]);
-  const lost = commitTravel(stale, "r_1", "r_1", T0);
-  assert.equal(lost.committed, false);
-  assert.deepEqual(lost.ledger, stale);
-  // Two overlapping moves: the second stage replaces the first and queues its buffers; the first's commit then changes nothing.
-  const other = [{ holdId: "t5", account: acct }, { holdId: "t6", account: acct }];
-  const second = stageTravel(staged, "r_1", other, T0 + 60_000, "rev2");
-  assert.deepEqual(second.requests[0]!.holdCleanup!.map((h) => h.holdId).sort(), ["t3", "t4"]);
-  const staleCommit = commitTravel(second, "r_1", "r_1", T0 + 120_000);
-  assert.equal(staleCommit.committed, false);
-  assert.deepEqual(staleCommit.ledger.requests[0]!.booked!.travel, oldTravel);
-  const winner = commitTravel(second, "r_1", "rev2", T0 + 120_000);
-  assert.equal(winner.committed, true);
-  assert.deepEqual(winner.ledger.requests[0]!.booked!.travel, other);
-  assert.deepEqual(discardStaleTravel(staged, T0 + 60_000, 15 * 60_000), staged);
-  assert.throws(() => stageTravel(empty(), "nope", newTravel, T0), /no request/);
-  // A booked meeting that closes (the owner cancels it) queues its buffers in the same write.
-  const cancelled = updateRequest(done, "r_1", { status: "cancelled" }, T0);
-  assert.deepEqual(cancelled.requests[0]!.holdCleanup!.map((h) => h.holdId).sort(), ["t1", "t2", "t3", "t4"]);
+  assert.equal(commitTravel(staged, "r_1", "other", T0).committed, false);
+  // A turn that died before committing: nothing is touched until the stage is stale; then the live event decides.
+  const early = { start: offer.start, end: offer.end };
+  assert.deepEqual(reconcileTravel(staged, "r_1", early, T0 + 60_000), staged);
+  const late = T0 + 20 * 60_000;
+  // The calendar still shows the old time: the staged buffers are abandoned to cleanup.
+  const abandoned = reconcileTravel(staged, "r_1", early, late).requests[0]!;
+  assert.equal(abandoned.pendingTravel, undefined);
+  assert.deepEqual(abandoned.booked!.travel, oldTravel);
+  assert.deepEqual(abandoned.holdCleanup!.map((h) => h.holdId).sort(), ["t3", "t4"]);
+  // The calendar accepted the move: the booking takes the new time and buffers, the old buffers are queued.
+  const accepted = reconcileTravel(staged, "r_1", target, late).requests[0]!;
+  assert.deepEqual([accepted.booked!.start, accepted.booked!.end], [target.start, target.end]);
+  assert.deepEqual(accepted.booked!.travel, newTravel);
+  assert.deepEqual(accepted.holdCleanup!.map((h) => h.holdId).sort(), ["t1", "t2"]);
+  assert.deepEqual(dueReminders(staged, late, 10).map((r) => r.id), ["r_1"]);
+  assert.throws(() => stageTravel(empty(), "nope", newTravel, target, T0), /no request/);
+  // A booked meeting that closes (the owner cancels it) queues its buffers and any staged ones in the same write.
+  const cancelled = updateRequest(staged, "r_1", { status: "cancelled" }, T0).requests[0]!;
+  assert.deepEqual(cancelled.holdCleanup!.map((h) => h.holdId).sort(), ["t1", "t2", "t3", "t4"]);
+  assert.equal(cancelled.pendingTravel, undefined);
 });
 
 test("monitor nudges the other person once after a day; a staged replacement keeps the marker and waits, and promotion resets it", () => {
