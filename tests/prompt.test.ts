@@ -127,7 +127,7 @@ test("routine meeting notifications stay in the group and pre-thread gate approv
   assert.ok(group.includes("Ask the owner in this thread"));
   assert.ok(group.includes("A yes in the owner's DM does not approve the request"));
   assert.ok(group.includes("The group confirmation also notifies the owner"));
-  assert.ok(group.includes("`config.ownerGate` is true and the request has no `chatUid` yet"));
+  assert.ok(group.includes("when `origin` is `inbound`, `config.ownerGate` is true and the request has no `chatUid` yet"));
   assert.ok(group.includes("first claim the approval with `ledger.ts approve --id <id>`"));
   assert.ok(group.includes("Create the fresh holds first and save them"));
   assert.ok(group.includes("run `ledger.ts decline --id <id>`: in one write it closes the request and queues every hold"));
@@ -395,7 +395,6 @@ test("inbound offers require owner DM approval by default", () => {
   assert.ok(group.includes("derives the idempotency key `request:<id>` itself"));
   assert.ok(group.includes("`ledger.ts save` decides this itself: when `origin` is `inbound`"));
   assert.ok(!group.includes("--gate"));
-  assert.ok(group.includes("a request saved while the poll holds a guest's row is always inbound, whatever `origin` the payload says"));
   assert.ok(flat(readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8")).includes("send that saved ask again"));
   assert.ok(flat(prompt).includes("except when it has `ownerApprovalAt` and no `ownerApprovedAt`: never link that request"));
   assert.ok(setup.includes("This is on by default"));

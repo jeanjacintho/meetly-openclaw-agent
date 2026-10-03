@@ -89,8 +89,7 @@ free there.
    created, stop and report the ledger error to the owner; do not send an
    offer. If any deletion fails, report those hold ids too.
    - **Owner gate:** `ledger.ts save` decides this itself: when `origin` is
-     `inbound` (a request saved while the poll holds a guest's row is always
-     inbound, whatever `origin` the payload says), `config.ownerGate` is true and the request has no `chatUid` yet (a re-offer to a
+     `inbound`, `config.ownerGate` is true and the request has no `chatUid` yet (a re-offer to a
      group it already has is sent and promoted as above), it saves the request
      already gated, in one locked write (the waiting marker is never in the
      payload, and `ledger.ts update` refuses it). Then do not

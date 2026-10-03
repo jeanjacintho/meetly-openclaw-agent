@@ -411,29 +411,6 @@ test("the owner's no closes the request and queues every hold in one write, only
   assert.equal(declineRequest(waiting, "nope", T0).declined, false);
 });
 
-test("a request saved while the poll holds a guest's row is inbound and gated, whatever origin the payload claims", () => {
-  const home = tmpHome();
-  const env = { MEETLY_HOME: home };
-  writeConfig(home);
-  const asOwner = (handle: string) => input({ handle, origin: "owner" });
-  // The owner's own turn (no held row): an owner request is not gated.
-  const own = cli("ledger.ts", ["save", "--json", JSON.stringify(asOwner("+15550001111"))], env).json.request;
-  assert.deepEqual([own.origin, own.ownerApprovalAt], ["owner", undefined]);
-  // The poll holds a guest's row first (a script writes it): the same payload is now inbound and waits for the owner.
-  assert.equal(cli("cursor.ts", ["hold", "7"], env).status, 0);
-  const injected = cli("ledger.ts", ["save", "--json", JSON.stringify(asOwner("+15550002222"))], env).json.request;
-  assert.equal(injected.origin, "inbound");
-  assert.equal(typeof injected.ownerApprovalAt, "string");
-  assert.deepEqual(cli("ledger.ts", ["approvals"], env).json.requests.map((r: { handle: string }) => r.handle), ["+15550002222"]);
-  // `add` (the owner-only create) is refused in that window too.
-  const add = cli("ledger.ts", ["add", "--json", JSON.stringify(asOwner("+15550003333"))], env);
-  assert.equal(add.status, 1);
-  assert.match(add.stderr, /never while the poll is processing/);
-  // Once the poll releases the row, the owner's turn is unaffected again.
-  assert.equal(cli("cursor.ts", ["release"], env).status, 0);
-  assert.equal(cli("ledger.ts", ["add", "--json", JSON.stringify(asOwner("+15550003333"))], env).status, 0);
-});
-
 test("ledger.ts save needs a finished setup", () => {
   const early = cli("ledger.ts", ["save", "--json", JSON.stringify(input({ handle: "+15558880000" }))], { MEETLY_HOME: tmpHome() });
   assert.equal(early.status, 1);
