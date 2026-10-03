@@ -41,6 +41,10 @@ export type Request = {
   constraints?: Constraints;
   allowOverlap?: string[];
   offered: Offer[];
+  // A re-offer to a group the person already has: it becomes `offered` only
+  // once its message is sent (`settleOffer`), so the last delivered offer
+  // stays current, and keeps its holds, until then.
+  pendingOffer?: { revision: string; offered: Offer[]; offeredAt: string };
   status: Status;
   eventId?: string;
   holdCleanup?: HoldRef[];
@@ -166,6 +170,13 @@ function checkOffers(offered: unknown): Offer[] {
   return offered as Offer[];
 }
 
+function checkHoldRefs(refs: unknown, field: string): asserts refs is HoldRef[] {
+  if (!Array.isArray(refs) || refs.some((h) =>
+    !h || typeof h.holdId !== "string" || !h.holdId.trim() || typeof h.account !== "string" || !h.account.trim())) {
+    throw new Error(`${field} must be a list of hold ids and accounts: ${JSON.stringify(refs)}`);
+  }
+}
+
 export function addRequest(ledger: Ledger, input: NewRequest, now: number, id: string): Ledger {
   if (input.origin !== "inbound" && input.origin !== "owner") throw new Error(`origin must be inbound or owner, got ${input.origin}`);
   if (typeof input.handle !== "string" || !input.handle.trim()) throw new Error("handle is required");
@@ -186,23 +197,27 @@ export function addRequest(ledger: Ledger, input: NewRequest, now: number, id: s
   return { requests: [...ledger.requests, request] };
 }
 
+const holdRefs = (offers: Offer[]): HoldRef[] => offers.flatMap(({ holdId, account }) => holdId ? [{ holdId, account }] : []);
+const mergeRefs = (...lists: HoldRef[][]): HoldRef[] => lists.flat()
+  .filter((hold, i, all) => all.findIndex((h) => h.holdId === hold.holdId && h.account === hold.account) === i);
+const withoutRefs = (refs: HoldRef[], keep: HoldRef[]): HoldRef[] =>
+  refs.filter((hold) => !keep.some((h) => h.holdId === hold.holdId && h.account === hold.account));
+
 // Save the latest offer for a person without creating a second open request.
 // This makes a retry after holds were created safe: the existing request id
-// (and its chat link, when one exists) remains stable.
-export function saveRequest(ledger: Ledger, input: NewRequest, now: number, id: string): Ledger {
+// (and its chat link, when one exists) remains stable. When the person already
+// has a group, the new offer is only staged (`pendingOffer`, with a fresh
+// `revision`): the delivered offer and its holds stay current until
+// `settleOffer` promotes the new one after a successful send or discards it.
+// A staged offer is an exclusive in-flight state: no second save may replace it.
+export function saveRequest(ledger: Ledger, input: NewRequest, now: number, id: string, revision = id): Ledger {
   const existing = findOpenByHandle(ledger, input.handle);
   if (!existing) return addRequest(ledger, input, now, id);
 
   // Reuse addRequest's validation and timestamp behavior, then apply its new
   // offer to the existing record. An absent chatUid must not erase the link.
   const validated = addRequest(EMPTY, input, now, id).requests[0]!;
-  const newHolds = new Set(validated.offered.flatMap((offer) => offer.holdId ? [`${offer.account}\0${offer.holdId}`] : []));
-  const replacedHolds = existing.offered.flatMap((offer) => offer.holdId && !newHolds.has(`${offer.account}\0${offer.holdId}`)
-    ? [{ holdId: offer.holdId, account: offer.account }]
-    : []);
-  const holdCleanup = [...(existing.holdCleanup ?? []), ...replacedHolds]
-    .filter((hold, index, holds) => holds.findIndex((item) => item.holdId === hold.holdId && item.account === hold.account) === index);
-  const replacement: Request = {
+  const fields: Request = {
     ...existing,
     ...validated,
     id: existing.id,
@@ -210,11 +225,68 @@ export function saveRequest(ledger: Ledger, input: NewRequest, now: number, id: 
     // A new offer that does not name a format keeps the one already answered.
     format: validated.format === "unknown" ? existing.format ?? "unknown" : validated.format,
     locale: input.locale ?? existing.locale,
-    holdCleanup,
     createdAt: existing.createdAt,
     updatedAt: new Date(now).toISOString(),
   };
+  const next = holdRefs(validated.offered);
+  let replacement: Request;
+  if (existing.chatUid !== undefined) {
+    if (existing.pendingOffer) throw new Error(`request ${existing.id} already has an offer being sent; wait for it to settle, or for the cleanup poll to discard it`);
+    replacement = {
+      ...fields,
+      offered: existing.offered,
+      offeredAt: existing.offeredAt,
+      pendingOffer: { revision, offered: validated.offered, offeredAt: validated.offeredAt },
+    };
+  } else {
+    const { pendingOffer: _p, ...rest } = fields;
+    replacement = { ...rest, holdCleanup: mergeRefs(existing.holdCleanup ?? [], withoutRefs(holdRefs(existing.offered), next)) };
+  }
   return { requests: ledger.requests.map((r) => r.id === existing.id ? replacement : r) };
+}
+
+// Settle a staged offer once its message has been sent (promote) or has failed
+// (discard). Whichever offer loses gives up its holds, except any the winner
+// keeps, and the loser's holds enter the cleanup queue in the same atomic
+// write, before any deletion. A `revision` that is no longer the staged one
+// (another save replaced it) leaves the ledger untouched.
+export function settleOffer(ledger: Ledger, id: string, revision: string, outcome: "promote" | "discard", now: number): Ledger {
+  const index = ledger.requests.findIndex((r) => r.id === id);
+  if (index < 0) throw new Error(`no request ${id}`);
+  const { pendingOffer, ...current } = ledger.requests[index]!;
+  if (!pendingOffer || pendingOffer.revision !== revision) return ledger;
+  const promote = outcome === "promote" && current.status === "offered";
+  const winner = promote ? pendingOffer.offered : current.offered;
+  const loser = promote ? current.offered : pendingOffer.offered;
+  const requests = [...ledger.requests];
+  requests[index] = {
+    ...current,
+    ...(promote ? { offered: pendingOffer.offered, offeredAt: new Date(now).toISOString() } : {}),
+    holdCleanup: mergeRefs(current.holdCleanup ?? [], withoutRefs(holdRefs(loser), holdRefs(winner))),
+    updatedAt: new Date(now).toISOString(),
+  };
+  return { requests };
+}
+
+// A turn that died between `save` and its send leaves a staged offer behind:
+// after `maxAgeMs` it is discarded so its holds are cleaned up.
+export function discardStaleOffers(ledger: Ledger, now: number, maxAgeMs: number): Ledger {
+  return ledger.requests.reduce((l, r) => r.pendingOffer && now - Date.parse(r.pendingOffer.offeredAt) > maxAgeMs
+    ? settleOffer(l, r.id, r.pendingOffer.revision, "discard", now) : l, ledger);
+}
+
+export function removeCleanupRef(ledger: Ledger, id: string, ref: HoldRef, now: number): Ledger {
+  checkHoldRefs([ref], "hold");
+  const index = ledger.requests.findIndex((r) => r.id === id);
+  if (index < 0) throw new Error(`no request ${id}`);
+  const current = ledger.requests[index]!;
+  const requests = [...ledger.requests];
+  requests[index] = {
+    ...current,
+    holdCleanup: (current.holdCleanup ?? []).filter((h) => h.holdId !== ref.holdId || h.account !== ref.account),
+    updatedAt: new Date(now).toISOString(),
+  };
+  return { requests };
 }
 
 export function updateRequest(ledger: Ledger, id: string, patch: Patch, now: number): Ledger {
@@ -258,7 +330,8 @@ export function updateRequest(ledger: Ledger, id: string, patch: Patch, now: num
 }
 
 export function expiredRequests(ledger: Ledger, hours: number, now: number): Request[] {
-  return ledger.requests.filter((r) => r.status === "offered" && now - Date.parse(r.offeredAt) >= hours * 3600_000);
+  // A request with an offer being sent is not expired: its send settles first.
+  return ledger.requests.filter((r) => r.status === "offered" && !r.pendingOffer && now - Date.parse(r.offeredAt) >= hours * 3600_000);
 }
 
 // Open requests waiting for the owner to confirm an out-of-hours time.
@@ -301,6 +374,7 @@ if (isMain(import.meta.url)) {
         event: { type: "string" },
         account: { type: "string" },
         id: { type: "string" },
+        revision: { type: "string" },
         json: { type: "string" },
         "json-file": { type: "string" },
         hours: { type: "string" },
@@ -329,13 +403,33 @@ if (isMain(import.meta.url)) {
       case "save": {
         const input = jsonArg(values);
         const id = `r_${randomBytes(4).toString("hex")}`;
-        const ledger = updateJson<Ledger>(path, EMPTY, (l) => saveRequest(l, input, now, id));
+        const revision = randomBytes(4).toString("hex");
+        const ledger = updateJson<Ledger>(path, EMPTY, (l) => saveRequest(l, input, now, id, revision));
         return { request: ledger.requests.find((r) => sameHandle(r.handle, input.handle) && r.status === "offered") };
       }
       case "update": {
         if (!values.id) throw new Error("usage: ledger.ts update --id X --json '<patch>'");
         const patch = jsonArg(values);
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => updateRequest(l, values.id!, patch, now));
+        return { request: ledger.requests.find((r) => r.id === values.id) };
+      }
+      case "promote-offer":
+      case "discard-offer": {
+        if (!values.id || !values.revision) throw new Error(`usage: ledger.ts ${cmd} --id X --revision R`);
+        const outcome = cmd === "promote-offer" ? "promote" : "discard";
+        // Decided inside the locked write, from the state it actually settles.
+        let settled = false;
+        const ledger = updateJson<Ledger>(path, EMPTY, (l) => {
+          const before = l.requests.find((r) => r.id === values.id);
+          settled = before?.pendingOffer?.revision === values.revision && (outcome === "discard" || before?.status === "offered");
+          return settleOffer(l, values.id!, values.revision!, outcome, now);
+        });
+        return { request: ledger.requests.find((r) => r.id === values.id), settled };
+      }
+      case "cleanup-remove": {
+        if (!values.id) throw new Error("usage: ledger.ts cleanup-remove --id X --json-file F");
+        const ref = jsonArg(values) as HoldRef;
+        const ledger = updateJson<Ledger>(path, EMPTY, (l) => removeCleanupRef(l, values.id!, ref, now));
         return { request: ledger.requests.find((r) => r.id === values.id) };
       }
       case "expired": {
@@ -346,14 +440,14 @@ if (isMain(import.meta.url)) {
       case "pending":
         return { requests: pendingOwnerList(readJson<Ledger>(path, EMPTY)) };
       case "cleanup":
-        return { requests: cleanupList(readJson<Ledger>(path, EMPTY)).map((r) => ({ id: r.id, holdCleanup: r.holdCleanup })) };
+        return { requests: cleanupList(updateJson<Ledger>(path, EMPTY, (l) => discardStaleOffers(l, now, 15 * 60_000))).map((r) => ({ id: r.id, holdCleanup: r.holdCleanup })) };
       case "reminders": {
         const lead = values["lead-min"] !== undefined ? Number(values["lead-min"]) : reminderLeadMin();
         if (!Number.isFinite(lead) || lead <= 0) throw new Error(`--lead-min must be a number > 0, got ${values["lead-min"]}`);
         return { requests: dueReminders(readJson<Ledger>(path, EMPTY), now, lead) };
       }
       default:
-        throw new Error("usage: ledger.ts find | add | save | update | expired | pending | cleanup | reminders");
+        throw new Error("usage: ledger.ts find | add | save | update | promote-offer | discard-offer | cleanup-remove | expired | pending | cleanup | reminders");
     }
   });
 }
