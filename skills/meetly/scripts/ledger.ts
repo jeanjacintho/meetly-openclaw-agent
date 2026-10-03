@@ -54,6 +54,9 @@ export type Request = {
   // Set only after the owner approves this exact offer, whether or not Plow
   // returned a chat uid for the attempted delivery.
   ownerApprovedAt?: string;
+  // Set by start-thread.ts just before it posts the opener: from then on a missing chat is an unknown
+  // delivery, never a resumable approval.
+  deliveryAttemptedAt?: string;
   format?: Format;
   locale?: string;
   booked?: Booked;
@@ -81,7 +84,7 @@ const LOG_TEXT_MAX = 300;
 export type Ledger = { requests: Request[] };
 
 export type NewRequest = Omit<Request,
-  "id" | "status" | "eventId" | "pendingOwner" | "ownerApprovedAt" | "booked" | "meetUrl" | "roomUrl" | "reminder" | "offeredAt" | "closedAt" | "nudgedAt" | "personNudgedAt" | "log" | "createdAt" | "updatedAt">;
+  "id" | "status" | "eventId" | "pendingOwner" | "ownerApprovedAt" | "deliveryAttemptedAt" | "booked" | "meetUrl" | "roomUrl" | "reminder" | "offeredAt" | "closedAt" | "nudgedAt" | "personNudgedAt" | "log" | "createdAt" | "updatedAt">;
 export type Patch = Partial<Pick<Request,
   "status" | "chatUid" | "eventId" | "offered" | "holdCleanup" | "name" | "location" | "allowOverlap" | "constraints" | "topic" | "format" | "locale">> & {
   attendeeEmail?: string;
@@ -227,7 +230,7 @@ export function addRequest(ledger: Ledger, input: NewRequest, now: number, id: s
   const at = new Date(now).toISOString();
   // A new offer is never booked: a booking, its link and its reminder are
   // only ever set through update, where they are validated.
-  const { booked: _b, meetUrl: _m, roomUrl: _z, reminder: _r, closedAt: _c, ownerApprovedAt: _oap, nudgedAt: _n, personNudgedAt: _pn, log: _l, ...fields } = input as NewRequest & Partial<Pick<Request, "booked" | "meetUrl" | "roomUrl" | "reminder" | "closedAt" | "ownerApprovedAt" | "nudgedAt" | "personNudgedAt" | "log">>;
+  const { booked: _b, meetUrl: _m, roomUrl: _z, reminder: _r, closedAt: _c, ownerApprovedAt: _oap, deliveryAttemptedAt: _da, nudgedAt: _n, personNudgedAt: _pn, log: _l, ...fields } = input as NewRequest & Partial<Pick<Request, "booked" | "meetUrl" | "roomUrl" | "reminder" | "closedAt" | "ownerApprovedAt" | "deliveryAttemptedAt" | "nudgedAt" | "personNudgedAt" | "log">>;
   if (fields.ownerApprovalAt !== undefined && !isDate(fields.ownerApprovalAt)) throw new Error(`ownerApprovalAt must be a time, got ${JSON.stringify(fields.ownerApprovalAt)}`);
   const request: Request = { ...fields, ...(attendeeEmail ? { attendeeEmail } : {}), format, id, status: "offered", offeredAt: at, createdAt: at, updatedAt: at };
   return { requests: [...ledger.requests, request] };
@@ -454,14 +457,21 @@ export function pendingOwnerList(ledger: Ledger): Request[] {
 export function approveRequest(ledger: Ledger, id: string, now: number): { ledger: Ledger; approved: boolean } {
   const r = ledger.requests.find((x) => x.id === id);
   if (!r || r.status !== "offered") return { ledger, approved: false };
-  // Already approved but never opened (the turn died, or the group failed): resumable, through the idempotent start-thread.ts.
-  if (approvedUnsent(r)) return { ledger, approved: true };
+  // Approved but the opener was never attempted (the turn died first): resumable. The approval time is refreshed
+  // in the same write, so the expiry clock restarts and cannot close the request between validation and the POST.
+  if (approvedUnsent(r)) return { ledger: updateRequest(ledger, id, { ownerApprovedAt: new Date(now).toISOString() }, now), approved: true };
   if (!awaitingOwnerApproval(r)) return { ledger, approved: false };
   return { ledger: updateRequest(ledger, id, { ownerApprovedAt: new Date(now).toISOString() }, now), approved: true };
 }
 
 // Approved by the owner but no group yet: the opener may not have gone out.
-const approvedUnsent = (r: Request): boolean => r.ownerApprovedAt !== undefined && r.ownerApprovalAt !== undefined && r.chatUid === undefined;
+const approvedUnsent = (r: Request): boolean =>
+  r.ownerApprovedAt !== undefined && r.ownerApprovalAt !== undefined && r.chatUid === undefined && r.deliveryAttemptedAt === undefined;
+
+// start-thread.ts calls this under the blocklist lock, just before the POST: after it, a missing chat is an uncertain delivery.
+export function markDeliveryAttempt(ledger: Ledger, id: string, now: number): Ledger {
+  return { requests: ledger.requests.map((r) => (r.id === id && r.deliveryAttemptedAt === undefined ? { ...r, deliveryAttemptedAt: new Date(now).toISOString() } : r)) };
+}
 
 // The owner's no, in one write: the request closes and every hold goes to the
 // cleanup queue before any is deleted, so an interruption never leaves a pending
@@ -531,7 +541,7 @@ const NEXT_STEP: Record<Stage, string> = {
 export function stageOf(r: Request, now: number): Stage {
   if (r.status === "booked") return "confirmed";
   if (r.status !== "offered") return "passed";
-  if (r.pendingOwner || awaitingOwnerApproval(r)) return "waiting_on_us";
+  if (r.pendingOwner || awaitingOwnerApproval(r) || approvedUnsent(r)) return "waiting_on_us";
   if (!r.chatUid) return "delivery_unknown";
   return hoursSince(r.offeredAt, now) >= STALE_HOURS ? "waiting_on_them" : "sent";
 }
@@ -542,7 +552,8 @@ export function stageOf(r: Request, now: number): Stage {
 // last), and what closed in the past week.
 const pipelineItem = (r: Request, now: number, extra: Partial<PipelineItem> = {}): PipelineItem => {
   const stage = stageOf(r, now);
-  const out: PipelineItem = { id: r.id, topic: r.topic, status: r.status, stage, delivery: r.chatUid ? "linked" : "unknown", nextStep: NEXT_STEP[stage], ...extra };
+  const nextStep = approvedUnsent(r) ? "approved but the group was never opened: tell Meetly yes again to resume" : NEXT_STEP[stage];
+  const out: PipelineItem = { id: r.id, topic: r.topic, status: r.status, stage, delivery: r.chatUid ? "linked" : "unknown", nextStep, ...extra };
   if (r.name !== undefined) out.name = r.name;
   return out;
 };
@@ -608,6 +619,13 @@ export function historyFor(ledger: Ledger, handle: string): Pick<Request, "id" |
 
 const EMPTY: Ledger = { requests: [] };
 
+// The approval state is written only by save --gate, approve, decline and expire; never by a model-supplied payload.
+function refuseApprovalKeys(value: Record<string, unknown>): void {
+  for (const key of ["ownerApprovalAt", "ownerApprovedAt", "deliveryAttemptedAt"]) {
+    if (key in value) throw new Error(`${key} is written only by ledger.ts save --gate, approve, decline and expire`);
+  }
+}
+
 function jsonArg(values: { json?: string; "json-file"?: string }): any {
   const text = values.json ?? (values["json-file"] !== undefined ? readFileSync(values["json-file"], "utf8") : undefined);
   if (text === undefined) throw new Error("pass --json '<object>' or --json-file F");
@@ -623,6 +641,7 @@ if (isMain(import.meta.url)) {
       args: rest,
       options: {
         "handles-file": { type: "string" },
+        gate: { type: "boolean" },
         chat: { type: "string" },
         event: { type: "string" },
         account: { type: "string" },
@@ -652,12 +671,16 @@ if (isMain(import.meta.url)) {
       }
       case "add": {
         const input = jsonArg(values);
+        refuseApprovalKeys(input);
         const id = `r_${randomBytes(4).toString("hex")}`;
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => addRequest(l, input, now, id));
         return { request: ledger.requests.find((r) => r.id === id) };
       }
       case "save": {
         const input = jsonArg(values);
+        refuseApprovalKeys(input);
+        // --gate: the owner must approve this offer before anyone is contacted; the marker is derived here, not supplied.
+        if (values.gate) input.ownerApprovalAt = new Date(now).toISOString();
         const id = `r_${randomBytes(4).toString("hex")}`;
         const revision = randomBytes(4).toString("hex");
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => saveRequest(l, input, now, id, revision));
@@ -666,6 +689,7 @@ if (isMain(import.meta.url)) {
       case "update": {
         if (!values.id) throw new Error("usage: ledger.ts update --id X --json '<patch>'");
         const patch = jsonArg(values);
+        refuseApprovalKeys(patch);
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => updateRequest(l, values.id!, patch, now));
         return { request: ledger.requests.find((r) => r.id === values.id) };
       }

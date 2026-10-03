@@ -14,11 +14,11 @@ import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
 import { isBlocked, loadBlocked } from "./blocklist.ts";
 import { fetchIdentity, findOwnerDm, plowApi, type ApiOptions } from "./owner-chat.ts";
-import { awaitingOwnerApproval, sameHandle, type Ledger } from "./ledger.ts";
+import { awaitingOwnerApproval, markDeliveryAttempt, sameHandle, type Ledger } from "./ledger.ts";
 import { loadConfig } from "./config.ts";
 import { file } from "./paths.ts";
 import { isHandle } from "./reachable-handle.ts";
-import { readJson, withLock } from "./store.ts";
+import { readJson, updateJson, withLock } from "./store.ts";
 
 export type Started = { chatUid: string; messageSent: true } | { chatUid: null; deliveryUnknown: true };
 
@@ -64,6 +64,8 @@ export async function startThread(opts: ApiOptions & { members: string[]; body: 
     // The request identity must survive regenerated wording after an unknown
     // delivery; the opener body is not durable state in the ledger.
     const idempotencyKey = createHash("sha256").update(JSON.stringify([lineUid, `request:${request.id}`, members])).digest("hex");
+    // From here a missing chat means an uncertain delivery, not an approval that can simply be resumed.
+    updateJson<Ledger>(file("ledger.json"), { requests: [] }, (l) => markDeliveryAttempt(l, request.id, Date.now()));
 
     let res: Response;
     try {

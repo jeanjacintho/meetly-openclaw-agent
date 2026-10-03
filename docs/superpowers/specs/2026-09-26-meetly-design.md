@@ -196,9 +196,10 @@ prompt only says to load the `meetly-poll` skill and follow it:
    first message and stop—the next run resumes from there. On success, also
    clear `failingSince` (`cursor.ts ok`).
 7. Maintenance:
-   - `ledger.ts expired --hours 48` → for each request: delete its holds
-     (2.5), run `ledger.ts update --status expired`, tell the group the times
-     have been released, and notify the owner.
+   - `ledger.ts expire` → in one locked write it closes every request whose
+     holds ran out and queues their holds for cleanup, and returns the closed
+     requests; for each one, tell the group the times have been released and
+     notify the owner.
    - `ledger.ts cleanup` → retry deleting holds that previously failed.
 8. Nothing new and nothing expired → exit without sending a message.
 

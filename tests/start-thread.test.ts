@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { startThread } from "../skills/meetly/scripts/start-thread.ts";
 import { beforeEach, afterEach } from "node:test";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cli, seedRequest, tmpHome } from "./helpers.ts";
 
@@ -67,6 +67,13 @@ test("the same request and people give the same idempotency key even if wording 
   assert.equal(keys[0], keys[1]);
   assert.equal(keys[0], keys[2]);
   assert.notEqual(keys[0], keys[3]);
+});
+
+test("the POST attempt is recorded on the request first, so a missing chat afterwards is an uncertain delivery", async () => {
+  const ledger = () => JSON.parse(readFileSync(join(home, "ledger.json"), "utf8")).requests[0];
+  assert.equal(ledger().deliveryAttemptedAt, undefined);
+  await startThread({ ...args, fetch: fakeFetch(() => new Response("", { status: 502 })), base, token: "t" });
+  assert.equal(typeof ledger().deliveryAttemptedAt, "string");
 });
 
 test("a server error or a lost connection means delivery is unknown", async () => {

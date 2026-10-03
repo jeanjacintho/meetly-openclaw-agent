@@ -393,7 +393,8 @@ test("inbound offers require owner DM approval by default", () => {
   assert.ok(group.includes("ledger.ts approvals"));
   assert.ok(group.includes("Do not open a group or send any proposed time"));
   assert.ok(group.includes("derives the idempotency key `request:<id>` itself"));
-  assert.ok(group.includes("`ownerApprovalAt: <now ISO>`"));
+  assert.ok(group.includes("run the step 5 `ledger.ts save` with `--gate`"));
+  assert.ok(flat(readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8")).includes("send that saved ask again"));
   assert.ok(flat(prompt).includes("except when it has `ownerApprovalAt` and no `ownerApprovedAt`: never link that request"));
   assert.ok(setup.includes("This is on by default"));
   assert.ok(setup.includes("that is standing authorization"));

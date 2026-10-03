@@ -77,7 +77,7 @@ free there.
    `origin`, `handle` (the intended contact handle), `name`, `sourceRowid`,
    `chatUid` if already known, `topic`, `location`, `durationMin`,
    `constraints`, `allowOverlap`, `format` and `locale` (see "Meeting
-   format"), `attendeeEmail` when contacts has one for them, and `offered[]` with each `start`/`end`/`holdId`/`account`; include `ownerApprovalAt` when the
+   format"), `attendeeEmail` when contacts has one for them, and `offered[]` with each `start`/`end`/`holdId`/`account`; pass `--gate` to `save` when the
    owner gate below applies; include `holdCleanup` when earlier
    deletes failed. `save` creates a request or updates the
    existing open request for that person, preserving its id and existing
@@ -91,8 +91,9 @@ free there.
    offer. If any deletion fails, report those hold ids too.
    - **Owner gate:** when `origin` is `inbound`, `config.ownerGate` is
      true and the request has no `chatUid` yet (a re-offer to a group it
-     already has is sent and promoted as above), put `ownerApprovalAt: <now ISO>` in the step 5 `ledger.ts save`
-     payload, so the request is saved already gated in one write. Do not
+     already has is sent and promoted as above), run the step 5 `ledger.ts save` with `--gate`, so the request is saved
+     already gated in one write (the ledger writes the waiting marker itself:
+     it is never in the payload, and `ledger.ts update` refuses it). Do not
      open a group or send any proposed time to the other person yet. Run
      `owner-chat.ts`, then use `message` (`action: send`, channel `plow`,
      accountId `chat`, target its `chatUid`) to send the owner one private
@@ -203,7 +204,7 @@ or no as a new scheduling instruction, run `ledger.ts approvals` and check
 whether the owner is answering a pending inbound request. Match by the person
 and topic in the approval message; if more than one fits, ask which one.
 
-- **Yes:** first claim the approval with `ledger.ts approve --id <id>` (also to resume a yes that was interrupted: `ledger.ts approvals` lists those as `approved-unsent`, and opening the group again is safe because `start-thread.ts` is idempotent). If
+- **Yes:** first claim the approval with `ledger.ts approve --id <id>` (also to resume a yes that was interrupted: `ledger.ts approvals` lists those as `approved-unsent`: approved but the opener was never attempted, so opening the group is safe; a delivery that was attempted and not confirmed is `delivery_unknown` and is never retried unless the owner says the group is not there). If
   `approved` is false the request was already closed (the poll expired it) or
   approved: do nothing else, delete nothing, and tell the owner what the
   ledger now shows. Only a claimed request is acted on; `start-thread.ts`
@@ -216,7 +217,7 @@ and topic in the approval message; if more than one fits, ask which one.
   returns `deliveryUnknown`, leave `chatUid` absent and follow the no-retry
   rule: approval is recorded separately from delivery certainty. If any held
   time is no longer free, do not send the stale options: run "Offer times"
-  again with a new `ownerApprovalAt`. Create the fresh holds first and save
+  again with `--gate`. Create the fresh holds first and save
   them; that `save` replaces the pending request and queues the old holds for
   cleanup in the same write (never delete the old holds yourself, so an
   interrupted turn never leaves the request pointing at deleted holds), and

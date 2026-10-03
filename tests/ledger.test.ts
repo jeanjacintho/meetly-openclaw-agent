@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  addRequest, approveRequest, declineRequest, saveRequest, settleOffer, discardStaleOffers, removeCleanupRef, appendLog, cleanupList, pendingOwnerList, ownerApprovalList, expiredRequests, expireRequests, monitor, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, pipeline, stageOf,
+  addRequest, approveRequest, declineRequest, markDeliveryAttempt, saveRequest, settleOffer, discardStaleOffers, removeCleanupRef, appendLog, cleanupList, pendingOwnerList, ownerApprovalList, expiredRequests, expireRequests, monitor, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, pipeline, stageOf,
   type Ledger, type NewRequest,
 } from "../skills/meetly/scripts/ledger.ts";
 import { cli, tmpHome, handlesFile } from "./helpers.ts";
@@ -332,7 +332,17 @@ test("owner gate requests wait for owner approval and appear in the approvals li
   assert.deepEqual(fresh.requests[0]!.holdCleanup!.map((h) => h.holdId), ["h1"]);
   assert.throws(() => saveRequest(empty(), input({ ownerApprovalAt: "soon" }), T0, "r_x"), /ownerApprovalAt/);
   const approvedButUnknown = updateRequest(l, "r_1", { ownerApprovedAt: new Date(T0 + 6 * HOUR).toISOString() }, T0 + 6 * HOUR);
-  assert.equal(stageOf(approvedButUnknown.requests[0]!, T0 + 6 * HOUR), "delivery_unknown");
+  // Approved but the opener never attempted: Meetly still owes the group (resumable), not an unknown delivery.
+  assert.equal(stageOf(approvedButUnknown.requests[0]!, T0 + 6 * HOUR), "waiting_on_us");
+  assert.deepEqual(ownerApprovalList(approvedButUnknown).map((r) => r.state), ["approved-unsent"]);
+  // Once start-thread has attempted the POST, a missing chat is an uncertain delivery that is never resumed.
+  const attempted = markDeliveryAttempt(approvedButUnknown, "r_1", T0 + 6 * HOUR);
+  assert.equal(stageOf(attempted.requests[0]!, T0 + 6 * HOUR), "delivery_unknown");
+  assert.deepEqual(ownerApprovalList(attempted), []);
+  assert.equal(approveRequest(attempted, "r_1", T0 + 7 * HOUR).approved, false);
+  // Resuming an unsent approval refreshes its time in the same write.
+  const resumed = approveRequest(approvedButUnknown, "r_1", T0 + 40 * HOUR).ledger.requests[0]!;
+  assert.equal(resumed.ownerApprovedAt, new Date(T0 + 40 * HOUR).toISOString());
   l = updateRequest(l, "r_1", { chatUid: "approved-chat", ownerApprovedAt: new Date(T0 + 6 * HOUR).toISOString() }, T0 + 6 * HOUR);
   assert.deepEqual(ownerApprovalList(l), []);
   assert.equal(findByChat(l, "approved-chat", input().handle)?.id, "r_1");
@@ -412,10 +422,18 @@ test("CLI add, find, update and cleanup round-trip", () => {
   const pend = { start: "2026-10-03T10:00:00-03:00", end: "2026-10-03T10:30:00-03:00", askedAt: "2026-09-28T12:00:00Z" };
   cli("ledger.ts", ["update", "--id", id, "--json", JSON.stringify({ pendingOwner: pend })], env);
   assert.deepEqual(cli("ledger.ts", ["pending"], env).json.requests.map((r: { id: string }) => r.id), [id]);
-  cli("ledger.ts", ["update", "--id", id, "--json", `{"ownerApprovalAt":"${new Date(T0).toISOString()}"}`], env);
-  assert.deepEqual(cli("ledger.ts", ["approvals"], env).json.requests.map((r: { id: string }) => r.id), [id]);
-  cli("ledger.ts", ["update", "--id", id, "--json", '{"ownerApprovalAt":null}'], env);
-  assert.deepEqual(cli("ledger.ts", ["approvals"], env).json.requests, []);
+  // The approval state is never written from a model-supplied payload: update, add and save refuse it; only save --gate, approve, decline and expire write it.
+  for (const bad of ['{"ownerApprovalAt":"2026-10-03T12:00:00Z"}', '{"ownerApprovedAt":"2026-10-03T12:00:00Z"}']) {
+    const refused = cli("ledger.ts", ["update", "--id", id, "--json", bad], env);
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, /written only by/);
+  }
+  assert.equal(cli("ledger.ts", ["save", "--json", JSON.stringify(input({ handle: "+15558880000", ownerApprovalAt: "2026-10-03T12:00:00Z" }))], env).status, 1);
+  const gated = cli("ledger.ts", ["save", "--gate", "--json", JSON.stringify(input({ handle: "+15558880000" }))], env).json.request;
+  assert.deepEqual(cli("ledger.ts", ["approvals"], env).json.requests.map((r: { id: string; state: string }) => [r.id, r.state]), [[gated.id, "waiting"]]);
+  assert.equal(cli("ledger.ts", ["approve", "--id", gated.id], env).json.approved, true);
+  assert.deepEqual(cli("ledger.ts", ["approvals"], env).json.requests.map((r: { state: string }) => r.state), ["approved-unsent"]);
+  assert.equal(cli("ledger.ts", ["decline", "--id", gated.id], env).json.declined, false);
   const dup = cli("ledger.ts", ["add", "--json", JSON.stringify(input())], env);
   assert.equal(dup.status, 1);
   assert.match(dup.stderr, /already exists/);
