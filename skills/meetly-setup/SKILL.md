@@ -76,6 +76,10 @@ to install anything else.
   `record-setup.ts --field <field> --value <v>`, with the same normalization,
   then confirm in one line. During setup the owner can change the name the
   same way before answering the current question.
+- "Always online" or "I prefer in person" → `record-setup.ts --field defaultFormat --value meet|in_person|phone`;
+  "ask me each time" → `ask`. Without one, Meetly asks how to meet when a
+  request does not say.
 - "Pause Meetly" → `register-crons.ts --pause`. "Resume" → `register-crons.ts --resume`.
 - "Status" → summarize `setup-status.ts`: days, window, duration, horizon,
-  calendars, and whether it is paused.
+  default meeting type (or "ask each time" when `config.defaultFormat` is
+  unset), calendars, and whether it is paused.

@@ -18,7 +18,7 @@ exits non-zero: report that line; never guess a result. State lives in
 | `ledger.ts` | `find --handle H` \| `find --chat U` | `{request}` or `{request:null}` |
 | | `add --json '<obj>'` \| `--json-file F` | `{request}` (refused if the person already has an open request) |
 | | `save --json '<obj>'` \| `--json-file F` | `{request}` (creates, or replaces the current open offer for that handle while preserving its id and chat link) |
-| | `update --id X --json '<patch>'` | `{request}`; patch keys: `status, chatUid, eventId, offered, holdCleanup, name, location, allowOverlap, constraints, topic, pendingOwner, format, locale, booked, meetUrl, reminder` (`null` clears `pendingOwner`, `booked`, `meetUrl`, `reminder`) |
+| | `update --id X --json '<patch>'` \| `--json-file F` | `{request}`; patch keys: `status, chatUid, eventId, offered, holdCleanup, name, location, allowOverlap, constraints, topic, pendingOwner, format, locale, booked, meetUrl, reminder, attendeeEmail` (`null` clears `pendingOwner`, `booked`, `meetUrl`, `reminder`) |
 | | `expired [--hours N]` \| `pending` \| `cleanup` | `{requests}` |
 | | `rollback-offer --id X --json-file F` | atomically restores `offered`, `offeredAt` and the prior cleanup queue while queuing new holds for deletion; the file's `expectedOfferedAt` is the `offeredAt` that `save` returned, and if another save replaced the offer since, nothing changes and `rolledBack` is false |
 | | `cleanup-remove --id X --json-file F` | removes one hold ref after its deletion succeeded |

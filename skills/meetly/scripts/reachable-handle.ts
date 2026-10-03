@@ -12,6 +12,10 @@ import { runOnMac, type BridgeOptions } from "./mac.ts";
 const E164 = /^\+[1-9][0-9]{1,14}$/;
 const EMAIL = /^[^\s@'"]+@[^\s@'"]+\.[^\s@'"]+$/;
 
+export function isEmailAddress(value: string): boolean {
+  return EMAIL.test(value);
+}
+
 export type HandleService = { handle: string; service: string; messages: number; lastAt: string | null };
 export type Reachable =
   | { handle: string; via: "iMessage" }
@@ -19,7 +23,7 @@ export type Reachable =
   | { handle: null; reason: "mac-unavailable" };
 
 export function isHandle(h: string): boolean {
-  return E164.test(h) || EMAIL.test(h);
+  return E164.test(h) || isEmailAddress(h);
 }
 
 // One row per handle and service: `id|service|count|last message (UTC)`.
