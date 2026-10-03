@@ -417,12 +417,14 @@ if (isMain(import.meta.url)) {
       case "discard-offer": {
         if (!values.id || !values.revision) throw new Error(`usage: ledger.ts ${cmd} --id X --revision R`);
         const outcome = cmd === "promote-offer" ? "promote" : "discard";
-        const before = readJson<Ledger>(path, EMPTY).requests.find((r) => r.id === values.id);
-        const ledger = updateJson<Ledger>(path, EMPTY, (l) => settleOffer(l, values.id!, values.revision!, outcome, now));
-        const request = ledger.requests.find((r) => r.id === values.id);
-        // Settled only when this revision really took effect: a promotion needs the request to still be open.
-        const matched = before?.pendingOffer?.revision === values.revision;
-        return { request, settled: matched && (outcome === "discard" || before?.status === "offered") };
+        // Decided inside the locked write, from the state it actually settles.
+        let settled = false;
+        const ledger = updateJson<Ledger>(path, EMPTY, (l) => {
+          const before = l.requests.find((r) => r.id === values.id);
+          settled = before?.pendingOffer?.revision === values.revision && (outcome === "discard" || before?.status === "offered");
+          return settleOffer(l, values.id!, values.revision!, outcome, now);
+        });
+        return { request: ledger.requests.find((r) => r.id === values.id), settled };
       }
       case "cleanup-remove": {
         if (!values.id) throw new Error("usage: ledger.ts cleanup-remove --id X --json-file F");
