@@ -103,7 +103,7 @@ meetly-openclaw-agent/
       record-setup.ts      CLI: saves a setup answer; --done finalizes
       owner-chat.ts        CLI: prints the owner's DM chat uid (/v1/agents/me)
       cursor.ts            CLI: get | set | fail | ok
-      ledger.ts            CLI: find | add | update | expired | cleanup
+      ledger.ts            CLI: find | add | update | expire | cleanup
       busy.ts              normalizes plow-gog output into busy intervals
       slots.ts             CLI: available times from busy + config + constraints
       cron-backend.ts      wrapper for `openclaw cron` (list/add/edit/rm/enable/disable)

@@ -204,7 +204,7 @@ or no as a new scheduling instruction, run `ledger.ts approvals` and check
 whether the owner is answering a pending inbound request. Match by the person
 and topic in the approval message; if more than one fits, ask which one.
 
-- **Yes:** first claim the approval with `ledger.ts approve --id <id>` (also to resume a yes that was interrupted: `ledger.ts approvals` lists those as `approved-unsent`: approved but the opener was never attempted, so opening the group is safe; a delivery that was attempted and not confirmed is `delivery_unknown` and is never retried unless the owner says the group is not there). If
+- **Yes:** first claim the approval with `ledger.ts approve --id <id>` (an approved request that gets no group, whether the turn died or Plow refused, is an uncertain delivery: it is never retried on its own, only when the owner says the group is not there, with the same idempotency key). If
   `approved` is false the request was already closed (the poll expired it) or
   approved: do nothing else, delete nothing, and tell the owner what the
   ledger now shows. Only a claimed request is acted on; `start-thread.ts`

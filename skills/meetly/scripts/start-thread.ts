@@ -14,11 +14,11 @@ import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
 import { isBlocked, loadBlocked } from "./blocklist.ts";
 import { fetchIdentity, findOwnerDm, plowApi, type ApiOptions } from "./owner-chat.ts";
-import { awaitingOwnerApproval, claimDeliveryAttempt, clearDeliveryAttempt, sameHandle, type Ledger } from "./ledger.ts";
+import { assertDeliverable, awaitingOwnerApproval, sameHandle, type Ledger } from "./ledger.ts";
 import { loadConfig } from "./config.ts";
 import { file } from "./paths.ts";
 import { isHandle } from "./reachable-handle.ts";
-import { readJson, updateJson, withLock } from "./store.ts";
+import { readJson, withLock } from "./store.ts";
 
 export type Started = { chatUid: string; messageSent: true } | { chatUid: null; deliveryUnknown: true };
 
@@ -65,10 +65,9 @@ export async function startThread(opts: ApiOptions & { members: string[]; body: 
     // The request identity must survive regenerated wording after an unknown
     // delivery; the opener body is not durable state in the ledger.
     const idempotencyKey = createHash("sha256").update(JSON.stringify([lineUid, `request:${request.id}`, members])).digest("hex");
-    // Claim the delivery under the ledger lock: only if the request is still the one validated above. From here a
-    // missing chat means an uncertain delivery, not an approval that can simply be resumed.
-    updateJson<Ledger>(file("ledger.json"), { requests: [] }, (l) =>
-      claimDeliveryAttempt(l, request.id, { handle: request.handle, offeredAt: request.offeredAt, ownerApprovedAt: request.ownerApprovedAt }, gateOn, Date.now()));
+    // Verify, under the ledger lock, that the request is still the one validated above.
+    withLock(file("ledger.json"), () =>
+      assertDeliverable(readJson<Ledger>(file("ledger.json"), { requests: [] }), request.id, { handle: request.handle, offeredAt: request.offeredAt, ownerApprovedAt: request.ownerApprovedAt }, gateOn));
 
     let res: Response;
     try {
@@ -84,11 +83,7 @@ export async function startThread(opts: ApiOptions & { members: string[]; body: 
     }
     // Same rule as the plugin: 408, 424 and 5xx may have gone through.
     if ([408, 424].includes(res.status) || res.status >= 500) return { chatUid: null, deliveryUnknown: true };
-    if (!res.ok) {
-      // A definitive refusal sent nothing: the attempt does not count, and the approval stays resumable.
-      updateJson<Ledger>(file("ledger.json"), { requests: [] }, (l) => clearDeliveryAttempt(l, request.id));
-      throw new Error(`POST /v1/chats returned HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
-    }
+    if (!res.ok) throw new Error(`POST /v1/chats returned HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
     const chat = (await res.json()) as { uid?: string };
     if (!chat.uid) return { chatUid: null, deliveryUnknown: true };
     return { chatUid: chat.uid, messageSent: true };

@@ -69,19 +69,6 @@ test("the same request and people give the same idempotency key even if wording 
   assert.notEqual(keys[0], keys[3]);
 });
 
-test("the POST attempt is recorded on the request first, so a missing chat afterwards is an uncertain delivery", async () => {
-  const ledger = () => JSON.parse(readFileSync(join(home, "ledger.json"), "utf8")).requests[0];
-  assert.equal(ledger().deliveryAttemptedAt, undefined);
-  await startThread({ ...args, fetch: fakeFetch(() => new Response("", { status: 502 })), base, token: "t" });
-  assert.equal(typeof ledger().deliveryAttemptedAt, "string");
-});
-
-test("a definitive refusal sent nothing, so it clears the attempt and the request stays resumable", async () => {
-  const ledger = () => JSON.parse(readFileSync(join(home, "ledger.json"), "utf8")).requests[0];
-  await assert.rejects(startThread({ ...args, fetch: fakeFetch(() => new Response('{"error":"nope"}', { status: 422 })), base, token: "t" }), /HTTP 422/);
-  assert.equal(ledger().deliveryAttemptedAt, undefined);
-});
-
 test("a server error or a lost connection means delivery is unknown", async () => {
   for (const post of [
     () => new Response("", { status: 502 }),

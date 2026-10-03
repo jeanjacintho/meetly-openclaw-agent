@@ -54,9 +54,6 @@ export type Request = {
   // Set only after the owner approves this exact offer, whether or not Plow
   // returned a chat uid for the attempted delivery.
   ownerApprovedAt?: string;
-  // Set by start-thread.ts just before it posts the opener: from then on a missing chat is an unknown
-  // delivery, never a resumable approval.
-  deliveryAttemptedAt?: string;
   format?: Format;
   locale?: string;
   booked?: Booked;
@@ -84,7 +81,7 @@ const LOG_TEXT_MAX = 300;
 export type Ledger = { requests: Request[] };
 
 export type NewRequest = Omit<Request,
-  "id" | "status" | "eventId" | "pendingOwner" | "ownerApprovedAt" | "deliveryAttemptedAt" | "booked" | "meetUrl" | "roomUrl" | "reminder" | "offeredAt" | "closedAt" | "nudgedAt" | "personNudgedAt" | "log" | "createdAt" | "updatedAt">;
+  "id" | "status" | "eventId" | "pendingOwner" | "ownerApprovedAt" | "booked" | "meetUrl" | "roomUrl" | "reminder" | "offeredAt" | "closedAt" | "nudgedAt" | "personNudgedAt" | "log" | "createdAt" | "updatedAt">;
 export type Patch = Partial<Pick<Request,
   "status" | "chatUid" | "eventId" | "offered" | "holdCleanup" | "name" | "location" | "allowOverlap" | "constraints" | "topic" | "format" | "locale">> & {
   attendeeEmail?: string;
@@ -230,7 +227,7 @@ export function addRequest(ledger: Ledger, input: NewRequest, now: number, id: s
   const at = new Date(now).toISOString();
   // A new offer is never booked: a booking, its link and its reminder are
   // only ever set through update, where they are validated.
-  const { booked: _b, meetUrl: _m, roomUrl: _z, reminder: _r, closedAt: _c, ownerApprovedAt: _oap, deliveryAttemptedAt: _da, nudgedAt: _n, personNudgedAt: _pn, log: _l, ...fields } = input as NewRequest & Partial<Pick<Request, "booked" | "meetUrl" | "roomUrl" | "reminder" | "closedAt" | "ownerApprovedAt" | "deliveryAttemptedAt" | "nudgedAt" | "personNudgedAt" | "log">>;
+  const { booked: _b, meetUrl: _m, roomUrl: _z, reminder: _r, closedAt: _c, ownerApprovedAt: _oap, nudgedAt: _n, personNudgedAt: _pn, log: _l, ...fields } = input as NewRequest & Partial<Pick<Request, "booked" | "meetUrl" | "roomUrl" | "reminder" | "closedAt" | "ownerApprovedAt" | "nudgedAt" | "personNudgedAt" | "log">>;
   if (fields.ownerApprovalAt !== undefined && !isDate(fields.ownerApprovalAt)) throw new Error(`ownerApprovalAt must be a time, got ${JSON.stringify(fields.ownerApprovalAt)}`);
   const request: Request = { ...fields, ...(attendeeEmail ? { attendeeEmail } : {}), format, id, status: "offered", offeredAt: at, createdAt: at, updatedAt: at };
   return { requests: [...ledger.requests, request] };
@@ -277,7 +274,6 @@ export function saveRequest(ledger: Ledger, input: NewRequest, now: number, id: 
     format: validated.format === "unknown" ? existing.format ?? "unknown" : validated.format,
     locale: input.locale ?? existing.locale,
     ownerApprovedAt: undefined,
-    deliveryAttemptedAt: undefined,
     createdAt: existing.createdAt,
     updatedAt: new Date(now).toISOString(),
   };
@@ -458,39 +454,23 @@ export function pendingOwnerList(ledger: Ledger): Request[] {
 export function approveRequest(ledger: Ledger, id: string, now: number): { ledger: Ledger; approved: boolean } {
   const r = ledger.requests.find((x) => x.id === id);
   if (!r || r.status !== "offered") return { ledger, approved: false };
-  // Approved but the opener was never attempted (the turn died first): resumable. The approval time is refreshed
-  // in the same write, so the expiry clock restarts and cannot close the request between validation and the POST.
-  if (approvedUnsent(r)) return { ledger: updateRequest(ledger, id, { ownerApprovedAt: new Date(now).toISOString() }, now), approved: true };
   if (!awaitingOwnerApproval(r)) return { ledger, approved: false };
   return { ledger: updateRequest(ledger, id, { ownerApprovedAt: new Date(now).toISOString() }, now), approved: true };
 }
 
-// Approved by the owner but no group yet: the opener may not have gone out.
-const approvedUnsent = (r: Request): boolean =>
-  r.ownerApprovedAt !== undefined && r.ownerApprovalAt !== undefined && r.chatUid === undefined && r.deliveryAttemptedAt === undefined;
-
-// start-thread.ts claims the delivery under the ledger lock just before the POST. It succeeds only if the request
-// is still the one that was authorized: open, approved (when the gate is on), the same person and the same offer
-// and approval it validated against. After it, a missing chat is an uncertain delivery, until a definitive
-// failure clears it (`clearDeliveryAttempt`) or a new offer replaces the request's offer (`saveRequest`).
-export function claimDeliveryAttempt(
-  ledger: Ledger, id: string, seen: { handle: string; offeredAt: string; ownerApprovedAt?: string }, gateOn: boolean, now: number,
-): Ledger {
+// start-thread.ts verifies this under the ledger lock immediately before the POST: the request must still be the one
+// that was authorized (open, approved when the gate is on, the same person, offer and approval), so an offer or
+// approval replaced since validation stops the stale opener. Nothing is marked: an approved request with no chat is
+// an uncertain delivery, recovered only when the owner confirms the group is absent (same idempotency key).
+export function assertDeliverable(
+  ledger: Ledger, id: string, seen: { handle: string; offeredAt: string; ownerApprovedAt?: string }, gateOn: boolean,
+): void {
   const r = ledger.requests.find((x) => x.id === id);
   if (!r || r.status !== "offered") throw new Error(`request ${id} is no longer open: nothing was sent`);
   if (awaitingOwnerApproval(r) || (gateOn && r.ownerApprovedAt === undefined)) throw new Error(`request ${id} is not approved by the owner: nothing was sent`);
   if (!sameHandle(r.handle, seen.handle) || r.offeredAt !== seen.offeredAt || r.ownerApprovedAt !== seen.ownerApprovedAt) {
     throw new Error(`request ${id} changed since it was authorized (another offer or approval replaced it): nothing was sent, start again`);
   }
-  return { requests: ledger.requests.map((x) => (x.id === id ? { ...x, deliveryAttemptedAt: x.deliveryAttemptedAt ?? new Date(now).toISOString() } : x)) };
-}
-
-export function clearDeliveryAttempt(ledger: Ledger, id: string): Ledger {
-  return { requests: ledger.requests.map((r) => {
-    if (r.id !== id) return r;
-    const { deliveryAttemptedAt: _d, ...rest } = r;
-    return rest;
-  }) };
 }
 
 // The owner's no, in one write: the request closes and every hold goes to the
@@ -503,10 +483,8 @@ export function declineRequest(ledger: Ledger, id: string, now: number): { ledge
   return { ledger: next, declined: true };
 }
 
-// Requests the owner still has to decide on, and ones they approved that have not been opened yet.
-export function ownerApprovalList(ledger: Ledger): (Request & { state: "waiting" | "approved-unsent" })[] {
-  return ledger.requests.filter((r) => r.status === "offered" && (awaitingOwnerApproval(r) || approvedUnsent(r)))
-    .map((r) => ({ ...r, state: awaitingOwnerApproval(r) ? "waiting" as const : "approved-unsent" as const }));
+export function ownerApprovalList(ledger: Ledger): Request[] {
+  return ledger.requests.filter((r) => r.status === "offered" && awaitingOwnerApproval(r));
 }
 
 // Booked meetings to re-read from the calendar: from `leadMin` before the
@@ -561,7 +539,7 @@ const NEXT_STEP: Record<Stage, string> = {
 export function stageOf(r: Request, now: number): Stage {
   if (r.status === "booked") return "confirmed";
   if (r.status !== "offered") return "passed";
-  if (r.pendingOwner || awaitingOwnerApproval(r) || approvedUnsent(r)) return "waiting_on_us";
+  if (r.pendingOwner || awaitingOwnerApproval(r)) return "waiting_on_us";
   if (!r.chatUid) return "delivery_unknown";
   return hoursSince(r.offeredAt, now) >= STALE_HOURS ? "waiting_on_them" : "sent";
 }
@@ -572,8 +550,7 @@ export function stageOf(r: Request, now: number): Stage {
 // last), and what closed in the past week.
 const pipelineItem = (r: Request, now: number, extra: Partial<PipelineItem> = {}): PipelineItem => {
   const stage = stageOf(r, now);
-  const nextStep = approvedUnsent(r) ? "approved but the group was never opened: tell Meetly yes again to resume" : NEXT_STEP[stage];
-  const out: PipelineItem = { id: r.id, topic: r.topic, status: r.status, stage, delivery: r.chatUid ? "linked" : "unknown", nextStep, ...extra };
+  const out: PipelineItem = { id: r.id, topic: r.topic, status: r.status, stage, delivery: r.chatUid ? "linked" : "unknown", nextStep: NEXT_STEP[stage], ...extra };
   if (r.name !== undefined) out.name = r.name;
   return out;
 };
@@ -641,7 +618,7 @@ const EMPTY: Ledger = { requests: [] };
 
 // The approval state is written only by save --gate, approve, decline and expire; never by a model-supplied payload.
 function refuseApprovalKeys(value: Record<string, unknown>): void {
-  for (const key of ["ownerApprovalAt", "ownerApprovedAt", "deliveryAttemptedAt"]) {
+  for (const key of ["ownerApprovalAt", "ownerApprovedAt"]) {
     if (key in value) throw new Error(`${key} is written only by ledger.ts save --gate, approve, decline and expire`);
   }
 }
