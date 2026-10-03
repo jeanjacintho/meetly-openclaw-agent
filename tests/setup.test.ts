@@ -109,6 +109,13 @@ test("an unknown time zone fails through the CLI", () => {
 });
 
 test("durations and horizons are bounded integers", () => {
+  // Movable blocks are title words the owner lists: lowercased, deduplicated, bounded; none clears them.
+  assert.deepEqual(parseField("movable", " Prayer, GYM ,prayer "), { movable: ["prayer", "gym"] });
+  assert.deepEqual(parseField("movable", "none"), { movable: undefined });
+  assert.throws(() => parseField("movable", "a"), /movable/);
+  assert.throws(() => parseField("movable", "x".repeat(41)), /movable/);
+  assert.throws(() => parseField("movable", Array.from({ length: 21 }, (_, i) => `word${i}`).join(",")), /movable/);
+  assert.throws(() => parseField("movable", " , "), /movable/);
   // The notice a time needs is hours or minutes, 0 to 72 hours, and default clears it.
   for (const [value, min] of [["3", 180], ["3h", 180], ["1.5h", 90], ["45 min", 45], ["0", 0]] as const) assert.deepEqual(parseField("minNotice", value), { minNoticeMin: min });
   assert.deepEqual(parseField("minNotice", "default"), { minNoticeMin: undefined });
@@ -203,6 +210,10 @@ test("editing a field after setup updates config.json and keeps setupDoneAt", ()
     record("minNotice", "default");
     assert.equal("minNoticeMin" in readJson<object>(join(home, "config.json"), {}), false);
     assert.equal(config.setupDoneAt, "2026-09-26T12:00:00.000Z");
+    record("movable", "prayer, gym");
+    assert.deepEqual(readJson<Config | null>(join(home, "config.json"), null)!.movable, ["prayer", "gym"]);
+    record("movable", "none");
+    assert.equal("movable" in readJson<object>(join(home, "config.json"), {}), false);
     assert.equal("defaultFormat" in config, false);
     record("defaultFormat", "meet");
     assert.equal(readJson<Config | null>(join(home, "config.json"), null)!.defaultFormat, "meet");

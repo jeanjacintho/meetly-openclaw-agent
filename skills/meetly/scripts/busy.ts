@@ -11,7 +11,9 @@ import { status } from "./setup-status.ts";
 import { writeJson } from "./store.ts";
 import { zonedToUtc } from "./time.ts";
 
-export type Busy = { start: string; end: string; id?: string; account?: string };
+// `movable`: the owner listed a word from this block's title, so Meetly may offer
+// times over it. The title itself never leaves this script.
+export type Busy = { start: string; end: string; id?: string; account?: string; movable?: true };
 export type BusyResult = { busy: Busy[]; unknownAfter?: string; degraded: string[] };
 
 type Stamp = string | { dateTime?: string; date?: string } | undefined;
@@ -63,7 +65,7 @@ function skipped(e: CalEvent): boolean {
   return (e.attendees ?? []).some((a) => a?.self === true && a.responseStatus === "declined");
 }
 
-export function toBusy(results: unknown[], opts: { tz: string; max: number }): BusyResult {
+export function toBusy(results: unknown[], opts: { tz: string; max: number; movable?: string[] }): BusyResult {
   const busy: Busy[] = [];
   const degraded: string[] = [];
   let unknownAfter: number | undefined;
@@ -94,6 +96,7 @@ export function toBusy(results: unknown[], opts: { tz: string; max: number }): B
       const b: Busy = { start: new Date(start).toISOString(), end: new Date(end).toISOString() };
       if (e.id !== undefined) b.id = e.id;
       if (e.account !== undefined) b.account = e.account;
+      if (e.summary && opts.movable?.some((w) => titleHasWordOrPhrase(e.summary!, w))) b.movable = true;
       busy.push(b);
     }
     for (const { count, last } of perAccount.values()) {
@@ -104,6 +107,13 @@ export function toBusy(results: unknown[], opts: { tz: string; max: number }): B
   const out: BusyResult = { busy, degraded };
   if (unknownAfter !== undefined) out.unknownAfter = new Date(unknownAfter).toISOString();
   return out;
+}
+
+function titleHasWordOrPhrase(title: string, configured: string): boolean {
+  const normalize = (value: string) => value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/g, " ");
+  const words = normalize(title);
+  const phrase = normalize(configured);
+  return phrase.length > 0 && (` ${words} `).includes(` ${phrase} `);
 }
 
 // The listing after any notice plow-gog prints ahead of it ("Note: Using
@@ -155,12 +165,12 @@ export async function listEvents(
 }
 
 export async function fetchBusy(
-  config: Pick<Config, "timezone" | "calendars">,
+  config: Pick<Config, "timezone" | "calendars"> & { movable?: string[] },
   range: { from: string; to: string },
   opts: BridgeOptions = {},
 ): Promise<BusyResult> {
   const { events, degraded, truncatedAfter } = await listEvents(config, range, opts);
-  const out = toBusy([{ events }, ...truncatedAfter.map((after) => ({ events: [], truncated: { after } }))], { tz: config.timezone, max: FETCH_MAX });
+  const out = toBusy([{ events }, ...truncatedAfter.map((after) => ({ events: [], truncated: { after } }))], { tz: config.timezone, max: FETCH_MAX, movable: config.movable });
   out.degraded.push(...degraded);
   return out;
 }
@@ -182,8 +192,8 @@ if (isMain(import.meta.url)) {
     }
     const max = Number(values.max);
     if (!Number.isInteger(max) || max <= 0) throw new Error(`--max must be a positive whole number, got ${values.max}`);
-    const { timezone } = loadConfig();
+    const { timezone, movable } = loadConfig();
     const results = readInput(values.in ?? []).map((text) => JSON.parse(text));
-    return toBusy(results, { tz: timezone, max });
+    return toBusy(results, { tz: timezone, max, movable });
   });
 }

@@ -76,6 +76,9 @@ to install anything else.
   `record-setup.ts --field <field> --value <v>`, with the same normalization,
   then confirm in one line. During setup the owner can change the name the
   same way before answering the current question.
+- "My prayer time and gym can move" → `record-setup.ts --field movable --value <words from the titles>`
+  (for example `prayer, gym`); "nothing can move" → `none`. Meetly then offers
+  times over those blocks, and never repeats their titles to anyone.
 - "I need at least 3 hours notice" → `record-setup.ts --field minNotice --value <hours, like 3h>`.
   `0` allows a time right away, and `default` goes back to 2 hours. Same-day
   times are offered whenever they clear that notice.
