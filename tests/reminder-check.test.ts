@@ -171,6 +171,41 @@ test("markSent records the send once; a second mark is refused", () => {
   assert.throws(() => markSent(l, "nope", START), /no request/);
 });
 
+test("CLI: a move whose turn died is settled from the live event once its stage is stale", () => {
+  const home = tmpHome();
+  const env = { MEETLY_HOME: home };
+  writeJson(join(home, "config.json"), {
+    ownerName: "Ana", timezone: TZ, days: ["mon"], windowStart: "09:00", windowEnd: "18:00", durationMin: 30, horizonDays: 7,
+    calendars: [{ account: ACCOUNT, id: ACCOUNT }], defaultAccount: ACCOUNT, setupDoneAt: new Date(T0).toISOString(),
+  });
+  const oldTravel = [{ holdId: "t_old", account: ACCOUNT }];
+  const newTravel = [{ holdId: "t_new", account: ACCOUNT }];
+  const staged = new Date(Date.now() - 30 * MIN).toISOString();
+  const request = { ...bookedMeet({ meetUrl: null, booked: { start: offer.start, end: offer.end, account: ACCOUNT, travel: oldTravel } }, { format: "in_person" }),
+    pendingTravel: { refs: newTravel, at: staged, revision: "rev1", start: "2026-10-12T04:00:00-03:00", end: "2026-10-12T04:30:00-03:00" } };
+  const ledgerAt = () => JSON.parse(readFileSync(join(home, "ledger.json"), "utf8")).requests[0];
+  const eventAt = (start: string, end: string) => {
+    const raw = JSON.parse(fixture("event-meet").slice(fixture("event-meet").indexOf("{")));
+    raw.event.start.dateTime = start;
+    raw.event.end.dateTime = end;
+    const path = join(home, `event-${start}.txt`);
+    writeFileSync(path, JSON.stringify(raw));
+    return path;
+  };
+  // The calendar never took the move: the staged buffers go to cleanup, the old ones stay.
+  writeJson(join(home, "ledger.json"), { requests: [request] });
+  cli("reminder-check.ts", ["--id", "r_1", "--event-file", eventAt(offer.start, offer.end)], env);
+  assert.equal(ledgerAt().pendingTravel, undefined);
+  assert.deepEqual(ledgerAt().booked.travel, oldTravel);
+  assert.deepEqual(ledgerAt().holdCleanup, newTravel);
+  // The calendar took it: the booking takes the new time and buffers.
+  writeJson(join(home, "ledger.json"), { requests: [request] });
+  cli("reminder-check.ts", ["--id", "r_1", "--event-file", eventAt("2026-10-12T04:00:00-03:00", "2026-10-12T04:30:00-03:00")], env);
+  assert.deepEqual(ledgerAt().booked.travel, newTravel);
+  assert.equal(Date.parse(ledgerAt().booked.start), Date.parse("2026-10-12T04:00:00-03:00"));
+  assert.deepEqual(ledgerAt().holdCleanup, oldTravel);
+});
+
 // End to end through the CLIs: book, wait, send, mark, and never twice.
 test("CLI: the poll's full reminder sequence", () => {
   const home = tmpHome();

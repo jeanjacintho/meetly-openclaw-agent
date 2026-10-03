@@ -416,7 +416,7 @@ test("travel: one exact-time check, cancel and move handle the buffers, and a pi
   assert.ok(group.includes("the buffers are `slot.travel.before` and `slot.travel.after`"));
   assert.ok(group.includes("the ledger queues the booking's travel buffers for the cleanup poll in that same write"));
   assert.ok(group.includes("first run the exact-time check (\"Travel time\") at the new time"));
-  for (const rule of ["`ledger.ts stage-travel --id <id> --json-file F`", "Only after it succeeds, run `ledger.ts commit-travel --id <id> --revision <that revision>`", "If it prints `committed: false`, a newer move replaced this one", "every id in `booked.travel` in `--allow-overlap`", "repeating `--allow-overlap` for each id in the request's `allowOverlap`"])
+  for (const rule of ["`ledger.ts stage-travel --id <id> --json-file F`", "Only after it succeeds, run `ledger.ts commit-travel --id <id> --revision <that revision>`", "If it prints `committed: false`, the poll already settled this move from the live event", "reading the calendar fresh first (if `degraded` is not empty, stop", "If it refuses because another move is in progress, delete the buffers you just created", "every id in `booked.travel` in `--allow-overlap`", "repeating `--allow-overlap` for each id in the request's `allowOverlap`"])
     assert.ok(group.includes(rule), rule);
   assert.ok(group.includes("the picked offer has no `travel[]`, follow \"Travel time\" before booking"));
   assert.ok(group.includes("`record-booking.ts` records the booking, clears `pendingOwner` and, in that same write"));

@@ -6,7 +6,7 @@ import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
 import { loadConfig, reminderLeadMin } from "./config.ts";
 import { readEvent, type EventInfo } from "./event.ts";
-import { updateRequest, type Ledger, type Patch, type Request } from "./ledger.ts";
+import { reconcileTravel, updateRequest, type Ledger, type Patch, type Request } from "./ledger.ts";
 import { file } from "./paths.ts";
 import { updateJson } from "./store.ts";
 
@@ -97,10 +97,12 @@ if (isMain(import.meta.url)) {
     const now = Date.now();
     let decision: Decision | undefined;
     updateJson<Ledger>(path, empty, (l) => {
-      const request = l.requests.find((r) => r.id === values.id);
+      // A move whose turn died is settled from the live event before anything else is decided.
+      const settled = event.status === "cancelled" ? l : reconcileTravel(l, values.id!, event, now);
+      const request = settled.requests.find((r) => r.id === values.id);
       if (!request) throw new Error(`no request ${values.id}`);
       decision = checkReminder(request, event, now, { leadMin, tz: timezone });
-      return Object.keys(decision.patch).length ? updateRequest(l, request.id, decision.patch, now) : l;
+      return Object.keys(decision.patch).length ? updateRequest(settled, request.id, decision.patch, now) : settled;
     });
     const { patch: _patch, ...out } = decision!;
     return out;

@@ -277,18 +277,23 @@ lunch with Ana", "remove all my appointments today", "move the call to 3pm"):
      group.
    - **Move:** for an in-person meeting with travel buffers (`request.booked.travel`), first run the
      exact-time check ("Travel time") at the new time with the event id and
-     every id in `booked.travel` in `--allow-overlap`; if it
-     is not free, tell the owner and do not move. Otherwise create both
+     every id in `booked.travel` in `--allow-overlap`, reading the calendar fresh
+     first (if `degraded` is not empty, stop and say which account could not be
+     read); if it is not free, tell the owner and do not move. Otherwise create both
      buffers at the new time and stage them with `ledger.ts stage-travel --id
-     <id> --json-file F` (`{"travel":[…]}`; it prints a `revision`); the cleanup poll leaves staged buffers alone. Then `plow-gog calendar update <calendarId> <eventId>
+     <id> --json-file F` (`{"travel":[…],"start":"<new start>","end":"<new end>"}`;
+     it prints a `revision`). If it refuses because another move is in progress,
+     delete the buffers you just created (queue failed deletes in `holdCleanup`)
+     and tell the owner to try again in a few minutes. Then `plow-gog calendar update <calendarId> <eventId>
      --from <start> --to <end> --send-updates all --account <account> --json`.
      Only after it succeeds, run `ledger.ts commit-travel --id <id> --revision <that revision>`
      (the new buffers become the booking's, the old ones are queued for cleanup),
      and record the move as in "Book the event" steps 1 and 2. If it prints
-     `committed: false`, a newer move replaced this one (its buffers are already
-     queued for cleanup): read the event again and record what the calendar now
-     shows, changing nothing else. If the update fails, run nothing more: the old
-     buffers stay and the staged ones are cleaned up after 15 minutes.
+     `committed: false`, the poll already settled this move from the live event:
+     read the event again and record what the calendar now shows, changing
+     nothing else. If the update fails, run nothing more: after 15 minutes the poll
+     reads the live event and either gives the booking the staged buffers (the
+     calendar took the move) or queues them for cleanup (it did not).
    - If a step after the calendar change fails, retry it once in this turn,
      and still send the group message (step 4). If it still fails, tell the
      owner exactly which steps are left and for which meeting. A deleted
