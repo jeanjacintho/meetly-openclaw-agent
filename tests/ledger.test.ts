@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  addRequest, saveRequest, settleOffer, discardStaleOffers, removeCleanupRef, appendLog, cleanupList, pendingOwnerList, expiredRequests, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, pipeline, stageOf,
+  addRequest, moveTravel, saveRequest, settleOffer, discardStaleOffers, removeCleanupRef, appendLog, cleanupList, pendingOwnerList, expiredRequests, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, pipeline, stageOf,
   type Ledger, type NewRequest,
 } from "../skills/meetly/scripts/ledger.ts";
 import { cli, tmpHome } from "./helpers.ts";
@@ -83,6 +83,23 @@ test("an offer's travel blocks are holds: validated, and queued for deletion whe
   // A travel block kept in the new offer is not queued.
   const kept = saveRequest(withTravel, input({ offered: [{ ...offer, holdId: "h9", travel: [travel[0]!] }] }), T0, "r_y");
   assert.deepEqual(kept.requests[0]!.holdCleanup!.map((h) => h.holdId).sort(), ["h1", "t2"]);
+});
+
+test("moving a meeting with travel buffers stages the new ones and swaps ownership only on commit", () => {
+  const acct = "jean@example.com";
+  const oldTravel = [{ holdId: "t1", account: acct }, { holdId: "t2", account: acct }];
+  const newTravel = [{ holdId: "t3", account: acct }, { holdId: "t4", account: acct }];
+  let l = addRequest(empty(), input({ offered: [{ ...offer, travel: oldTravel }] }), T0, "r_1");
+  l = updateRequest(l, "r_1", { status: "booked", eventId: offer.holdId, booked: { start: offer.start, end: offer.end, account: acct } }, T0);
+  // Staged: the old buffers stay owned and the new ones wait in the cleanup queue, so a failed update loses nothing.
+  const staged = moveTravel(l, "r_1", "stage", newTravel, T0);
+  assert.deepEqual(staged.requests[0]!.offered[0]!.travel, oldTravel);
+  assert.deepEqual(staged.requests[0]!.holdCleanup!.map((h) => h.holdId), ["t3", "t4"]);
+  // Committed: the new buffers are owned, the old ones queued, none queued twice.
+  const done = moveTravel(staged, "r_1", "commit", newTravel, T0);
+  assert.deepEqual(done.requests[0]!.offered[0]!.travel, newTravel);
+  assert.deepEqual(done.requests[0]!.holdCleanup!.map((h) => h.holdId).sort(), ["t1", "t2"]);
+  assert.throws(() => moveTravel(empty(), "nope", "stage", newTravel, T0), /no request/);
 });
 
 test("a re-offer to an existing group stays staged until its send succeeds", () => {

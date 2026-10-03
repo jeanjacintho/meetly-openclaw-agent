@@ -114,3 +114,15 @@ test("CLI books from gog's saved output and prints the link", () => {
   assert.equal(bad.status, 1);
   assert.match(bad.stderr, /^error: /);
 });
+
+test("booking gives the offer for that start the event and keeps its travel refs in the same write", () => {
+  const travel = [{ holdId: "t_before", account: ACCOUNT }, { holdId: "t_after", account: ACCOUNT }];
+  const l = offered("in_person");
+  const start = plainEvent().start;
+  l.requests[0]!.offered = [{ start, end: plainEvent().end, account: "old@example.com", holdId: "stale_hold", travel }, { ...l.requests[0]!.offered[0]!, start: "2030-01-01T10:00:00Z", end: "2030-01-01T10:30:00Z" }];
+  const { ledger } = recordBooking(l, "r_1", plainEvent(), ACCOUNT, T0);
+  const booked = ledger.requests[0]!;
+  assert.equal(booked.status, "booked");
+  assert.deepEqual([booked.offered[0]!.holdId, booked.offered[0]!.account, booked.offered[0]!.travel], [plainEvent().id, ACCOUNT, travel]);
+  assert.equal(booked.offered[1]!.holdId, l.requests[0]!.offered[1]!.holdId);
+});

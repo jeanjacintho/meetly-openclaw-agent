@@ -6,7 +6,7 @@ import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
 import { loadConfig, reminderLeadMin } from "./config.ts";
 import { readEvent, type EventInfo } from "./event.ts";
-import { updateRequest, type Ledger, type Patch, type Request } from "./ledger.ts";
+import { bookedTravel, updateRequest, type Ledger, type Patch, type Request } from "./ledger.ts";
 import { file } from "./paths.ts";
 import { updateJson } from "./store.ts";
 
@@ -35,7 +35,11 @@ export function checkReminder(request: Request, event: EventInfo, now: number, o
   if (request.status !== "booked") return { action: "skip", patch: {} };
   if (event.id !== request.eventId) throw new Error(`event ${event.id} is not this request's event (${request.eventId})`);
   const at = new Date(now).toISOString();
-  if (event.status === "cancelled") return { action: "cancelled", patch: { status: "cancelled", reminder: { at, outcome: "cancelled" } } };
+  if (event.status === "cancelled") {
+    const holdCleanup = [...(request.holdCleanup ?? []), ...bookedTravel(request)]
+      .filter((hold, i, all) => all.findIndex((h) => h.holdId === hold.holdId && h.account === hold.account) === i);
+    return { action: "cancelled", patch: { status: "cancelled", holdCleanup, reminder: { at, outcome: "cancelled" } } };
+  }
   // A cancellation is caught even after the reminder went out; nothing else is sent twice.
   if (request.format !== "meet" || request.reminder) return { action: "skip", patch: {} };
 
