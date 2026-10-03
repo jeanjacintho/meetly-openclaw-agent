@@ -145,14 +145,13 @@ test("the monitor lists owner decisions, unknown delivery warnings and contact n
   const m = monitor(l, T0);
   assert.deepEqual(m.ownerWaiting.map((i) => [i.id, i.hoursWaiting, i.chatUid, i.nextStep]), [["r_ana", 5, "c1", "owner decision needed"]]);
   assert.deepEqual(m.deliveryUnknown.map((i) => [i.id, i.hoursWaiting, i.delivery]), [["r_bia", 30, "unknown"]]);
-  assert.deepEqual(m.waitingOnThem.map((i) => [i.id, i.hoursWaiting, i.chatUid]), [["r_gus", 31, "c9"]]);
   // Too early, or waiting on them, closed or booked: nothing.
   assert.deepEqual(monitor(l, T0 - 2 * HOUR).ownerWaiting, []);
   const none = monitor(l, T0);
   assert.equal(JSON.stringify(none).includes("r_caio") || JSON.stringify(none).includes("r_edu"), false);
   // A nudge is sent once per ask: after it, nothing is due until the owner is asked again.
-  const nudged = updateRequest(updateRequest(updateRequest(l, "r_ana", { nudgedAt: new Date(T0).toISOString() }, T0), "r_bia", { nudgedAt: new Date(T0).toISOString() }, T0), "r_gus", { personNudgedAt: new Date(T0).toISOString() }, T0);
-  assert.deepEqual([monitor(nudged, T0 + 10 * HOUR).ownerWaiting, monitor(nudged, T0 + 10 * HOUR).deliveryUnknown, monitor(nudged, T0 + 10 * HOUR).waitingOnThem], [[], [], []]);
+  const nudged = updateRequest(updateRequest(l, "r_ana", { nudgedAt: new Date(T0).toISOString() }, T0), "r_bia", { nudgedAt: new Date(T0).toISOString() }, T0);
+  assert.deepEqual([monitor(nudged, T0 + 10 * HOUR).ownerWaiting, monitor(nudged, T0 + 10 * HOUR).deliveryUnknown], [[], []]);
   const asked = updateRequest(nudged, "r_ana", { pendingOwner: { start: "2026-10-04T22:00:00Z", end: "2026-10-04T22:30:00Z", askedAt: new Date(T0 + 1 * HOUR).toISOString() } }, T0 + 1 * HOUR);
   assert.deepEqual(monitor(asked, T0 + 6 * HOUR).ownerWaiting.map((i) => i.id), ["r_ana"]);
   assert.throws(() => updateRequest(l, "r_ana", { nudgedAt: "soon" }, T0), /nudgedAt/);
@@ -161,7 +160,7 @@ test("the monitor lists owner decisions, unknown delivery warnings and contact n
 test("the CLI prints the monitor, and the poll reminds the owner once, with advice and no claims", () => {
   const env = { MEETLY_HOME: tmpHome() };
   cli("ledger.ts", ["add", "--json", JSON.stringify(input("+15550000001", { name: "Ana" }))], env);
-  assert.deepEqual(cli("ledger.ts", ["monitor"], env).json, { ownerWaiting: [], deliveryUnknown: [], waitingOnThem: [] });
+  assert.deepEqual(cli("ledger.ts", ["monitor"], env).json, { ownerWaiting: [], deliveryUnknown: [] });
   const poll = flat("skills/meetly-poll/SKILL.md");
   assert.ok(poll.includes("Run `ledger.ts monitor`"));
   assert.ok(poll.includes("`ledger.ts update --id <id> --json '{\"nudgedAt\":\"<now ISO>\"}'` so it is sent once"));

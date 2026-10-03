@@ -92,17 +92,8 @@ still explain why no contact message was sent.
      `ownerApprovedAt` is set but there is no `chatUid`, tell the owner the
      delivery is unknown, the holds expired and they must check Messages; do
      not resend. Never contact the other person before approval.
-   - Run `ledger.ts monitor`: it lists what waits on the owner, Meetly or the
-     other person too long. For each `waitingOnThem` item, read the latest
-     messages in that meeting thread first. If the person has already
-     answered, do not nudge; handle their reply in the group. Otherwise send
-      one brief, friendly follow-up in their language, asking whether any held
-      time works or whether Meetly should find other times. Do not imply that
-     they forgot or that a time was booked. Then run `ledger.ts update --id
-     <id> --json '{"personNudgedAt":"<now ISO>"}'` so this offer is nudged
-     once. A replacement offer makes the next follow-up eligible after 24
-     hours.
-     For each `ownerWaiting` item with a `chatUid`, remind the
+   - Run `ledger.ts monitor`: it lists what waits on the owner or on Meetly
+     too long. For each `ownerWaiting` item with a `chatUid`, remind the
      owner in that meeting thread (`message`, that chat uid as its target), in
      one line and in their language, that the time they were asked about is
      still waiting for their yes or no, with its `nextStep`. For each

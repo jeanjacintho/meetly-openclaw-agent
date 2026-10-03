@@ -283,14 +283,6 @@ test("the poll sends due reminders before reading messages, and marks each once"
   for (const action of ["`send`", "`wait`", "`cancelled`", "`no-link`", "`skip`"]) assert.ok(poll.includes(action), action);
 });
 
-test("the poll checks for a reply before sending one follow-up per offer", () => {
-  const poll = flat(readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8"));
-  assert.ok(poll.includes("For each `waitingOnThem` item, read the latest messages"));
-  assert.ok(poll.includes("If the person has already answered, do not nudge"));
-  assert.ok(poll.includes("personNudgedAt"));
-  assert.ok(poll.includes("eligible after 24 hours"));
-});
-
 test("a Meetly group is trusted but scoped to its meeting, and a group that fails to open is reported, not improvised", () => {
   const p = flat(prompt);
   assert.ok(p.includes("anyone who is not the owner can only arrange this one meeting"));
