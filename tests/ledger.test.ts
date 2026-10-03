@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  addRequest, commitTravel, discardStaleTravel, saveRequest, setTravel, stageTravel, settleOffer, discardStaleOffers, removeCleanupRef, appendLog, cleanupList, pendingOwnerList, expiredRequests, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, pipeline, stageOf,
+  addRequest, commitTravel, discardStaleTravel, saveRequest, setTravel, stageTravel, settleOffer, discardStaleOffers, removeCleanupRef, appendLog, cleanupList, pendingOwnerList, expiredRequests, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, monitor, pipeline, stageOf,
   type Ledger, type NewRequest,
 } from "../skills/meetly/scripts/ledger.ts";
 import { cli, tmpHome, handlesFile } from "./helpers.ts";
@@ -124,6 +124,46 @@ test("set-travel writes only the buffers of one offer or of the booking", () => 
   const withTravel = setTravel(booked, "r_1", travel, undefined, T0);
   assert.deepEqual(withTravel.requests[0]!.booked!.travel, travel);
   assert.equal("travel" in setTravel(withTravel, "r_1", [], undefined, T0).requests[0]!.booked!, false);
+});
+
+test("monitor nudges the other person once after a day; a staged replacement keeps the marker and waits, and promotion resets it", () => {
+  const offered = addRequest(empty(), input({ chatUid: "chat_1" }), T0, "r_1");
+  assert.equal(monitor(offered, T0 + 23 * HOUR).waitingOnThem.length, 0);
+  assert.equal(monitor(offered, T0 + 24 * HOUR).waitingOnThem.length, 1);
+  const nudged = updateRequest(offered, "r_1", { personNudgedAt: new Date(T0 + 24 * HOUR).toISOString() }, T0 + 24 * HOUR);
+  assert.equal(monitor(nudged, T0 + 25 * HOUR).waitingOnThem.length, 0);
+  // Staging a replacement does not clear the marker or allow a nudge while it is in flight, and a discard leaves it as it was.
+  const staged = saveRequest(nudged, input({ chatUid: "chat_1", offered: [{ ...offer, holdId: "h2" }] }), T0 + 30 * HOUR, "r_2", "rev1");
+  assert.equal(staged.requests[0]!.personNudgedAt, new Date(T0 + 24 * HOUR).toISOString());
+  assert.equal(monitor(staged, T0 + 60 * HOUR).waitingOnThem.length, 0);
+  assert.equal(settleOffer(staged, "r_1", "rev1", "discard", T0 + 31 * HOUR).requests[0]!.personNudgedAt, new Date(T0 + 24 * HOUR).toISOString());
+  // Promotion is a new offer: the marker is cleared and the next nudge is due a day later.
+  const promoted = settleOffer(staged, "r_1", "rev1", "promote", T0 + 31 * HOUR);
+  assert.equal(promoted.requests[0]!.personNudgedAt, undefined);
+  assert.equal(monitor(promoted, T0 + 54 * HOUR).waitingOnThem.length, 0);
+  assert.equal(monitor(promoted, T0 + 55 * HOUR).waitingOnThem.length, 1);
+  // A direct replacement (no group yet) resets it at once.
+  const direct = saveRequest(updateRequest(addRequest(empty(), input(), T0, "r_9"), "r_9", { personNudgedAt: new Date(T0).toISOString() }, T0), input({ offered: [{ ...offer, holdId: "h3" }] }), T0 + HOUR, "r_10");
+  assert.equal(direct.requests[0]!.personNudgedAt, undefined);
+});
+
+test("buffers of an owner-approved out-of-hours time live on the pending approval, and are booked or cleaned up with it", () => {
+  const acct = "jean@example.com";
+  const pendingStart = "2026-10-03T22:00:00-03:00";
+  const pendingOwner = { start: pendingStart, end: "2026-10-03T22:30:00-03:00", askedAt: new Date(T0).toISOString() };
+  const travel = [{ holdId: "t1", account: acct }, { holdId: "t2", account: acct }];
+  let l = addRequest(empty(), input(), T0, "r_1");
+  l = updateRequest(l, "r_1", { pendingOwner }, T0);
+  // The time is no offer, so set-travel parks the buffers on the pending approval instead of refusing.
+  const held = setTravel(l, "r_1", travel, pendingStart, T0);
+  assert.deepEqual(held.requests[0]!.pendingOwner!.travel, travel);
+  assert.deepEqual(held.requests[0]!.offered, l.requests[0]!.offered);
+  // Declined or replaced: they go to cleanup.
+  const declined = updateRequest(held, "r_1", { pendingOwner: null }, T0);
+  assert.deepEqual(declined.requests[0]!.holdCleanup!.map((h) => h.holdId), ["t1", "t2"]);
+  // Booked for that time (as record-booking does): the booking owns them, nothing is queued.
+  const booked = updateRequest(held, "r_1", { status: "booked", eventId: "e1", pendingOwner: null, booked: { start: pendingStart, end: pendingOwner.end, account: acct, travel } }, T0);
+  assert.equal(booked.requests[0]!.holdCleanup, undefined);
 });
 
 test("a re-offer to an existing group stays staged until its send succeeds", () => {

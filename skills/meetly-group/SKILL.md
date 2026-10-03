@@ -444,7 +444,9 @@ the meeting thread to answer there, and make no calendar changes.
      Immediately after both buffers exist, persist their refs on the offer for
      this start with `ledger.ts set-travel --id <id> --json-file <file>`
      (`{"start":"<pendingOwner.start>","travel":[<before>,<after>]}`, written
-     with the `write` tool). Do this before creating the event. If this write fails, delete both buffers, queue any
+     with the `write` tool; the ledger holds them on the pending approval, and
+     `record-booking.ts` moves them to the booking or, if the approval is
+     cleared first, the cleanup queue takes them). Do this before creating the event. If this write fails, delete both buffers, queue any
      failed deletes in `holdCleanup`, and do not book.
   3. If it is still free, create the event with `plow-gog calendar create
      primary` using the final details ("Pick" step 1), following "Book the
