@@ -51,7 +51,9 @@ Notes:
   Android, an RCS or SMS contact) gets nothing, and Plow still reports it as
   sent. `reachable-handle.ts` asks the owner's Messages archive which of a
   person's handles is on iMessage; use the handle it returns.
-- `start-thread.ts` opens every Meetly group, in the poll and for the owner.
+- `start-thread.ts` opens every new Meetly group, in the poll and for the owner;
+  an owner request made inside an existing one-contact group reuses that group
+  (`meetly-group` "Owner request in an existing group") and never opens another.
   It gives Plow 30 s and reports an unknown delivery without failing the
   turn; the `plow_start_thread` tool gives it 10 s and, on a slow Plow,
   withholds the turn's reply to the owner.

@@ -178,8 +178,9 @@ message is skipped.
   volume and survives restarts and rebuilds.
 - **Chat.** Your phone DM is the main session and runs setup. A group Meetly
   opened is recognized from its ledger and handled as that one meeting.
-- **Opening groups.** Meetly uses `start-thread.ts` for owner requests and
-  the scheduled poll. It calls `POST /v1/chats` with the owner plus the
+- **Opening groups.** Meetly uses `start-thread.ts` to open a new group for
+  owner requests and the scheduled poll; an owner request made in an existing
+  one-contact group reuses it. It calls `POST /v1/chats` with the owner plus the
   contact, trusted, and an idempotency key. An uncertain delivery is
   recorded without a chat and never resent. Meeting confirmations and
   approval asks stay in that group; the owner is a participant.
