@@ -109,6 +109,11 @@ test("an unknown time zone fails through the CLI", () => {
 });
 
 test("durations and horizons are bounded integers", () => {
+  // Travel time around an in-person meeting: minutes (or an hour), 0 to 180, none clears it.
+  for (const [value, min] of [["30", 30], ["45 min", 45], ["1h", 60], ["1.5h", 90], ["0", undefined], ["none", undefined]] as const) {
+    assert.deepEqual(parseField("travel", value), { travelMin: min }, value);
+  }
+  for (const bad of ["soon", "-5", "181", "4h", ""]) assert.throws(() => parseField("travel", bad), /travel/, bad);
   // The video provider is Meet, or the owner's personal Zoom room (a strict https zoom.us URL).
   assert.deepEqual(parseField("videoProvider", "meet"), { zoomRoomUrl: undefined });
   const room = "https://us02web.zoom.us/j/123456789?pwd=abc.DEF";
@@ -210,6 +215,10 @@ test("editing a field after setup updates config.json and keeps setupDoneAt", ()
     record("minNotice", "default");
     assert.equal("minNoticeMin" in readJson<object>(join(home, "config.json"), {}), false);
     assert.equal(config.setupDoneAt, "2026-09-26T12:00:00.000Z");
+    record("travel", "30");
+    assert.equal(readJson<Config | null>(join(home, "config.json"), null)!.travelMin, 30);
+    record("travel", "none");
+    assert.equal("travelMin" in readJson<object>(join(home, "config.json"), {}), false);
     record("videoProvider", "https://zoom.us/j/123456789");
     assert.equal(readJson<Config | null>(join(home, "config.json"), null)!.zoomRoomUrl, "https://zoom.us/j/123456789");
     record("videoProvider", "meet");

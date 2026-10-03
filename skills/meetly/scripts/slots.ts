@@ -13,7 +13,8 @@ import { loadConfig, MIN_NOTICE_MIN, minutes, parseTime, SLOT_COUNT, STEP_MIN, t
 import type { Busy } from "./busy.ts";
 import { addDays, DAYS, localIso, wallParts, zonedToUtc, type Day } from "./time.ts";
 
-export type Slot = { start: string; end: string; dayOfWeek: Day; label: string };
+type TravelWindow = { start: string; end: string };
+export type Slot = { start: string; end: string; dayOfWeek: Day; label: string; travel?: { before: TravelWindow; after: TravelWindow } };
 
 export type SlotQuery = {
   now: number;
@@ -30,6 +31,7 @@ export type SlotQuery = {
   exclude?: string[];
   count?: number;
   locale?: string;
+  travelMin?: number;
 };
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -51,10 +53,26 @@ function label(ms: number, tz: string, format?: Intl.DateTimeFormat): string {
   return `${p.weekday} ${p.d}/${p.m} ${pad(p.hh)}:${pad(p.mm)}`;
 }
 
+const travelMinutes = (n = 0): number => {
+  if (!Number.isInteger(n) || n < 0 || n > 180) throw new Error("--travel must be a whole number from 0 to 180 minutes");
+  return n;
+};
+
+// The travel blocks around a meeting, as UTC instants, when a buffer is set.
+const travelWindow = (start: number, end: number, travelMin: number) => {
+  if (travelMin === 0) return {};
+  const utc = (ms: number) => new Date(ms).toISOString().replace(".000Z", "Z");
+  return { travel: {
+    before: { start: utc(start - travelMin * 60_000), end: utc(start) },
+    after: { start: utc(end), end: utc(end + travelMin * 60_000) },
+  } };
+};
+
 export function findSlots(q: SlotQuery): { slots: Slot[]; unknownAfter?: string } {
   const { config, now } = q;
   const tz = config.timezone;
   const duration = q.durationMin ?? config.durationMin;
+  const travelMin = travelMinutes(q.travelMin);
   const count = q.count ?? SLOT_COUNT;
 
   const days = q.days ? config.days.filter((d) => q.days!.includes(d)) : config.days;
@@ -62,9 +80,13 @@ export function findSlots(q: SlotQuery): { slots: Slot[]; unknownAfter?: string 
   let endMin = minutes(config.windowEnd);
   if (q.after) startMin = Math.max(startMin, minutes(q.after));
   if (q.before) endMin = Math.min(endMin, minutes(q.before));
+  // Keep both travel blocks inside the owner's working window. The notice
+  // period applies to the trip, so the meeting itself starts later by buffer.
+  startMin += travelMin;
+  endMin -= travelMin;
   startMin = Math.ceil(startMin / STEP_MIN) * STEP_MIN;
 
-  const earliest = now + (config.minNoticeMin ?? MIN_NOTICE_MIN) * 60_000;
+  const earliest = now + ((config.minNoticeMin ?? MIN_NOTICE_MIN) + travelMin) * 60_000;
   const excluded = new Set((q.exclude ?? []).map((e) => Date.parse(e)));
   const allowed = new Set(q.allowOverlap ?? []);
   const busy = q.busy
@@ -84,12 +106,14 @@ export function findSlots(q: SlotQuery): { slots: Slot[]; unknownAfter?: string 
     for (let t = startMin; t + duration <= endMin; t += STEP_MIN) {
       const start = zonedToUtc(y, m, d, Math.floor(t / 60), t % 60, tz);
       const end = start + duration * 60_000;
-      if (unknownAfter !== undefined && end > unknownAfter) {
+      const bufferStart = start - travelMin * 60_000;
+      const bufferEnd = end + travelMin * 60_000;
+      if (unknownAfter !== undefined && bufferEnd > unknownAfter) {
         perDay.push(found);
         break scan;
       }
       if (start < earliest || excluded.has(start)) continue;
-      if (busy.some((b) => b.start < end && b.end > start)) continue;
+      if (busy.some((b) => b.start < bufferEnd && b.end > bufferStart)) continue;
       found.push({ start, end, day });
     }
     perDay.push(found);
@@ -109,6 +133,7 @@ export function findSlots(q: SlotQuery): { slots: Slot[]; unknownAfter?: string 
     end: localIso(c.end, tz),
     dayOfWeek: c.day,
     label: label(c.start, tz, format),
+    ...travelWindow(c.start, c.end, travelMin),
   }));
   return q.unknownAfter !== undefined ? { slots, unknownAfter: q.unknownAfter } : { slots };
 }
@@ -133,8 +158,10 @@ export function checkTime(q: {
   durationMin?: number;
   allowOverlap?: string[];
   locale?: string;
+  travelMin?: number;
 }): TimeCheck {
   const tz = q.config.timezone;
+  const travelMin = travelMinutes(q.travelMin);
   // A wall time with no offset (2026-10-03T10:00) is the owner's clock.
   const wall = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(q.start);
   const start = wall
@@ -142,20 +169,26 @@ export function checkTime(q: {
     : Date.parse(q.start);
   if (Number.isNaN(start)) throw new Error(`not a time: ${q.start}`);
   const end = start + (q.durationMin ?? q.config.durationMin) * 60_000;
+  const bufferStart = start - travelMin * 60_000;
+  const bufferEnd = end + travelMin * 60_000;
   const s = wallParts(start, tz);
-  const e = wallParts(end, tz);
-  const sameDay = s.y === e.y && s.m === e.m && s.d === e.d;
-  const outsideHours = !q.config.days.includes(s.weekday) || !sameDay ||
-    s.hh * 60 + s.mm < minutes(q.config.windowStart) || e.hh * 60 + e.mm > minutes(q.config.windowEnd);
+  const bs = wallParts(bufferStart, tz);
+  const be = wallParts(bufferEnd, tz);
+  const sameDay = bs.y === be.y && bs.m === be.m && bs.d === be.d;
+  const outsideHours = !q.config.days.includes(bs.weekday) || !sameDay ||
+    bs.hh * 60 + bs.mm < minutes(q.config.windowStart) || be.hh * 60 + be.mm > minutes(q.config.windowEnd);
   const allowed = new Set(q.allowOverlap ?? []);
   let reason: TimeCheck["reason"];
-  if (q.unknownAfter !== undefined && end > Date.parse(q.unknownAfter)) reason = "unknown";
-  else if (start < q.now + (q.config.minNoticeMin ?? MIN_NOTICE_MIN) * 60_000) reason = "too-soon";
-  else if (q.busy.some((b) => (b.id === undefined || !allowed.has(b.id)) && Date.parse(b.start) < end && Date.parse(b.end) > start)) {
+  if (q.unknownAfter !== undefined && bufferEnd > Date.parse(q.unknownAfter)) reason = "unknown";
+  else if (bufferStart < q.now + (q.config.minNoticeMin ?? MIN_NOTICE_MIN) * 60_000) reason = "too-soon";
+  else if (q.busy.some((b) => (b.id === undefined || !allowed.has(b.id)) && Date.parse(b.start) < bufferEnd && Date.parse(b.end) > bufferStart)) {
     reason = "busy";
   }
   const format = q.locale !== undefined ? localeFormatter(q.locale, tz) : undefined;
-  const slot: Slot = { start: localIso(start, tz), end: localIso(end, tz), dayOfWeek: s.weekday, label: label(start, tz, format) };
+  const slot: Slot = {
+    start: localIso(start, tz), end: localIso(end, tz), dayOfWeek: s.weekday, label: label(start, tz, format),
+    ...travelWindow(start, end, travelMin),
+  };
   return reason ? { slot, free: false, reason, outsideHours } : { slot, free: true, outsideHours };
 }
 
@@ -186,6 +219,7 @@ if (isMain(import.meta.url)) {
         at: { type: "string" },
         now: { type: "string" },
         locale: { type: "string" },
+        travel: { type: "string" },
       },
     });
     const config = loadConfig();
@@ -205,6 +239,7 @@ if (isMain(import.meta.url)) {
       const check: Parameters<typeof checkTime>[0] = { now, config, busy: input.busy, start: values.at };
       if (input.unknownAfter !== undefined) check.unknownAfter = input.unknownAfter;
       if (values.duration !== undefined) check.durationMin = positiveInt(values.duration, "--duration");
+      if (values.travel !== undefined) check.travelMin = positiveInt(values.travel, "--travel");
       if (values["allow-overlap"]) check.allowOverlap = values["allow-overlap"];
       if (values.locale !== undefined) check.locale = values.locale;
       return { ...checkTime(check), degraded };
@@ -212,6 +247,7 @@ if (isMain(import.meta.url)) {
     const q: SlotQuery = { now, config, busy: input.busy };
     if (input.unknownAfter !== undefined) q.unknownAfter = input.unknownAfter;
     if (values.duration !== undefined) q.durationMin = positiveInt(values.duration, "--duration");
+    if (values.travel !== undefined) q.travelMin = positiveInt(values.travel, "--travel");
     if (values.count !== undefined) q.count = positiveInt(values.count, "--count");
     if (values.days !== undefined) {
       q.days = values.days.split(/[\s,]+/).filter(Boolean).map((d) => {
