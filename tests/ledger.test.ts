@@ -6,7 +6,7 @@ import {
   addRequest, approveRequest, declineRequest, assertDeliverable, saveRequest, settleOffer, discardStaleOffers, removeCleanupRef, appendLog, cleanupList, pendingOwnerList, ownerApprovalList, expiredRequests, expireRequests, monitor, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, pipeline, stageOf,
   type Ledger, type NewRequest,
 } from "../skills/meetly/scripts/ledger.ts";
-import { cli, tmpHome, handlesFile } from "./helpers.ts";
+import { cli, tmpHome, handlesFile, writeConfig } from "./helpers.ts";
 
 const T0 = Date.parse("2026-09-28T12:00:00Z");
 const HOUR = 3600_000;
@@ -360,15 +360,20 @@ test("a delivery goes only to the request that was authorized: a replaced offer 
   const approved = approveRequest(waiting, "r_1", T0 + HOUR).ledger;
   const r = approved.requests[0]!;
   const seen = { handle: r.handle, offeredAt: r.offeredAt, ownerApprovedAt: r.ownerApprovedAt };
-  assert.doesNotThrow(() => assertDeliverable(approved, "r_1", seen, true));
+  assert.doesNotThrow(() => assertDeliverable(approved, "r_1", seen));
   // Not approved, another person, another offer or approval, or closed: refused.
-  assert.throws(() => assertDeliverable(waiting, "r_1", seen, true), /not approved/);
-  assert.throws(() => assertDeliverable(approved, "r_1", { ...seen, handle: "+15550000000" }, true), /changed since it was authorized/);
+  assert.throws(() => assertDeliverable(waiting, "r_1", seen), /not approved/);
+  assert.throws(() => assertDeliverable(approved, "r_1", { ...seen, handle: "+15550000000" }), /changed since it was authorized/);
   const replaced = saveRequest(approved, input({ offered: [{ ...offer, holdId: "h9" }], ownerApprovalAt: new Date(T0 + 3 * HOUR).toISOString() }), T0 + 3 * HOUR, "r_2");
-  assert.throws(() => assertDeliverable(replaced, "r_1", seen, true), /not approved|changed since/);
+  assert.throws(() => assertDeliverable(replaced, "r_1", seen), /not approved|changed since/);
   const reapproved = approveRequest(replaced, "r_1", T0 + 4 * HOUR).ledger;
-  assert.throws(() => assertDeliverable(reapproved, "r_1", seen, true), /changed since it was authorized/);
-  assert.throws(() => assertDeliverable(expireRequests(approved, 48, T0 + 200 * HOUR).ledger, "r_1", seen, true), /no longer open/);
+  assert.throws(() => assertDeliverable(reapproved, "r_1", seen), /changed since it was authorized/);
+  assert.throws(() => assertDeliverable(expireRequests(approved, 48, T0 + 200 * HOUR).ledger, "r_1", seen), /no longer open/);
+  // A request saved before approval timestamps existed (inbound, no group, no marker) follows the same path: it is delivered
+  // with the same requestId, while a newly saved inbound request is gated by `save`.
+  const legacy = addRequest(empty(), input(), T0, "r_old");
+  const lr = legacy.requests[0]!;
+  assert.doesNotThrow(() => assertDeliverable(legacy, "r_old", { handle: lr.handle, offeredAt: lr.offeredAt }));
 });
 
 test("the owner's yes is claimed atomically: only a request still open and waiting can be approved", () => {
@@ -437,11 +442,16 @@ test("CLI add, find, update and cleanup round-trip", () => {
     assert.equal(refused.status, 1);
     assert.match(refused.stderr, /written only by/);
   }
-  assert.equal(cli("ledger.ts", ["save", "--json", JSON.stringify(input({ handle: "+15558880000", ownerApprovalAt: "2026-10-03T12:00:00Z" }))], env).status, 1);
-  // Before setup there is no configuration and nothing is gated; with the gate on (the default) an inbound offer with no group waits.
-  const before = cli("ledger.ts", ["save", "--json", JSON.stringify(input({ handle: "+15557770000" }))], env).json.request;
-  assert.equal(before.ownerApprovalAt, undefined);
-  writeFileSync(join(home, "config.json"), JSON.stringify({ ownerName: "Jean", timezone: "America/Sao_Paulo", days: ["mon"], windowStart: "09:00", windowEnd: "18:00", durationMin: 30, horizonDays: 7, calendars: [{ account: "a@example.com", id: "a@example.com" }], defaultAccount: "a@example.com", setupDoneAt: "2026-09-28T12:00:00.000Z" }));
+  // Saving needs a finished setup: before it the command refuses (nothing can reach this path before setup).
+  const early = cli("ledger.ts", ["save", "--json", JSON.stringify(input({ handle: "+15558880000" }))], env);
+  assert.equal(early.status, 1);
+  assert.match(early.stderr, /not set up/);
+  writeConfig(home);
+  // A model-supplied approval marker is refused.
+  const supplied = cli("ledger.ts", ["save", "--json", JSON.stringify(input({ handle: "+15558880000", ownerApprovalAt: "2026-10-03T12:00:00Z" }))], env);
+  assert.equal(supplied.status, 1);
+  assert.match(supplied.stderr, /written only by/);
+  // With the gate on (the default) an inbound offer with no group waits.
   const gated = cli("ledger.ts", ["save", "--json", JSON.stringify(input({ handle: "+15558880000" }))], env).json.request;
   assert.equal(typeof gated.ownerApprovalAt, "string");
   // An owner request, and a request that already has a group, are never gated.

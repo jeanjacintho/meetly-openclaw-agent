@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { addRequest, updateRequest, type Ledger, type NewRequest } from "../skills/meetly/scripts/ledger.ts";
 import { parseEvent, type EventInfo } from "../skills/meetly/scripts/event.ts";
 import { recordBooking } from "../skills/meetly/scripts/record-booking.ts";
-import { cli, tmpHome } from "./helpers.ts";
+import { cli, tmpHome, writeConfig } from "./helpers.ts";
 
 const FIXTURES = resolve(import.meta.dirname, "fixtures", "calendar");
 const fixture = (name: string) => readFileSync(join(FIXTURES, `${name}.txt`), "utf8");
@@ -96,6 +96,7 @@ test("refuses a cancelled event, another event for a booked request, a closed re
 test("CLI books from gog's saved output and prints the link", () => {
   const home = tmpHome();
   const env = { MEETLY_HOME: home };
+  writeConfig(home, { ownerGate: false });
   const saved = cli("ledger.ts", ["save", "--json", JSON.stringify(input({ format: "meet" }))], env);
   const id = saved.json.request.id;
   const file = join(home, "event.txt");

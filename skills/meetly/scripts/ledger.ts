@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
 import { isEmailAddress } from "./reachable-handle.ts";
-import { DEFAULT_FORMATS, holdHours, reminderLeadMin, type DefaultFormat } from "./config.ts";
+import { DEFAULT_FORMATS, holdHours, loadConfig, reminderLeadMin, type DefaultFormat } from "./config.ts";
 import { isMeetUrl, isZoomRoomUrl } from "./event.ts";
 import { file } from "./paths.ts";
 import { readJson, updateJson } from "./store.ts";
@@ -459,15 +459,15 @@ export function approveRequest(ledger: Ledger, id: string, now: number): { ledge
 }
 
 // start-thread.ts verifies this under the ledger lock immediately before the POST: the request must still be the one
-// that was authorized (open, approved when the gate is on, the same person, offer and approval), so an offer or
+// that was authorized (open, not waiting for approval, the same person, offer and approval), so an offer or
 // approval replaced since validation stops the stale opener. Nothing is marked: an approved request with no chat is
 // an uncertain delivery, recovered only when the owner confirms the group is absent (same idempotency key).
 export function assertDeliverable(
-  ledger: Ledger, id: string, seen: { handle: string; offeredAt: string; ownerApprovedAt?: string }, gateOn: boolean,
+  ledger: Ledger, id: string, seen: { handle: string; offeredAt: string; ownerApprovedAt?: string },
 ): void {
   const r = ledger.requests.find((x) => x.id === id);
   if (!r || r.status !== "offered") throw new Error(`request ${id} is no longer open: nothing was sent`);
-  if (awaitingOwnerApproval(r) || (gateOn && r.ownerApprovedAt === undefined)) throw new Error(`request ${id} is not approved by the owner: nothing was sent`);
+  if (awaitingOwnerApproval(r)) throw new Error(`request ${id} is not approved by the owner: nothing was sent`);
   if (!sameHandle(r.handle, seen.handle) || r.offeredAt !== seen.offeredAt || r.ownerApprovedAt !== seen.ownerApprovedAt) {
     throw new Error(`request ${id} changed since it was authorized (another offer or approval replaced it): nothing was sent, start again`);
   }
@@ -679,9 +679,7 @@ if (isMain(import.meta.url)) {
         const revision = randomBytes(4).toString("hex");
         // The owner gate is decided here, in the locked write, from the configuration and the current request: an
         // inbound offer that has no group yet waits for the owner's approval; the caller never supplies the marker.
-        // (Before setup there is no configuration and nothing is gated.)
-        const config = readJson<{ ownerGate?: boolean } | null>(file("config.json"), null);
-        const gateOn = config !== null && (config.ownerGate ?? true);
+        const gateOn = loadConfig().ownerGate === true;
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => {
           const hasGroup = (findOpenByHandle(l, input.handle)?.chatUid ?? input.chatUid) !== undefined;
           if (gateOn && input.origin === "inbound" && !hasGroup) {

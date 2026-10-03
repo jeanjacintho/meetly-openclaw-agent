@@ -19,6 +19,14 @@ export function seedRequest(home: string, over: Record<string, unknown> = {}): v
   writeFileSync(join(home, "ledger.json"), JSON.stringify({ requests: [request] }));
 }
 
+// A finished setup in the data dir, for the scripts that read the configuration (the gate is on unless overridden).
+export function writeConfig(home: string, over: Record<string, unknown> = {}): void {
+  writeFileSync(join(home, "config.json"), JSON.stringify({
+    ownerName: "Jean", timezone: "America/Sao_Paulo", days: ["mon"], windowStart: "09:00", windowEnd: "18:00", durationMin: 30, horizonDays: 7,
+    calendars: [{ account: "a@example.com", id: "a@example.com" }], defaultAccount: "a@example.com", setupDoneAt: "2026-09-28T12:00:00.000Z", ...over,
+  }));
+}
+
 // A handle reaches a script only through a JSON array file, never the command line.
 export function handlesFile(...handles: string[]): string {
   const path = join(tmpHome(), "handles.json");

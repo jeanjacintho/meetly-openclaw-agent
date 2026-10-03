@@ -15,7 +15,6 @@ import { isMain, run } from "./cli.ts";
 import { isBlocked, loadBlocked } from "./blocklist.ts";
 import { fetchIdentity, findOwnerDm, plowApi, type ApiOptions } from "./owner-chat.ts";
 import { assertDeliverable, awaitingOwnerApproval, sameHandle, updateRequest, type Ledger } from "./ledger.ts";
-import { loadConfig } from "./config.ts";
 import { file } from "./paths.ts";
 import { isHandle } from "./reachable-handle.ts";
 import { readJson, withLock, writeJson } from "./store.ts";
@@ -39,11 +38,6 @@ export async function startThread(opts: ApiOptions & { members: string[]; body: 
   const request = readJson<Ledger>(file("ledger.json"), { requests: [] }).requests.find((r) => r.id === opts.requestId);
   if (!request || request.status !== "offered") throw new Error(`request ${opts.requestId} is not an open request: save the offer first`);
   if (awaitingOwnerApproval(request)) throw new Error(`request ${request.id} is waiting for the owner's approval: nothing may be sent yet`);
-  // With the owner gate on, an inbound request needs the owner's recorded approval, whatever the ledger's marker says.
-  const gateOn = request.origin === "inbound" && loadConfig().ownerGate === true;
-  if (gateOn && request.ownerApprovedAt === undefined) {
-    throw new Error(`request ${request.id} has not been approved by the owner: nothing may be sent yet`);
-  }
   if (!opts.members.every((m) => sameHandle(m, request.handle))) throw new Error(`the member must be the request's person (${request.handle})`);
   if (!opts.body.trim()) throw new Error("the body is empty");
   const api = plowApi(opts);
@@ -70,7 +64,7 @@ export async function startThread(opts: ApiOptions & { members: string[]; body: 
     // that is sent and linked.
     return withLock(file("ledger.json"), async (): Promise<Started> => {
       const ledger = readJson<Ledger>(file("ledger.json"), { requests: [] });
-      assertDeliverable(ledger, request.id, { handle: request.handle, offeredAt: request.offeredAt, ownerApprovedAt: request.ownerApprovedAt }, gateOn);
+      assertDeliverable(ledger, request.id, { handle: request.handle, offeredAt: request.offeredAt, ownerApprovedAt: request.ownerApprovedAt });
 
       let res: Response;
       try {

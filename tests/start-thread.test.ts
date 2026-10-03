@@ -136,7 +136,7 @@ test("an iMessage email is a member like a phone, which is how an Android owner 
   assert.deepEqual(JSON.parse(String(calls[1]!.init?.body)).members, ["+5511999990000", "ana@example.com"]);
 });
 
-test("opens a group only for the saved open request and its own person, and never before the owner approves", async () => {
+test("opens a group only for the saved open request and its own person, never while the owner approval is pending", async () => {
   const calls: Call[] = [];
   const fetch = fakeFetch(() => new Response('{"uid":"chat_9"}', { status: 201 }), calls);
   const go = (over: Record<string, unknown> = {}) => startThread({ ...args, fetch, base, token: "tok", ...over });
@@ -147,14 +147,12 @@ test("opens a group only for the saved open request and its own person, and neve
   seedRequest(home, { origin: "inbound", ownerApprovalAt: "2026-09-28T12:00:00.000Z" });
   await assert.rejects(go(), /waiting for the owner's approval/);
   assert.equal(calls.length, 0);
-  // With the gate on, an inbound request that never got the pending marker is refused too: the config decides.
-  writeFileSync(join(home, "config.json"), JSON.stringify({
-    ownerName: "Jean", timezone: "America/Sao_Paulo", days: ["mon"], windowStart: "09:00", windowEnd: "18:00", durationMin: 30, horizonDays: 7,
-    calendars: [{ account: "a@example.com", id: "a@example.com" }], defaultAccount: "a@example.com", setupDoneAt: "2026-09-28T12:00:00.000Z",
-  }));
+  // A request saved before approval markers existed (inbound, no marker) follows the normal path with the same requestId;
+  // newly saved inbound requests are gated by ledger.ts save, which writes the marker (covered in the ledger tests).
   seedRequest(home, { origin: "inbound" });
-  await assert.rejects(go(), /not been approved by the owner/);
-  assert.equal(calls.length, 0);
+  assert.deepEqual(await go(), { chatUid: "chat_9", messageSent: true });
+  seedRequest(home, { origin: "inbound", ownerApprovalAt: "2026-09-28T12:00:00.000Z" });
+  await assert.rejects(go(), /waiting for the owner's approval/);
   seedRequest(home, { origin: "inbound", ownerApprovalAt: "2026-09-28T12:00:00.000Z", ownerApprovedAt: "2026-09-28T12:05:00.000Z" });
   assert.deepEqual(await go(), { chatUid: "chat_9", messageSent: true });
 });

@@ -6,7 +6,7 @@ import {
   type Ledger, type NewRequest, type Patch,
 } from "../skills/meetly/scripts/ledger.ts";
 import { reminderLeadMin } from "../skills/meetly/scripts/config.ts";
-import { cli, tmpHome } from "./helpers.ts";
+import { cli, tmpHome, writeConfig } from "./helpers.ts";
 
 const T0 = Date.parse("2026-09-28T12:00:00Z");
 const MIN = 60_000;
@@ -207,6 +207,7 @@ test("the reminder lead reads MEETLY_REMINDER_LEAD_MIN and falls back to 10", ()
 test("CLI save with a format, book, list due reminders, mark sent", () => {
   const home = tmpHome();
   const env = { MEETLY_HOME: home };
+  writeConfig(home, { ownerGate: false });
   const saved = cli("ledger.ts", ["save", "--json", JSON.stringify(input({ format: "meet", locale: "pt-BR" }))], env);
   assert.equal(saved.status, 0, saved.stderr);
   const id = saved.json.request.id;
