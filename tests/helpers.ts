@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -25,6 +25,12 @@ export function writeConfig(home: string, over: Record<string, unknown> = {}): v
     ownerName: "Jean", timezone: "America/Sao_Paulo", days: ["mon"], windowStart: "09:00", windowEnd: "18:00", durationMin: 30, horizonDays: 7,
     calendars: [{ account: "a@example.com", id: "a@example.com" }], defaultAccount: "a@example.com", setupDoneAt: "2026-09-28T12:00:00.000Z", ...over,
   }));
+}
+
+// Creates a request through the CLI the way the skills do (`ledger.ts save`), with a finished setup that has the gate off.
+export function saveCli(env: Record<string, string>, request: object): CliResult {
+  if (!existsSync(join(env.MEETLY_HOME!, "config.json"))) writeConfig(env.MEETLY_HOME!, { ownerGate: false });
+  return cli("ledger.ts", ["save", "--json", JSON.stringify(request)], env);
 }
 
 // A handle reaches a script only through a JSON array file, never the command line.

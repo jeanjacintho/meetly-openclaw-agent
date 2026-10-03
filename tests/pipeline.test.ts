@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { addRequest, appendLog, historyFor, monitor, pipeline, updateRequest, type Ledger, type NewRequest } from "../skills/meetly/scripts/ledger.ts";
-import { cli, tmpHome, handlesFile } from "./helpers.ts";
+import { cli, tmpHome, handlesFile, saveCli } from "./helpers.ts";
 
 const ROOT = join(import.meta.dirname, "..");
 const flat = (path: string) => readFileSync(join(ROOT, path), "utf8").replace(/\s+/g, " ");
@@ -84,7 +84,7 @@ test("history lists everything with a person, newest first, so the goal and the 
 
 test("the CLI prints the pipeline and a person's history", () => {
   const env = { MEETLY_HOME: tmpHome() };
-  cli("ledger.ts", ["add", "--json", JSON.stringify(input("+15550000001", { name: "Ana" }))], env);
+  saveCli(env, input("+15550000001", { name: "Ana" }));
   const p = cli("ledger.ts", ["pipeline"], env);
   assert.equal(p.status, 0, p.stderr);
   assert.deepEqual(Object.keys(p.json), ["waitingOnOwner", "deliveryUnknown", "waitingOnThem", "booked", "closed"]);
@@ -145,7 +145,7 @@ test("a request keeps a dated log of what happened, newest last, bounded, and re
   // The history for the model carries no log; it is read with `ledger.ts log --id`.
   assert.equal("log" in historyFor(l, "+15550000001")[0]!, false);
   const env = { MEETLY_HOME: tmpHome() };
-  const id = cli("ledger.ts", ["add", "--json", JSON.stringify(input("+15550000001"))], env).json.request.id;
+  const id = saveCli(env, input("+15550000001")).json.request.id;
   // Free text never rides on the command line: it goes through a file.
   const textFile = join(env.MEETLY_HOME, "log.txt");
   writeFileSync(textFile, "Offer sent; $(touch pwned)\n");

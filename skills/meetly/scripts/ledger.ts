@@ -666,8 +666,11 @@ if (isMain(import.meta.url)) {
         throw new Error("usage: ledger.ts find --handles-file F | --chat U | --event E --account A");
       }
       case "add": {
+        // The atomic create-or-refuse for an owner's own request (the existing-group flow). An inbound request has to go
+        // through `save`, which applies the owner gate, so it can never be created here without the pending marker.
         const input = jsonArg(values);
         refuseApprovalKeys(input);
+        if (input.origin !== "owner") throw new Error("add is only for the owner's own requests; save an inbound request with ledger.ts save (it applies the owner gate)");
         const id = `r_${randomBytes(4).toString("hex")}`;
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => addRequest(l, input, now, id));
         return { request: ledger.requests.find((r) => r.id === id) };

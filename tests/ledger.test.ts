@@ -6,7 +6,7 @@ import {
   addRequest, approveRequest, declineRequest, assertDeliverable, saveRequest, settleOffer, discardStaleOffers, removeCleanupRef, appendLog, cleanupList, pendingOwnerList, ownerApprovalList, expiredRequests, expireRequests, monitor, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, pipeline, stageOf,
   type Ledger, type NewRequest,
 } from "../skills/meetly/scripts/ledger.ts";
-import { cli, tmpHome, handlesFile, writeConfig } from "./helpers.ts";
+import { cli, tmpHome, handlesFile, writeConfig, saveCli } from "./helpers.ts";
 
 const T0 = Date.parse("2026-09-28T12:00:00Z");
 const HOUR = 3600_000;
@@ -180,10 +180,10 @@ test("find by chat and sender resolves a replacement offer without a chat link",
 test("CLI sender-aware chat lookup prefers open request over closed chat history", () => {
   const home = tmpHome();
   const env = { MEETLY_HOME: home };
-  cli("ledger.ts", ["add", "--json", JSON.stringify(input({ chatUid: "c1" }))], env);
+  saveCli(env, input({ chatUid: "c1" }));
   const old = cli("ledger.ts", ["find", "--chat", "c1"], env).json.request;
   cli("ledger.ts", ["update", "--id", old.id, "--json", '{"status":"dropped"}'], env);
-  const replacement = cli("ledger.ts", ["add", "--json", JSON.stringify(input({ offered: [{ ...offer, holdId: "h2" }] }))], env).json.request;
+  const replacement = saveCli(env, input({ offered: [{ ...offer, holdId: "h2" }] })).json.request;
   const current = cli("ledger.ts", ["find", "--chat", "c1", "--handles-file", handlesFile("+15551234567")], env);
   assert.equal(current.status, 0, current.stderr);
   assert.equal(current.json.request.id, replacement.id);
@@ -193,7 +193,7 @@ test("CLI combined lookup returns a closed chat request when the sender has no o
   for (const status of ["booked", "dropped", "expired"] as const) {
     const home = tmpHome();
     const env = { MEETLY_HOME: home };
-    const created = cli("ledger.ts", ["add", "--json", JSON.stringify(input({ chatUid: "c1" }))], env);
+    const created = saveCli(env, input({ chatUid: "c1" }));
     const request = created.json.request;
     cli("ledger.ts", ["update", "--id", request.id, "--json", JSON.stringify({ status })], env);
 
@@ -345,7 +345,7 @@ test("owner gate requests wait for owner approval and appear in the approvals li
 test("the CLI expire closes an old request once and queues its holds", () => {
   const home = tmpHome();
   const env = { MEETLY_HOME: home };
-  const id = cli("ledger.ts", ["add", "--json", JSON.stringify(input({ chatUid: "chat_1" }))], env).json.request.id;
+  const id = saveCli(env, input({ chatUid: "chat_1" })).json.request.id;
   assert.deepEqual(cli("ledger.ts", ["expire"], env).json, { requests: [] });
   const expired = cli("ledger.ts", ["expire", "--hours", "0"], env).json.requests;
   assert.deepEqual(expired.map((r: { id: string; status: string; chatUid: string }) => [r.id, r.status, r.chatUid]), [[id, "offered", "chat_1"]]);
@@ -369,11 +369,6 @@ test("a delivery goes only to the request that was authorized: a replaced offer 
   const reapproved = approveRequest(replaced, "r_1", T0 + 4 * HOUR).ledger;
   assert.throws(() => assertDeliverable(reapproved, "r_1", seen), /changed since it was authorized/);
   assert.throws(() => assertDeliverable(expireRequests(approved, 48, T0 + 200 * HOUR).ledger, "r_1", seen), /no longer open/);
-  // A request saved before approval timestamps existed (inbound, no group, no marker) follows the same path: it is delivered
-  // with the same requestId, while a newly saved inbound request is gated by `save`.
-  const legacy = addRequest(empty(), input(), T0, "r_old");
-  const lr = legacy.requests[0]!;
-  assert.doesNotThrow(() => assertDeliverable(legacy, "r_old", { handle: lr.handle, offeredAt: lr.offeredAt }));
 });
 
 test("the owner's yes is claimed atomically: only a request still open and waiting can be approved", () => {
@@ -416,10 +411,16 @@ test("the owner's no closes the request and queues every hold in one write, only
   assert.equal(declineRequest(waiting, "nope", T0).declined, false);
 });
 
+test("ledger.ts save needs a finished setup", () => {
+  const early = cli("ledger.ts", ["save", "--json", JSON.stringify(input({ handle: "+15558880000" }))], { MEETLY_HOME: tmpHome() });
+  assert.equal(early.status, 1);
+  assert.match(early.stderr, /not set up/);
+});
+
 test("CLI add, find, update and cleanup round-trip", () => {
   const home = tmpHome();
   const env = { MEETLY_HOME: home };
-  const added = cli("ledger.ts", ["add", "--json", JSON.stringify(input({ handle: "+1 (555) 123-4567" }))], env);
+  const added = saveCli(env, input({ handle: "+1 (555) 123-4567" }));
   assert.equal(added.status, 0, added.stderr);
   const id = added.json.request.id;
   assert.match(id, /^r_[0-9a-f]{8}$/);
@@ -442,10 +443,6 @@ test("CLI add, find, update and cleanup round-trip", () => {
     assert.equal(refused.status, 1);
     assert.match(refused.stderr, /written only by/);
   }
-  // Saving needs a finished setup: before it the command refuses (nothing can reach this path before setup).
-  const early = cli("ledger.ts", ["save", "--json", JSON.stringify(input({ handle: "+15558880000" }))], env);
-  assert.equal(early.status, 1);
-  assert.match(early.stderr, /not set up/);
   writeConfig(home);
   // A model-supplied approval marker is refused.
   const supplied = cli("ledger.ts", ["save", "--json", JSON.stringify(input({ handle: "+15558880000", ownerApprovalAt: "2026-10-03T12:00:00Z" }))], env);
@@ -466,9 +463,13 @@ test("CLI add, find, update and cleanup round-trip", () => {
   assert.equal(cli("ledger.ts", ["approve", "--id", gated.id], env).json.approved, true);
   assert.deepEqual(cli("ledger.ts", ["approvals"], env).json.requests, []);
   assert.equal(cli("ledger.ts", ["decline", "--id", gated.id], env).json.declined, false);
-  const dup = cli("ledger.ts", ["add", "--json", JSON.stringify(input())], env);
-  assert.equal(dup.status, 1);
-  assert.match(dup.stderr, /already exists/);
+  // No way to create an inbound request that skips the owner gate: `add` takes only the owner's own requests (refusing a second one for the person), and inbound goes through `save`.
+  const refused = cli("ledger.ts", ["add", "--json", JSON.stringify(input({ handle: "+15551110000" }))], env);
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /only for the owner's own requests/);
+  const ownerAdd = cli("ledger.ts", ["add", "--json", JSON.stringify(input({ handle: "+15551110000", origin: "owner" }))], env);
+  assert.equal(ownerAdd.status, 0, ownerAdd.stderr);
+  assert.match(cli("ledger.ts", ["add", "--json", JSON.stringify(input({ handle: "+15551110000", origin: "owner" }))], env).stderr, /already exists/);
   const saved = cli("ledger.ts", ["save", "--json", JSON.stringify(input({ offered: [{ ...offer, holdId: "h2" }] }))], env);
   assert.equal(saved.status, 0, saved.stderr);
   assert.equal(saved.json.request.id, id);
@@ -534,7 +535,7 @@ test("an owner cancellation finds the booked request by its event id and closes 
 
 test("CLI find --event returns the request booked as that event", () => {
   const env = { MEETLY_HOME: tmpHome() };
-  const id = cli("ledger.ts", ["add", "--json", JSON.stringify(input({ chatUid: "c1" }))], env).json.request.id;
+  const id = saveCli(env, input({ chatUid: "c1" })).json.request.id;
   // A booking with no recorded account never matches: the lookup fails closed.
   cli("ledger.ts", ["update", "--id", id, "--json", '{"status":"booked","eventId":"ev_1"}'], env);
   assert.deepEqual(cli("ledger.ts", ["find", "--event", "ev_1", "--account", "a@example.com"], env).json, { request: null });
