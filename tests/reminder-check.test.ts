@@ -92,14 +92,14 @@ test("a deleted or cancelled event is recorded as cancelled and nothing is sent"
   const out = check(bookedMeet(), parseEvent(fixture("event-cancelled")), START - 5 * MIN);
   assert.equal(out.action, "cancelled");
   assert.equal(out.send, undefined);
-  assert.deepEqual(out.patch, { status: "cancelled", holdCleanup: [], reminder: { at: new Date(START - 5 * MIN).toISOString(), outcome: "cancelled" } });
+  assert.deepEqual(out.patch, { status: "cancelled", reminder: { at: new Date(START - 5 * MIN).toISOString(), outcome: "cancelled" } });
 });
 
-test("cancellation queues the booked offer's travel holds and preserves pending cleanup", () => {
+test("cancellation queues the booking's travel holds and preserves pending cleanup", () => {
   const before = { holdId: "travel_before", account: ACCOUNT };
   const after = { holdId: "travel_after", account: ACCOUNT };
   const pending = { holdId: "old_hold", account: ACCOUNT };
-  const request = bookedMeet({ holdCleanup: [pending, before] }, { offered: [
+  const request = bookedMeet({ holdCleanup: [pending, before], booked: { start: offer.start, end: offer.end, account: ACCOUNT, travel: [before, after] } }, { offered: [
     { ...offer, travel: [before, after] },
     { ...offer, start: "2026-10-11T04:00:00-03:00", holdId: "sibling", travel: [{ holdId: "deleted_sibling_buffer", account: ACCOUNT }] },
   ] });

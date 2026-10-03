@@ -263,12 +263,24 @@ lunch with Ana", "remove all my appointments today", "move the call to 3pm"):
    event was read from (never assume `primary`):
    - **Cancel:** `plow-gog calendar delete <calendarId> <eventId> --send-updates
      all --force --account <account>`. Then `ledger.ts update --id <id>
-     --json '{"status":"cancelled","pendingOwner":null}'`. If the delete
+     --json '{"status":"cancelled","pendingOwner":null}'` (the ledger queues the
+     booking's travel buffers for the cleanup poll in that same write). If the delete
      fails, change nothing else, tell the owner and send nothing to the
      group.
-   - **Move:** `plow-gog calendar update <calendarId> <eventId> --from <start>
-     --to <end> --send-updates all --account <account> --json`, then
-     record it as in "Book the event" steps 1 and 2.
+   - **Move:** when the booking has travel buffers (`request.booked.travel`),
+     first check the new time with `slots.ts --in /var/lib/plow/meetly/tmp/busy.json
+     --at <new start> --travel`, passing the event id and every id in
+     `booked.travel` with `--allow-overlap` (and the request's `allowOverlap`);
+     if it is not free, tell the owner and do not move. Create both buffers
+     at the new time and stage them with `ledger.ts stage-travel --id <id>
+     --json-file F` (`{"travel":[…]}`). Then `plow-gog calendar update
+     <calendarId> <eventId> --from <start> --to <end> --send-updates all
+     --account <account> --json`. Only after it succeeds run `ledger.ts
+     commit-travel --id <id>` (the new buffers become the booking's, the old ones
+     are queued for cleanup), then record the move as in "Book the event"
+     steps 1 and 2. If the update fails, run nothing more: the staged buffers
+     are cleaned up after 15 minutes and the old ones stay. Without buffers,
+     just update the event and record it.
    - If a step after the calendar change fails, retry it once in this turn,
      and still send the group message (step 4). If it still fails, tell the
      owner exactly which steps are left and for which meeting. A deleted
