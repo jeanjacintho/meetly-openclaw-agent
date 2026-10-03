@@ -237,8 +237,9 @@ test("closure time stays fixed when a closed request gets another log entry", ()
   l = appendLog(l, "r_1", "owner notified", T0 + 10 * HOUR);
   assert.equal(l.requests[0]!.closedAt, closedAt);
   assert.equal(pipeline(l, T0 + 11 * HOUR).closed[0]!.closedAt, closedAt);
-  const legacy = { requests: [{ ...l.requests[0]!, closedAt: undefined, log: undefined, updatedAt: new Date(T0 + 9 * 24 * HOUR).toISOString() }] };
-  assert.equal(pipeline(legacy, T0 + 2 * 24 * HOUR).closed[0]!.closedAt, new Date(T0).toISOString());
+  const legacy = { requests: [{ ...l.requests[0]!, closedAt: undefined, log: undefined, updatedAt: new Date(T0 + 5 * HOUR).toISOString() }] };
+  // A legacy row with no closing time falls back to its last update, never its creation.
+  assert.equal(pipeline(legacy, T0 + 2 * 24 * HOUR).closed[0]!.closedAt, new Date(T0 + 5 * HOUR).toISOString());
 });
 
 test("pendingOwner is set, listed and cleared", () => {
@@ -265,7 +266,7 @@ test("save records the owner approval hold together with the offer", () => {
   assert.equal(reoffered.requests[0]!.ownerApprovedAt, undefined);
   assert.equal(reoffered.requests[0]!.ownerApprovalAt, at);
   // Stale options: a fresh offer that is itself pending replaces the pending request in place.
-  const fresh = saveRequest(l, input({ origin: "inbound", ownerApprovalAt: at, offered: [{ ...offer, holdId: "h_fresh" }] }), T0 + HOUR, "r_2");
+  const fresh = saveRequest(l, input({ origin: "inbound", ownerApprovalAt: new Date(T0 + HOUR).toISOString(), offered: [{ ...offer, holdId: "h_fresh" }] }), T0 + HOUR, "r_2");
   assert.equal(fresh.requests.length, 1);
   assert.equal(fresh.requests[0]!.id, "r_1");
   assert.equal(fresh.requests[0]!.offered[0]!.holdId, "h_fresh");
@@ -281,6 +282,15 @@ test("owner gate requests wait for owner approval and appear in the approvals li
   assert.throws(() => saveRequest(l, input({ chatUid: "guest-chat" }), T0 + HOUR, "r_2"), /waiting for owner approval/);
   assert.throws(() => updateRequest(l, "r_1", { chatUid: "guest-chat" }, T0 + HOUR), /waiting for owner approval/);
   assert.throws(() => updateRequest(l, "r_1", { ownerApprovalAt: "soon" }, T0), /ownerApprovalAt/);
+  // A request is saved already gated, in one write, and a gated offer is replaced only by one with a fresh approval time.
+  const gate = new Date(T0).toISOString();
+  const saved = saveRequest(empty(), input({ ownerApprovalAt: gate }), T0, "r_g");
+  assert.deepEqual(ownerApprovalList(saved).map((r) => r.id), ["r_g"]);
+  assert.throws(() => saveRequest(saved, input({ ownerApprovalAt: gate }), T0 + HOUR, "r_h"), /new ownerApprovalAt/);
+  const fresh = saveRequest(saved, input({ offered: [{ ...offer, holdId: "h9" }], ownerApprovalAt: new Date(T0 + HOUR).toISOString() }), T0 + HOUR, "r_h");
+  assert.equal(fresh.requests[0]!.ownerApprovalAt, new Date(T0 + HOUR).toISOString());
+  assert.deepEqual(fresh.requests[0]!.holdCleanup!.map((h) => h.holdId), ["h1"]);
+  assert.throws(() => saveRequest(empty(), input({ ownerApprovalAt: "soon" }), T0, "r_x"), /ownerApprovalAt/);
   const approvedButUnknown = updateRequest(l, "r_1", { ownerApprovedAt: new Date(T0 + 6 * HOUR).toISOString() }, T0 + 6 * HOUR);
   assert.equal(stageOf(approvedButUnknown.requests[0]!, T0 + 6 * HOUR), "delivery_unknown");
   l = updateRequest(l, "r_1", { chatUid: "approved-chat", ownerApprovedAt: new Date(T0 + 6 * HOUR).toISOString() }, T0 + 6 * HOUR);

@@ -144,7 +144,9 @@ and print one JSON line; `skills/meetly/SKILL.md` lists them.
   You may also run `ledger.ts find --chat <this chat uid> --handle <sender
   handle>` to resolve that request in one lookup. If the open handle match has
   no `chatUid`, immediately link it with `ledger.ts update --id <request.id>
-  --json '{"chatUid":"<this chat uid>"}'`. A closed chat request does not
+  --json '{"chatUid":"<this chat uid>"}'`, except when it has `ownerApprovalAt`
+  and no `ownerApprovedAt`: never link that request (the ledger refuses), load
+  `meetly-group` and follow its owner-gate rule instead. A closed chat request does not
   count as a disagreement with an open handle match. Treat lookups as a real
   disagreement only when they identify two different open requests, or the
   open request is linked to another chat; then make no calendar changes and

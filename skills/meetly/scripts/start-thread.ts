@@ -9,18 +9,20 @@
 // it reports { chatUid: null, deliveryUnknown: true } rather than failing:
 // the caller records the request without a chat uid and never resends.
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
 import { isBlocked, loadBlocked } from "./blocklist.ts";
 import { fetchIdentity, findOwnerDm, plowApi, type ApiOptions } from "./owner-chat.ts";
-import { isAwaitingOwnerApproval, sameHandle, type Ledger } from "./ledger.ts";
+import { awaitingOwnerApproval, sameHandle, type Ledger } from "./ledger.ts";
+import { loadConfig } from "./config.ts";
 import { file } from "./paths.ts";
 import { isHandle } from "./reachable-handle.ts";
-import { readJson } from "./store.ts";
+import { readJson, withLock } from "./store.ts";
 
 export type Started = { chatUid: string; messageSent: true } | { chatUid: null; deliveryUnknown: true };
 
-export async function startThread(opts: ApiOptions & { members: string[]; body: string; key: string; requestId: string }): Promise<Started> {
+export async function startThread(opts: ApiOptions & { members: string[]; body: string; requestId: string }): Promise<Started> {
   if (opts.members.length === 0) throw new Error("give at least one phone number");
   // A phone in E.164 or an iMessage email: reachable-handle.ts says which one.
   for (const m of opts.members) {
@@ -36,10 +38,13 @@ export async function startThread(opts: ApiOptions & { members: string[]; body: 
   // inbound request still waiting for the owner never reaches them.
   const request = readJson<Ledger>(file("ledger.json"), { requests: [] }).requests.find((r) => r.id === opts.requestId);
   if (!request || request.status !== "offered") throw new Error(`request ${opts.requestId} is not an open request: save the offer first`);
-  if (isAwaitingOwnerApproval(request)) throw new Error(`request ${request.id} is waiting for the owner's approval: nothing may be sent yet`);
+  if (awaitingOwnerApproval(request)) throw new Error(`request ${request.id} is waiting for the owner's approval: nothing may be sent yet`);
+  // With the owner gate on, an inbound request needs the owner's recorded approval, whatever the ledger's marker says.
+  if (request.origin === "inbound" && loadConfig().ownerGate && request.ownerApprovedAt === undefined) {
+    throw new Error(`request ${request.id} has not been approved by the owner: nothing may be sent yet`);
+  }
   if (!opts.members.every((m) => sameHandle(m, request.handle))) throw new Error(`the member must be the request's person (${request.handle})`);
   if (!opts.body.trim()) throw new Error("the body is empty");
-  if (!opts.key.trim()) throw new Error("the key is empty");
   const api = plowApi(opts);
   const identity = await fetchIdentity(api);
   const lineUid = identity.line?.uid;
@@ -49,42 +54,46 @@ export async function startThread(opts: ApiOptions & { members: string[]; body: 
   const owner = dm.participants?.find((p) => p.type === "member" && p.role === "owner");
   if (!owner?.provider_key) throw new Error("the owner's chat has no owner handle");
   const members = [...new Set([owner.provider_key, ...opts.members])].sort();
-  const blockedBeforePost = loadBlocked();
-  for (const m of opts.members) if (isBlocked(blockedBeforePost, m)) {
-    throw new Error(`do not contact: ${m} is on the owner's do-not-contact list; the owner must take them off it first`);
-  }
-  // The request identity must survive regenerated wording after an unknown
-  // delivery; the opener body is not durable state in the ledger.
-  const idempotencyKey = createHash("sha256").update(JSON.stringify([lineUid, opts.key, members])).digest("hex");
+  // The last blocklist check and the POST share the blocklist lock, so a block
+  // that completes after this check waits until the opener is out.
+  return withLock(file("blocked.json"), async (): Promise<Started> => {
+    const blockedBeforePost = loadBlocked();
+    for (const m of opts.members) if (isBlocked(blockedBeforePost, m)) {
+      throw new Error(`do not contact: ${m} is on the owner's do-not-contact list; the owner must take them off it first`);
+    }
+    // The request identity must survive regenerated wording after an unknown
+    // delivery; the opener body is not durable state in the ledger.
+    const idempotencyKey = createHash("sha256").update(JSON.stringify([lineUid, `request:${request.id}`, members])).digest("hex");
 
-  let res: Response;
-  try {
-    res = await api.fetch(`${api.base}/v1/chats`, {
-      method: "POST",
-      headers: { ...api.headers, "Content-Type": "application/json" },
-      body: JSON.stringify({ line_uid: lineUid, members, body: opts.body, trusted: true, idempotency_key: idempotencyKey }),
-      redirect: "error",
-      signal: AbortSignal.timeout(30_000),
-    });
-  } catch {
-    return { chatUid: null, deliveryUnknown: true };
-  }
-  // Same rule as the plugin: 408, 424 and 5xx may have gone through.
-  if ([408, 424].includes(res.status) || res.status >= 500) return { chatUid: null, deliveryUnknown: true };
-  if (!res.ok) throw new Error(`POST /v1/chats returned HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  const chat = (await res.json()) as { uid?: string };
-  if (!chat.uid) return { chatUid: null, deliveryUnknown: true };
-  return { chatUid: chat.uid, messageSent: true };
+    let res: Response;
+    try {
+      res = await api.fetch(`${api.base}/v1/chats`, {
+        method: "POST",
+        headers: { ...api.headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ line_uid: lineUid, members, body: opts.body, trusted: true, idempotency_key: idempotencyKey }),
+        redirect: "error",
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch {
+      return { chatUid: null, deliveryUnknown: true };
+    }
+    // Same rule as the plugin: 408, 424 and 5xx may have gone through.
+    if ([408, 424].includes(res.status) || res.status >= 500) return { chatUid: null, deliveryUnknown: true };
+    if (!res.ok) throw new Error(`POST /v1/chats returned HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    const chat = (await res.json()) as { uid?: string };
+    if (!chat.uid) return { chatUid: null, deliveryUnknown: true };
+    return { chatUid: chat.uid, messageSent: true };
+  });
 }
 
 if (isMain(import.meta.url)) {
   run(() => {
-    const { values } = parseArgs({
-      options: { member: { type: "string", multiple: true }, body: { type: "string" }, key: { type: "string" }, request: { type: "string" } },
-    });
-    if (!values.key) throw new Error("pass --key (e.g. request:<the saved request id>) so a retry cannot open a second group");
-    if (values.body === undefined) throw new Error("pass --body");
-    if (!values.request) throw new Error("pass --request <the saved request id>");
-    return startThread({ members: values.member ?? [], body: values.body, key: values.key, requestId: values.request });
+    // Members and body come from the conversation, so they never go on the command line.
+    const { values } = parseArgs({ options: { "input-file": { type: "string" } } });
+    if (!values["input-file"]) throw new Error('pass --input-file F (JSON {"members":[…],"body":"…","requestId":"<the saved request id>"})');
+    const input = JSON.parse(readFileSync(values["input-file"], "utf8")) as { members?: string[]; body?: string; requestId?: string };
+    if (!input.requestId) throw new Error("the input needs requestId (the saved request id)");
+    if (input.body === undefined) throw new Error("the input needs a body");
+    return startThread({ members: input.members ?? [], body: input.body, requestId: input.requestId });
   });
 }

@@ -22,7 +22,8 @@ An unattended poll has no current conversation and uses `message` with the
 known meeting chat uid as its target.
 Before every contact-visible message (including an existing-group offer,
 booking confirmation, cancellation, or approval follow-up), run
-`blocklist.ts check --handle <request.handle>` immediately before sending. If
+`blocklist.ts check --handles-file <file>` immediately before sending (a JSON array holding `request.handle`, written to a file named for this
+request). If
 blocked, do not send; tell the owner privately and leave the request and
 calendar state unchanged. Run the same check before any calendar command that
 notifies the person (`--send-updates all`: booking, moving, cancelling). If
@@ -41,12 +42,12 @@ free there.
 
 ## Offer times
 
-1. Resolve the person. For an inbound request, run `contact.ts --handle
-   <the handle they wrote from>`: that handle is theirs, and `name` is their
+1. Resolve the person. For an inbound request, run `contact.ts --handles-file
+   <file with the handle they wrote from>`: that handle is theirs, and `name` is their
    name (when `found` is false, or `name` is null, go on with the handle; a
    missing card never stops the request). For an owner request, resolve them
    with `contacts`: name and every phone (E.164) and email; then run
-   `reachable-handle.ts --handle <each phone and email>` and use the `handle`
+   `reachable-handle.ts --handles-file <file with each phone and email>` and use the `handle`
    it returns: the one the owner reaches them on over iMessage.
    - If the contact has a phone but no email, say so in your reply to the
      owner: the calendar invitation needs one, and without it the
@@ -89,8 +90,8 @@ free there.
    created, stop and report the ledger error to the owner; do not send an
    offer. If any deletion fails, report those hold ids too.
    - **Owner gate:** when `origin` is `inbound` and `config.ownerGate` is
-     true, that same `save` carries `ownerApprovalAt: <now ISO>`, so the
-     request is never open without its approval hold. Do not
+     true, put `ownerApprovalAt: <now ISO>` in the step 5 `ledger.ts save`
+     payload, so the request is saved already gated in one write. Do not
      open a group or send any proposed time to the other person yet. Run
      `owner-chat.ts`, then use `message` (`action: send`, channel `plow`,
      accountId `chat`, target its `chatUid`) to send the owner one private
@@ -117,11 +118,12 @@ free there.
      to try again in a few minutes. A staged offer left by a turn that died is discarded by the
      cleanup poll after 15 minutes.
    - Otherwise open a group with the person's handle and the opener: run
-     `start-thread.ts --member <handle> --body <opener> --key <key> --request <saved
-     request id>`, the `request.id` that `save` returned: it refuses any other
-     request, any other person, and a request awaiting the owner. The key is
-     `request:<saved request id>` for every request, so a retry keeps its key
-     and a later request gets a new one. Never the `plow_start_thread` tool: it
+     `start-thread.ts --input-file <file>` (JSON `{"members":[<handle>],"body":"<opener>","requestId":"<saved request id>"}`),
+     the `request.id` that `save` returned: it refuses any other request, any
+     other person, a request awaiting the owner, and an inbound request the
+     owner has not approved while the gate is on. It derives the idempotency
+     key `request:<id>` itself, so a retry keeps its key and a later request
+     gets a new one. Never the `plow_start_thread` tool: it
      gives Plow 10 s, and a group Plow takes longer to open reads as an
      unknown delivery that withholds the rest of the turn, the owner's reply
      included.
@@ -152,7 +154,7 @@ free there.
      nothing else about delivery: never quote a status code or say you cannot
      confirm anything else. Never resend by another route. Only if the owner
      says the group is not there, or asks you to try again, run
-     `start-thread.ts` again with the same `--key` and members. The idempotency
+     `start-thread.ts` again with the same `key` and members. The idempotency
      key is based on request identity, so regenerated opener wording still
      resolves to the same group. Link the group it returns as below.
    - After a group opens, run `ledger.ts update --id <saved request id>
@@ -206,7 +208,7 @@ and topic in the approval message; if more than one fits, ask which one.
   holds; do not run "Offer times" or `ledger.ts save` again. First record the
   approval with `ledger.ts update --id <id> --json '{"ownerApprovedAt":"<now ISO>"}'`:
   `start-thread.ts` refuses a request that is still waiting. Then open the
-  group with `--request <id>` and idempotency key `request:<id>` and, when it returns a chat uid,
+  group with `start-thread.ts --input-file` (its `requestId` is `<id>`) and, when it returns a chat uid,
   link it with `ledger.ts update --id <id> --json '{"chatUid":"<uid>"}'`. If it
   returns `deliveryUnknown`, leave `chatUid` absent and follow the no-retry
   rule: approval is recorded separately from delivery certainty. If any held
@@ -244,7 +246,8 @@ Someone on the do-not-contact list has no stage: `blocklist.ts list`.
 ## What the log says
 
 Keep a dated log of what happened: after each of these, run
-`ledger.ts log --id <id> --text '<one line>'`: the offer was sent (after the
+`ledger.ts log --id <id> --text-file <file>` (the one line, saved with the
+`write` tool; log text never goes on the command line): the offer was sent (after the
 send succeeded), the person picked a time, the booking was recorded, the
 meeting was moved or cancelled, the offer expired. Write only what the
 calendar or the chat confirmed, never a plan or a guess. Read it back with
@@ -253,11 +256,12 @@ calendar or the chat confirmed, never a plan or a guess. Read it back with
 ## Do not contact
 
 When the owner says never to contact someone, or to stop, resolve their
-Contacts card and block every phone and email alias with repeated
-`--handle` options: `blocklist.ts block --handle <phone> --handle <email>`.
+Contacts card and block every phone and email alias: save them as a JSON array
+with the `write` tool and run `blocklist.ts block --handles-file <file>`.
+Contact text never goes on the command line.
 Confirm in one line. To take them off, resolve the same card
-and pass every alias to `blocklist.ts unblock`. In the poll, skip a sender for
-whom `blocklist.ts check --handle <sender>` says `blocked`: no group, no
+and pass every alias to `blocklist.ts unblock --handles-file <file>`. In the poll, skip a sender for
+whom `blocklist.ts check --handles-file <file>` says `blocked`: no group, no
 holds, nothing sent. `start-thread.ts` checks the list again immediately
 before its POST, so a new block also stops a group-open race. Never route
 around a `do not contact` result.
