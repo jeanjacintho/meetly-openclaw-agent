@@ -1,7 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { startThread } from "../skills/meetly/scripts/start-thread.ts";
-import { cli } from "./helpers.ts";
+import { cli, tmpHome } from "./helpers.ts";
+
+// The opener takes the blocklist lock, so each test file works in its own data dir.
+process.env.MEETLY_HOME = tmpHome();
 
 const identity = {
   line: { uid: "line_me" },

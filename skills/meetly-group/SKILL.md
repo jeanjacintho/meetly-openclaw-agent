@@ -20,7 +20,9 @@ An unattended poll has no current conversation and uses `message` with the
 known meeting chat uid as its target.
 Before every contact-visible message (including an existing-group offer,
 booking confirmation, cancellation, or approval follow-up), run
-`blocklist.ts check --handle <request.handle>` immediately before sending. If
+`blocklist.ts check --handles-file <file>` immediately before sending (the file is a
+JSON array holding `request.handle`, saved with the `write` tool; a handle never
+goes on the command line). If
 blocked, do not send; tell the owner privately and leave the request and
 calendar state unchanged. Run the same check before any calendar command that
 notifies the person (`--send-updates all`: booking, moving, cancelling). If
@@ -198,7 +200,8 @@ Someone on the do-not-contact list has no stage: `blocklist.ts list`.
 ## What the log says
 
 Keep a dated log of what happened: after each of these, run
-`ledger.ts log --id <id> --text '<one line>'`: the offer was sent (after the
+`ledger.ts log --id <id> --text-file <file>` (the one line, saved with the
+`write` tool; log text never goes on the command line): the offer was sent (after the
 send succeeded), the person picked a time, the booking was recorded, the
 meeting was moved or cancelled, the offer expired. Write only what the
 calendar or the chat confirmed, never a plan or a guess. Read it back with
@@ -207,11 +210,12 @@ calendar or the chat confirmed, never a plan or a guess. Read it back with
 ## Do not contact
 
 When the owner says never to contact someone, or to stop, resolve their
-Contacts card and block every phone and email alias with repeated
-`--handle` options: `blocklist.ts block --handle <phone> --handle <email>`.
+Contacts card and block every phone and email alias: save them as a JSON array
+with the `write` tool and run `blocklist.ts block --handles-file <file>`.
+Contact text never goes on the command line.
 Confirm in one line. To take them off, resolve the same card
-and pass every alias to `blocklist.ts unblock`. In the poll, skip a sender for
-whom `blocklist.ts check --handle <sender>` says `blocked`: no group, no
+and pass every alias to `blocklist.ts unblock --handles-file <file>`. In the poll, skip a sender for
+whom `blocklist.ts check --handles-file <file>` says `blocked`: no group, no
 holds, nothing sent. `start-thread.ts` checks the list again immediately
 before its POST, so a new block also stops a group-open race. Never route
 around a `do not contact` result.

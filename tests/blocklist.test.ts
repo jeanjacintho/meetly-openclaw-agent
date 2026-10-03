@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { block, isBlocked, unblock } from "../skills/meetly/scripts/blocklist.ts";
 import { startThread } from "../skills/meetly/scripts/start-thread.ts";
@@ -34,6 +35,12 @@ test("the CLI blocks, checks, lists and unblocks", () => {
   cli("blocklist.ts", ["block", "--handle", "+15551234567", "--handle", "ana@example.com"], env);
   assert.deepEqual(cli("blocklist.ts", ["check", "--handle", "5551234567"], env).json, { blocked: true });
   assert.deepEqual(cli("blocklist.ts", ["check", "--handle", "+15559999999", "--handle", "ana@example.com"], env).json, { blocked: true });
+  // Contact-derived aliases come from a file, never the command line.
+  const aliases = join(env.MEETLY_HOME, "aliases.json");
+  writeFileSync(aliases, JSON.stringify(["+15559990000", "x@example.com; touch pwned"]));
+  assert.equal(cli("blocklist.ts", ["block", "--handles-file", aliases], env).status, 0);
+  assert.deepEqual(cli("blocklist.ts", ["check", "--handles-file", aliases], env).json, { blocked: true });
+  cli("blocklist.ts", ["unblock", "--handles-file", aliases], env);
   cli("blocklist.ts", ["unblock", "--handle", "+15551234567", "--handle", "ana@example.com"], env);
   assert.deepEqual(cli("blocklist.ts", ["list"], env).json, { blocked: [] });
   assert.notEqual(cli("blocklist.ts", ["block"], env).status, 0);

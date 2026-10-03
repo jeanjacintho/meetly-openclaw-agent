@@ -223,8 +223,9 @@ test("closure time stays fixed when a closed request gets another log entry", ()
   l = appendLog(l, "r_1", "owner notified", T0 + 10 * HOUR);
   assert.equal(l.requests[0]!.closedAt, closedAt);
   assert.equal(pipeline(l, T0 + 11 * HOUR).closed[0]!.closedAt, closedAt);
-  const legacy = { requests: [{ ...l.requests[0]!, closedAt: undefined, log: undefined, updatedAt: new Date(T0 + 9 * 24 * HOUR).toISOString() }] };
-  assert.equal(pipeline(legacy, T0 + 2 * 24 * HOUR).closed[0]!.closedAt, new Date(T0).toISOString());
+  const legacy = { requests: [{ ...l.requests[0]!, closedAt: undefined, log: undefined, updatedAt: new Date(T0 + 5 * HOUR).toISOString() }] };
+  // A legacy row with no closing time falls back to its last update, never its creation.
+  assert.equal(pipeline(legacy, T0 + 2 * 24 * HOUR).closed[0]!.closedAt, new Date(T0 + 5 * HOUR).toISOString());
 });
 
 test("pendingOwner is set, listed and cleared", () => {

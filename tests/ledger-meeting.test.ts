@@ -166,21 +166,19 @@ test("the lead and the grace are parameters", () => {
   assert.deepEqual(dueReminders(l, START + 9 * MIN, 10, 0).map((r) => r.id), []);
 });
 
-test("only a booked Meet with a link, a time and no reminder yet is due", () => {
+test("only a booked meeting with an event, a time and no reminder yet is due", () => {
   const at = START - 5 * MIN;
   const cases: [string, Ledger][] = [
     ["already sent", bookedMeet({ reminder: { at: new Date(T0).toISOString(), outcome: "sent" } })],
     ["cancelled", bookedMeet({ reminder: { at: new Date(T0).toISOString(), outcome: "cancelled" } })],
-    ["no link", bookedMeet({ meetUrl: null })],
     ["no booked time", bookedMeet({ booked: null })],
-    // Leaving meet drops the link, so these can never be due.
-    ["in person", bookedMeet({ format: "in_person", meetUrl: null })],
-    ["unknown", bookedMeet({ format: "unknown", meetUrl: null })],
     ["dropped", bookedMeet({ status: "dropped" })],
     ["still offered", bookedMeet({ status: "offered" })],
   ];
   for (const [name, l] of cases) assert.deepEqual(dueReminders(l, at, 10), [], name);
   assert.equal(dueReminders(bookedMeet(), at, 10).length, 1);
+  // Any format is re-read in the window, so an external cancellation is seen; only a Meet gets a reminder.
+  assert.equal(dueReminders(bookedMeet({ format: "in_person", meetUrl: null }), at, 10).length, 1);
 });
 
 test("several meetings: each is due on its own time", () => {

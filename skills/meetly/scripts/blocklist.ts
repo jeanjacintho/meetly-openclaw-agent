@@ -1,6 +1,7 @@
 // People Meetly must never contact: the owner said so. The list lives in
 // blocked.json and is enforced where a group opens (start-thread.ts), so no
 // route around the skill reaches them.
+import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
 import { normalizeHandle, sameHandle } from "./ledger.ts";
@@ -35,18 +36,20 @@ export function loadBlocked(): Blocked[] {
 if (isMain(import.meta.url)) {
   run(() => {
     const [cmd, ...rest] = process.argv.slice(2);
-    const { values } = parseArgs({ args: rest, options: { handle: { type: "string", multiple: true } } });
+    const { values } = parseArgs({ args: rest, options: { handle: { type: "string", multiple: true }, "handles-file": { type: "string" } } });
+    // Contact-derived aliases never go on the command line: the agent writes a JSON array to a file.
+    const handles = [...(values.handle ?? []), ...(values["handles-file"] ? (JSON.parse(readFileSync(values["handles-file"], "utf8")) as string[]) : [])];
     const path = file("blocked.json");
     switch (cmd) {
       case "block":
-        if (!values.handle?.length) throw new Error("usage: blocklist.ts block --handle H [--handle H ...]");
-        return { blocked: updateJson<Blocked[]>(path, [], (l) => block(l, values.handle!, Date.now())) };
+        if (!handles.length) throw new Error("usage: blocklist.ts block --handle H [--handle H ...] | --handles-file F");
+        return { blocked: updateJson<Blocked[]>(path, [], (l) => block(l, handles, Date.now())) };
       case "unblock":
-        if (!values.handle?.length) throw new Error("usage: blocklist.ts unblock --handle H [--handle H ...]");
-        return { blocked: updateJson<Blocked[]>(path, [], (l) => unblock(l, values.handle!)) };
+        if (!handles.length) throw new Error("usage: blocklist.ts unblock --handle H [--handle H ...] | --handles-file F");
+        return { blocked: updateJson<Blocked[]>(path, [], (l) => unblock(l, handles)) };
       case "check":
-        if (!values.handle?.length) throw new Error("usage: blocklist.ts check --handle H [--handle H ...]");
-        return { blocked: values.handle.some((handle) => isBlocked(loadBlocked(), handle)) };
+        if (!handles.length) throw new Error("usage: blocklist.ts check --handle H [--handle H ...] | --handles-file F");
+        return { blocked: handles.some((handle) => isBlocked(loadBlocked(), handle)) };
       case "list":
         return { blocked: loadBlocked() };
       default:

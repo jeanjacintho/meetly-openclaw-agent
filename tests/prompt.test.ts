@@ -364,9 +364,9 @@ test("do not contact is checked before every contact-visible message and stored 
   const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
   const poll = flat(readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8"));
   assert.ok(group.includes("Before every contact-visible message"));
-  assert.ok(group.includes("blocklist.ts check --handle <request.handle>"));
-  assert.ok(group.includes("blocklist.ts block --handle <phone> --handle <email>"));
-  assert.ok(poll.includes("Before each contact-visible poll message, immediately check `blocklist.ts check --handle <request.handle>`"));
+  assert.ok(group.includes("blocklist.ts check --handles-file <file>"));
+  assert.ok(group.includes("blocklist.ts block --handles-file <file>"));
+  assert.ok(poll.includes("Before each contact-visible poll message, immediately check `blocklist.ts check --handles-file <file>`"));
   assert.ok(poll.includes("not update the reminder timestamp"));
 });
 

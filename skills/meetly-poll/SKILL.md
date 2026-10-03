@@ -17,7 +17,9 @@ with `message` (action `send`, channel `plow`, accountId `chat`, target the
 meeting's `chatUid`); the owner is in that thread. For an operational warning
 with no meeting thread, use `owner-chat.ts` and target the printed `chatUid`.
 Before each contact-visible poll message, immediately check
-`blocklist.ts check --handle <request.handle>`. If blocked, skip it and do
+`blocklist.ts check --handles-file <file>` (the `write` tool saves the
+handle as a JSON array in `/var/lib/plow/meetly/tmp/handles.json`; a handle
+never goes on the command line, since an email can carry shell syntax). If blocked, skip it and do
 not update the reminder timestamp; private owner notifications may
 still explain why no contact message was sent.
 
@@ -45,7 +47,7 @@ still explain why no contact message was sent.
       - `cancelled`: the event was deleted; send nothing.
       - `no-link`: the Meet was removed from the event. Tell the meeting
         thread in one line that no link went out for <name>'s meeting.
-      - `skip`: already handled.
+      - `skip`: already handled, or not a Meet: nothing to send.
 2. Run `cursor.ts get`. If `rowid` is `null`: run `plow-messages search
    --order desc --limit 1`, then `cursor.ts set <that rowid, or 0>`, and end.
    Never scan history.
@@ -65,7 +67,7 @@ still explain why no contact message was sent.
       and anything unclear.
    3. If the owner replied after the request, skip: the owner is handling it.
    4. If `ledger.ts find --handle <sender>` has an open request, skip. If
-      `blocklist.ts check --handle <sender>` says `blocked`, skip.
+      `blocklist.ts check --handles-file <file with the sender>` says `blocked`, skip.
    5. Run `cursor.ts hold <the request's rowid>` (the same rowid you pass as
       `sourceRowid`) before anything else. Until the ledger records a request
       with that `sourceRowid`, `cursor.ts set` stops just below it, so a run

@@ -77,6 +77,12 @@ test("too early is wait, and nothing changes", () => {
   assert.deepEqual(out.patch, {});
 });
 
+test("an in-person meeting cancelled outside the agent is recorded too, and one still on is left alone", () => {
+  const inPerson = bookedMeet({ meetUrl: null }, { format: "in_person" });
+  assert.equal(check(inPerson, parseEvent(fixture("event-cancelled")), START - 5 * MIN).action, "cancelled");
+  assert.equal(check(inPerson, event({ meetUrl: null }), START - 5 * MIN).action, "skip");
+});
+
 test("a deleted or cancelled event is recorded as cancelled and nothing is sent", () => {
   const out = check(bookedMeet(), parseEvent(fixture("event-cancelled")), START - 5 * MIN);
   assert.equal(out.action, "cancelled");
