@@ -101,7 +101,9 @@ free there.
 6. Deliver the times:
    - An open request that already has a `chatUid`: post the new times there.
    - Otherwise open a group with the person's handle and the opener: run
-     `start-thread.ts --member <handle> --body <opener> --key <key>`, with key
+     `start-thread.ts --member <handle> --body <opener> --key <key> --request <saved
+     request id>`, the `request.id` that `save` returned: it refuses any other
+     request, any other person, and a request awaiting the owner. With key
      `rowid:<sourceRowid>` in the poll and `owner:<handle>:<first offered
      start>` for an owner request. Never the `plow_start_thread` tool: it
      gives Plow 10 s, and a group Plow takes longer to open reads as an
@@ -180,7 +182,7 @@ and topic in the approval message; if more than one fits, ask which one.
   holds; do not run "Offer times" or `ledger.ts save` again. First record the
   approval with `ledger.ts update --id <id> --json '{"ownerApprovedAt":"<now ISO>"}'`:
   `start-thread.ts` refuses a request that is still waiting. Then open the
-  group with idempotency key `owner-gate:<id>` and, when it returns a chat uid,
+  group with `--request <id>` and idempotency key `owner-gate:<id>` and, when it returns a chat uid,
   link it with `ledger.ts update --id <id> --json '{"chatUid":"<uid>"}'`. If it
   returns `deliveryUnknown`, leave `chatUid` absent and follow the no-retry
   rule: approval is recorded separately from delivery certainty. If any held

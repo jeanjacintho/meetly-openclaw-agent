@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  addRequest, saveRequest, appendLog, cleanupList, pendingOwnerList, ownerApprovalList, expiredRequests, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, monitor, pipeline, stageOf,
+  addRequest, saveRequest, appendLog, cleanupList, pendingOwnerList, ownerApprovalList, expiredRequests, expireRequests, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, monitor, pipeline, stageOf,
   type Ledger, type NewRequest,
 } from "../skills/meetly/scripts/ledger.ts";
 import { cli, tmpHome } from "./helpers.ts";
@@ -177,6 +177,21 @@ test("expired: 48 hours after the offer, open requests only", () => {
   assert.deepEqual(expiredRequests(l, 48, T0 + 48 * HOUR).map((r) => r.id), ["r_1"]);
 });
 
+test("expiring claims each request once, queues its holds, and returns it as it was", () => {
+  const travel = { holdId: "t1", account: "jean@example.com" };
+  let l = addRequest(empty(), input({ origin: "inbound", ownerApprovalAt: new Date(T0).toISOString(), offered: [{ ...offer, holdId: "h1", travel: [travel] }] }), T0, "r_1");
+  const out = expireRequests(l, 48, T0 + 48 * HOUR);
+  assert.deepEqual(out.claimed.map((r) => [r.id, r.status, r.ownerApprovalAt]), [["r_1", "offered", new Date(T0).toISOString()]]);
+  const closed = out.ledger.requests[0]!;
+  assert.equal(closed.status, "expired");
+  assert.equal("ownerApprovalAt" in closed, false);
+  assert.deepEqual(closed.holdCleanup, [{ holdId: "h1", account: offer.account }, travel]);
+  // A second pass finds nothing, and a request refreshed with new holds is not the one that was claimed.
+  assert.deepEqual(expireRequests(out.ledger, 48, T0 + 49 * HOUR).claimed, []);
+  const refreshed = saveRequest(l, input({ origin: "inbound", ownerApprovalAt: new Date(T0 + 47 * HOUR).toISOString(), offered: [{ ...offer, holdId: "h2" }] }), T0 + 47 * HOUR, "r_2");
+  assert.deepEqual(expireRequests(refreshed, 48, T0 + 48 * HOUR).claimed, []);
+});
+
 test("cleanup lists only requests with pending hold deletes", () => {
   let l = addRequest(empty(), input(), T0, "r_1");
   l = addRequest(l, input({ handle: "+15559999999" }), T0, "r_2");
@@ -252,7 +267,19 @@ test("owner gate requests wait for owner approval and appear in the approvals li
   assert.deepEqual(monitor(l, T0 + 10 * HOUR).deliveryUnknown, []);
 });
 
-test("CLI add, find, update, expired and cleanup round-trip", () => {
+test("the CLI expire closes an old request once and queues its holds", () => {
+  const home = tmpHome();
+  const env = { MEETLY_HOME: home };
+  const id = cli("ledger.ts", ["add", "--json", JSON.stringify(input({ chatUid: "chat_1" }))], env).json.request.id;
+  assert.deepEqual(cli("ledger.ts", ["expire"], env).json, { requests: [] });
+  const expired = cli("ledger.ts", ["expire", "--hours", "0"], env).json.requests;
+  assert.deepEqual(expired.map((r: { id: string; status: string; chatUid: string }) => [r.id, r.status, r.chatUid]), [[id, "offered", "chat_1"]]);
+  assert.equal(cli("ledger.ts", ["find", "--chat", "chat_1"], env).json.request.status, "expired");
+  assert.deepEqual(cli("ledger.ts", ["expire", "--hours", "0"], env).json, { requests: [] });
+  assert.deepEqual(cli("ledger.ts", ["cleanup"], env).json, { requests: [{ id, holdCleanup: [{ holdId: "h1", account: offer.account }] }] });
+});
+
+test("CLI add, find, update and cleanup round-trip", () => {
   const home = tmpHome();
   const env = { MEETLY_HOME: home };
   const added = cli("ledger.ts", ["add", "--json", JSON.stringify(input({ handle: "+1 (555) 123-4567" }))], env);
@@ -265,8 +292,7 @@ test("CLI add, find, update, expired and cleanup round-trip", () => {
   writeFileSync(patch, JSON.stringify({ chatUid: "chat_1" }));
   assert.equal(cli("ledger.ts", ["update", "--id", id, "--json-file", patch], env).json.request.chatUid, "chat_1");
   assert.equal(cli("ledger.ts", ["find", "--chat", "chat_1"], env).json.request.id, id);
-  assert.deepEqual(cli("ledger.ts", ["expired"], env).json, { requests: [] });
-  assert.equal(cli("ledger.ts", ["expired", "--hours", "0"], env).json.requests.length, 1);
+  assert.deepEqual(cli("ledger.ts", ["expire"], env).json, { requests: [] });
   assert.deepEqual(cli("ledger.ts", ["cleanup"], env).json, { requests: [] });
   cli("ledger.ts", ["update", "--id", id, "--json", '{"holdCleanup":[{"holdId":"h1","account":"a"}]}'], env);
   assert.deepEqual(cli("ledger.ts", ["cleanup"], env).json, { requests: [{ id, holdCleanup: [{ holdId: "h1", account: "a" }] }] });

@@ -391,3 +391,12 @@ test("an out-of-hours time with insufficient notice is not described as a calend
   assert.ok(group.includes("do not call it a calendar conflict"));
   assert.ok(group.includes("`reason: \"busy\"`: say the owner has an existing commitment"));
 });
+
+test("a group opens only for a saved request, and expiry is one locked ledger transition", () => {
+  const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
+  const poll = flat(readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8"));
+  assert.ok(group.includes("--request <saved request id>"));
+  assert.ok(group.includes("group with `--request <id>` and idempotency key `owner-gate:<id>`"));
+  assert.ok(poll.includes("Run `ledger.ts expire`: in one locked write it closes every request whose holds ran out"));
+  assert.ok(!poll.includes("ledger.ts expired"));
+});

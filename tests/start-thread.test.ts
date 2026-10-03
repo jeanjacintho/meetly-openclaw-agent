@@ -1,10 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { startThread } from "../skills/meetly/scripts/start-thread.ts";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { cli } from "./helpers.ts";
+import { beforeEach, afterEach } from "node:test";
+import { cli, seedRequest, tmpHome } from "./helpers.ts";
 
 const identity = {
   line: { uid: "line_me" },
@@ -27,7 +25,13 @@ function fakeFetch(post: () => Response | Promise<Response>, calls: Call[] = [],
   }) as typeof fetch;
 }
 const base = "https://api.plow.test/";
-const args = { members: ["+15551234567"], body: "Hi Ana, this is Meetly, Jean's assistant.", key: "rowid:42" };
+const args = { members: ["+15551234567"], body: "Hi Ana, this is Meetly, Jean's assistant.", key: "rowid:42", requestId: "r_1" };
+
+// Every group is opened for one saved request, so each test starts with one for this person.
+let home = "";
+let prior: string | undefined;
+beforeEach(() => { prior = process.env.MEETLY_HOME; home = tmpHome(); process.env.MEETLY_HOME = home; seedRequest(home); });
+afterEach(() => { if (prior === undefined) delete process.env.MEETLY_HOME; else process.env.MEETLY_HOME = prior; });
 
 test("posts the same chat the plow_start_thread tool would", async () => {
   const calls: Call[] = [];
@@ -85,36 +89,32 @@ test("the CLI needs a key and the Plow env", () => {
   const r = cli("start-thread.ts", ["--member", "+15551234567", "--body", "hi"], { PLOW_API_BASE: "http://127.0.0.1:9", PLOW_AGENT_TOKEN: "t" });
   assert.equal(r.status, 1);
   assert.match(r.stderr, /--key/);
-  const noEnv = cli("start-thread.ts", ["--member", "+15551234567", "--body", "hi", "--key", "k"], { PLOW_API_BASE: "", PLOW_AGENT_TOKEN: "" });
+  const noRequest = cli("start-thread.ts", ["--member", "+15551234567", "--body", "hi", "--key", "k"], { MEETLY_HOME: home });
+  assert.match(noRequest.stderr, /--request/);
+  const noEnv = cli("start-thread.ts", ["--member", "+15551234567", "--body", "hi", "--key", "k", "--request", "r_1"], { MEETLY_HOME: home, PLOW_API_BASE: "", PLOW_AGENT_TOKEN: "" });
   assert.equal(noEnv.status, 1);
   assert.match(noEnv.stderr, /PLOW_API_BASE/);
 });
 
 test("an iMessage email is a member like a phone, which is how an Android owner of an iPad is reached", async () => {
+  seedRequest(home, { handle: "ana@example.com" });
   const calls: Call[] = [];
   const out = await startThread({ ...args, members: ["ana@example.com"], fetch: fakeFetch(() => new Response('{"uid":"chat_e"}', { status: 200 }), calls), base, token: "tok" });
   assert.deepEqual(out, { chatUid: "chat_e", messageSent: true });
   assert.deepEqual(JSON.parse(String(calls[1]!.init?.body)).members, ["+5511999990000", "ana@example.com"]);
 });
 
-test("refuses a person whose inbound request still waits for the owner, and sends once it is approved", async () => {
-  const home = mkdtempSync(join(tmpdir(), "meetly-"));
-  const prior = process.env.MEETLY_HOME;
-  process.env.MEETLY_HOME = home;
-  try {
-    const request = {
-      id: "r_1", origin: "inbound", handle: "+15551234567", topic: "coffee", durationMin: 30, status: "offered",
-      offered: [], offeredAt: "2026-09-28T12:00:00.000Z", createdAt: "2026-09-28T12:00:00.000Z", updatedAt: "2026-09-28T12:00:00.000Z",
-      ownerApprovalAt: "2026-09-28T12:00:00.000Z",
-    };
-    writeFileSync(join(home, "ledger.json"), JSON.stringify({ requests: [request] }));
-    const calls: Call[] = [];
-    const fetch = fakeFetch(() => new Response('{"uid":"chat_9"}', { status: 201 }), calls);
-    await assert.rejects(startThread({ ...args, fetch, base, token: "tok" }), /waiting for the owner's approval/);
-    assert.equal(calls.length, 0);
-    writeFileSync(join(home, "ledger.json"), JSON.stringify({ requests: [{ ...request, ownerApprovedAt: "2026-09-28T12:05:00.000Z" }] }));
-    assert.deepEqual(await startThread({ ...args, fetch, base, token: "tok" }), { chatUid: "chat_9", messageSent: true });
-  } finally {
-    if (prior === undefined) delete process.env.MEETLY_HOME; else process.env.MEETLY_HOME = prior;
-  }
+test("opens a group only for the saved open request and its own person, and never before the owner approves", async () => {
+  const calls: Call[] = [];
+  const fetch = fakeFetch(() => new Response('{"uid":"chat_9"}', { status: 201 }), calls);
+  const go = (over: Record<string, unknown> = {}) => startThread({ ...args, fetch, base, token: "tok", ...over });
+  await assert.rejects(go({ requestId: "r_missing" }), /not an open request/);
+  await assert.rejects(go({ members: ["+15557654321"] }), /must be the request's person/);
+  seedRequest(home, { status: "dropped" });
+  await assert.rejects(go(), /not an open request/);
+  seedRequest(home, { origin: "inbound", ownerApprovalAt: "2026-09-28T12:00:00.000Z" });
+  await assert.rejects(go(), /waiting for the owner's approval/);
+  assert.equal(calls.length, 0);
+  seedRequest(home, { origin: "inbound", ownerApprovalAt: "2026-09-28T12:00:00.000Z", ownerApprovedAt: "2026-09-28T12:05:00.000Z" });
+  assert.deepEqual(await go(), { chatUid: "chat_9", messageSent: true });
 });
