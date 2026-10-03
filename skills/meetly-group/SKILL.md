@@ -71,7 +71,7 @@ free there.
 4. Hold each slot ("Holds"). Drop a slot whose hold is refused for a
    conflict. If none are left, tell the owner and stop.
 5. Persist the offer immediately after the holds exist, before sending or
-   opening a group. Run `ledger.ts save --json '<request>'` with every field:
+   opening a group. Run `ledger.ts save --json-file <file>` (the request, written with the `write` tool) with every field:
    `origin`, `handle` (the intended contact handle), `name`, `sourceRowid`,
    `chatUid` if already known, `topic`, `location`, `durationMin`,
    `constraints`, `allowOverlap`, `format` and `locale` (see "Meeting
@@ -162,7 +162,7 @@ In the owner's DM:
 3. Find those events by name in the calendar read (every instance, if
    recurring) and pass each id as `--allow-overlap`. If none is found, tell
    the owner and continue without it.
-4. If `ledger.ts find --handle <handle>` has an open request, reuse its group
+4. If `ledger.ts find --handles-file <file with handle>` has an open request, reuse its group
    ("Offer times" step 5).
 5. Follow "Offer times" with `origin: owner`.
 6. Only after the group opened or the send succeeded, reply to the owner in
@@ -173,7 +173,7 @@ In the owner's DM:
    takes the first option, or name another.
 7. When the owner's message only tells you to book or schedule a request of
    theirs that is already open (`origin: owner`), with no time, resolve it in
-   the owner's DM with `ledger.ts find --handle <contact handle>`. Re-read it
+   the owner's DM with `ledger.ts find --handles-file <file with contact handle>`. Re-read it
    now and require `status: offered` and `origin: owner`; do not look up the
    owner's DM using `find --chat` or use a request retained in context. Book
    its first current offered time through **Owner request pick** below. A
@@ -224,7 +224,7 @@ around a `do not contact` result.
 Before proposing times, establish the topic, purpose, attendees, location,
 duration and meeting format from the current conversation and the owner's
 request. Then check the contact card (`contacts`, `contact.ts`), this person's
-recent Plow message thread, and `ledger.ts history --handle <their handle>`.
+recent Plow message thread, and `ledger.ts history --handles-file <file with their handle>`.
 For an owner request, also search the owner's relevant email and Plow messages
 for the contact and topic, following the Mac's `google-workspace` and
 `plow-messages` skills for their exact commands. Keep searches narrow to this
@@ -312,7 +312,7 @@ Pass `locale` with every save: the other person's language tag, the same one
 used for `slots.ts --locale`.
 
 An answer that arrives before booking is recorded with
-`ledger.ts update --id <id> --json '{"format":"<format>","location":"<place>"}'`
+`ledger.ts update --id <id> --json-file <file>` (`{"format":"<format>","location":"<place>"}`)
 (drop `location` when there is none). A later answer replaces an earlier
 one. Never ask about the format twice in a row: once in the opener, and once
 after booking if the pick did not answer it.
@@ -432,7 +432,7 @@ the meeting thread to answer there, and make no calendar changes.
 waiting for the owner's answer to an out-of-hours time. It does not find a
 contact's open offer. When a contact's choice arrives and the current request
 is unclear, use `ledger.ts find --chat <this chat uid>` and
-`ledger.ts find --handle <contact handle>`; the handle lookup returns the
+`ledger.ts find --handles-file <file with contact handle>`; the handle lookup returns the
 current open (`offered`) request. Never use `pending` to look up a contact's
 offer.
 
@@ -446,7 +446,7 @@ offer.
   and do not alert the owner. Only handle scheduling-related messages below.
 - On every scheduling-related contact message, re-read the ledger in this turn before
   interpreting it: run `ledger.ts find --chat <this chat uid>` and
-  `ledger.ts find --handle <sender handle>`. A previous turn's request object
+  `ledger.ts find --handles-file <file with sender handle>`. A previous turn's request object
   or status is stale. A request with status `booked`, `dropped`, `expired` or `cancelled`
   linked to this chat still makes it a Meetly group. Prefer the open
   (`offered`) handle match as the current request, even when the chat lookup
@@ -471,7 +471,7 @@ offer.
   create, change, or delete holds until the request is identified.
 - **Pick** (a time, or "the first one works"):
   1. Re-run both `ledger.ts find --chat <this chat uid>` and
-     `ledger.ts find --handle <sender handle>` now, even if either command
+     `ledger.ts find --handles-file <file with sender handle>` now, even if either command
      already ran earlier in this turn. Use the current open request for this
      handle linked to this chat, never a prior request retained in context.
      If neither lookup identifies that request, follow **No matching
