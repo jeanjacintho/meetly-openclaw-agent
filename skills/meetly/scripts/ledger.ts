@@ -277,6 +277,7 @@ export function saveRequest(ledger: Ledger, input: NewRequest, now: number, id: 
     format: validated.format === "unknown" ? existing.format ?? "unknown" : validated.format,
     locale: input.locale ?? existing.locale,
     ownerApprovedAt: undefined,
+    deliveryAttemptedAt: undefined,
     createdAt: existing.createdAt,
     updatedAt: new Date(now).toISOString(),
   };
@@ -468,9 +469,28 @@ export function approveRequest(ledger: Ledger, id: string, now: number): { ledge
 const approvedUnsent = (r: Request): boolean =>
   r.ownerApprovedAt !== undefined && r.ownerApprovalAt !== undefined && r.chatUid === undefined && r.deliveryAttemptedAt === undefined;
 
-// start-thread.ts calls this under the blocklist lock, just before the POST: after it, a missing chat is an uncertain delivery.
-export function markDeliveryAttempt(ledger: Ledger, id: string, now: number): Ledger {
-  return { requests: ledger.requests.map((r) => (r.id === id && r.deliveryAttemptedAt === undefined ? { ...r, deliveryAttemptedAt: new Date(now).toISOString() } : r)) };
+// start-thread.ts claims the delivery under the ledger lock just before the POST. It succeeds only if the request
+// is still the one that was authorized: open, approved (when the gate is on), the same person and the same offer
+// and approval it validated against. After it, a missing chat is an uncertain delivery, until a definitive
+// failure clears it (`clearDeliveryAttempt`) or a new offer replaces the request's offer (`saveRequest`).
+export function claimDeliveryAttempt(
+  ledger: Ledger, id: string, seen: { handle: string; offeredAt: string; ownerApprovedAt?: string }, gateOn: boolean, now: number,
+): Ledger {
+  const r = ledger.requests.find((x) => x.id === id);
+  if (!r || r.status !== "offered") throw new Error(`request ${id} is no longer open: nothing was sent`);
+  if (awaitingOwnerApproval(r) || (gateOn && r.ownerApprovedAt === undefined)) throw new Error(`request ${id} is not approved by the owner: nothing was sent`);
+  if (!sameHandle(r.handle, seen.handle) || r.offeredAt !== seen.offeredAt || r.ownerApprovedAt !== seen.ownerApprovedAt) {
+    throw new Error(`request ${id} changed since it was authorized (another offer or approval replaced it): nothing was sent, start again`);
+  }
+  return { requests: ledger.requests.map((x) => (x.id === id ? { ...x, deliveryAttemptedAt: x.deliveryAttemptedAt ?? new Date(now).toISOString() } : x)) };
+}
+
+export function clearDeliveryAttempt(ledger: Ledger, id: string): Ledger {
+  return { requests: ledger.requests.map((r) => {
+    if (r.id !== id) return r;
+    const { deliveryAttemptedAt: _d, ...rest } = r;
+    return rest;
+  }) };
 }
 
 // The owner's no, in one write: the request closes and every hold goes to the

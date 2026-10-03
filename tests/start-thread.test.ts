@@ -76,6 +76,12 @@ test("the POST attempt is recorded on the request first, so a missing chat after
   assert.equal(typeof ledger().deliveryAttemptedAt, "string");
 });
 
+test("a definitive refusal sent nothing, so it clears the attempt and the request stays resumable", async () => {
+  const ledger = () => JSON.parse(readFileSync(join(home, "ledger.json"), "utf8")).requests[0];
+  await assert.rejects(startThread({ ...args, fetch: fakeFetch(() => new Response('{"error":"nope"}', { status: 422 })), base, token: "t" }), /HTTP 422/);
+  assert.equal(ledger().deliveryAttemptedAt, undefined);
+});
+
 test("a server error or a lost connection means delivery is unknown", async () => {
   for (const post of [
     () => new Response("", { status: 502 }),

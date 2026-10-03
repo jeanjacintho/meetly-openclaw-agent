@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  addRequest, approveRequest, declineRequest, markDeliveryAttempt, saveRequest, settleOffer, discardStaleOffers, removeCleanupRef, appendLog, cleanupList, pendingOwnerList, ownerApprovalList, expiredRequests, expireRequests, monitor, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, pipeline, stageOf,
+  addRequest, approveRequest, declineRequest, claimDeliveryAttempt, clearDeliveryAttempt, saveRequest, settleOffer, discardStaleOffers, removeCleanupRef, appendLog, cleanupList, pendingOwnerList, ownerApprovalList, expiredRequests, expireRequests, monitor, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, pipeline, stageOf,
   type Ledger, type NewRequest,
 } from "../skills/meetly/scripts/ledger.ts";
 import { cli, tmpHome, handlesFile } from "./helpers.ts";
@@ -336,7 +336,8 @@ test("owner gate requests wait for owner approval and appear in the approvals li
   assert.equal(stageOf(approvedButUnknown.requests[0]!, T0 + 6 * HOUR), "waiting_on_us");
   assert.deepEqual(ownerApprovalList(approvedButUnknown).map((r) => r.state), ["approved-unsent"]);
   // Once start-thread has attempted the POST, a missing chat is an uncertain delivery that is never resumed.
-  const attempted = markDeliveryAttempt(approvedButUnknown, "r_1", T0 + 6 * HOUR);
+  const seen = { handle: input().handle, offeredAt: approvedButUnknown.requests[0]!.offeredAt, ownerApprovedAt: approvedButUnknown.requests[0]!.ownerApprovedAt };
+  const attempted = claimDeliveryAttempt(approvedButUnknown, "r_1", seen, true, T0 + 6 * HOUR);
   assert.equal(stageOf(attempted.requests[0]!, T0 + 6 * HOUR), "delivery_unknown");
   assert.deepEqual(ownerApprovalList(attempted), []);
   assert.equal(approveRequest(attempted, "r_1", T0 + 7 * HOUR).approved, false);
@@ -359,6 +360,29 @@ test("the CLI expire closes an old request once and queues its holds", () => {
   assert.equal(cli("ledger.ts", ["find", "--chat", "chat_1"], env).json.request.status, "expired");
   assert.deepEqual(cli("ledger.ts", ["expire", "--hours", "0"], env).json, { requests: [] });
   assert.deepEqual(cli("ledger.ts", ["cleanup"], env).json, { requests: [{ id, holdCleanup: [{ holdId: "h1", account: offer.account }] }] });
+});
+
+test("a delivery is claimed only for the request that was authorized, and a definitive failure or a new offer clears the claim", () => {
+  const gate = new Date(T0).toISOString();
+  const waiting = saveRequest(empty(), input({ ownerApprovalAt: gate }), T0, "r_1");
+  const approved = approveRequest(waiting, "r_1", T0 + HOUR).ledger;
+  const r = approved.requests[0]!;
+  const seen = { handle: r.handle, offeredAt: r.offeredAt, ownerApprovedAt: r.ownerApprovedAt };
+  // The authorized snapshot claims it.
+  const claimed = claimDeliveryAttempt(approved, "r_1", seen, true, T0 + 2 * HOUR);
+  assert.equal(typeof claimed.requests[0]!.deliveryAttemptedAt, "string");
+  // Not approved, closed, another person, another offer, or an approval that changed: refused, nothing marked.
+  assert.throws(() => claimDeliveryAttempt(waiting, "r_1", seen, true, T0), /not approved/);
+  assert.throws(() => claimDeliveryAttempt(approved, "r_1", { ...seen, handle: "+15550000000" }, true, T0), /changed since it was authorized/);
+  const replaced = saveRequest(approved, input({ offered: [{ ...offer, holdId: "h9" }], ownerApprovalAt: new Date(T0 + 3 * HOUR).toISOString() }), T0 + 3 * HOUR, "r_2");
+  assert.throws(() => claimDeliveryAttempt(replaced, "r_1", seen, true, T0 + 4 * HOUR), /not approved|changed since/);
+  const reapproved = approveRequest(replaced, "r_1", T0 + 4 * HOUR).ledger;
+  assert.throws(() => claimDeliveryAttempt(reapproved, "r_1", seen, true, T0 + 5 * HOUR), /changed since it was authorized/);
+  assert.throws(() => claimDeliveryAttempt(expireRequests(approved, 48, T0 + 200 * HOUR).ledger, "r_1", seen, true, T0), /no longer open/);
+  // A definitive failure clears the claim; a replacement offer installed afterwards starts without one.
+  assert.equal(clearDeliveryAttempt(claimed, "r_1").requests[0]!.deliveryAttemptedAt, undefined);
+  const withNewOffer = saveRequest(claimed, input({ offered: [{ ...offer, holdId: "h8" }], ownerApprovalAt: new Date(T0 + 6 * HOUR).toISOString() }), T0 + 6 * HOUR, "r_3");
+  assert.equal(withNewOffer.requests[0]!.deliveryAttemptedAt, undefined);
 });
 
 test("the owner's yes is claimed atomically: only a request still open and waiting can be approved", () => {
