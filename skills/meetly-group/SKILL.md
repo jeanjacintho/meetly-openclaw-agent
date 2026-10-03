@@ -280,13 +280,15 @@ lunch with Ana", "remove all my appointments today", "move the call to 3pm"):
      every id in `booked.travel` in `--allow-overlap`; if it
      is not free, tell the owner and do not move. Otherwise create both
      buffers at the new time and stage them with `ledger.ts stage-travel --id
-     <id> --json-file F` (`{"travel":[…]}`); the cleanup poll leaves staged buffers alone. Then `plow-gog calendar update <calendarId> <eventId>
+     <id> --json-file F` (`{"travel":[…]}`; it prints a `revision`); the cleanup poll leaves staged buffers alone. Then `plow-gog calendar update <calendarId> <eventId>
      --from <start> --to <end> --send-updates all --account <account> --json`.
-     Only after it succeeds, run `ledger.ts commit-travel --id <id>`
+     Only after it succeeds, run `ledger.ts commit-travel --id <id> --revision <that revision>`
      (the new buffers become the booking's, the old ones are queued for cleanup),
-     and record the move as in "Book the event" steps 1 and 2. If the update
-     fails, run nothing more: the old buffers stay and the staged ones are
-     cleaned up after 15 minutes.
+     and record the move as in "Book the event" steps 1 and 2. If it prints
+     `committed: false`, a newer move replaced this one (its buffers are already
+     queued for cleanup): read the event again and record what the calendar now
+     shows, changing nothing else. If the update fails, run nothing more: the old
+     buffers stay and the staged ones are cleaned up after 15 minutes.
    - If a step after the calendar change fails, retry it once in this turn,
      and still send the group message (step 4). If it still fails, tell the
      owner exactly which steps are left and for which meeting. A deleted
@@ -441,12 +443,13 @@ the meeting thread to answer there, and make no calendar changes.
   2. If an in-person time needs travel buffers, create both travel holds
      before the meeting event. If either cannot be created, delete any buffer
      already made, keep failed deletes in `holdCleanup`, and do not book.
-     Immediately after both buffers exist, persist their refs on the offer for
-     this start with `ledger.ts set-travel --id <id> --json-file <file>`
+     Immediately after both buffers exist, persist their refs with
+     `ledger.ts set-travel --id <id> --json-file <file>`
      (`{"start":"<pendingOwner.start>","travel":[<before>,<after>]}`, written
-     with the `write` tool; the ledger holds them on the pending approval, and
-     `record-booking.ts` moves them to the booking or, if the approval is
-     cleared first, the cleanup queue takes them). Do this before creating the event. If this write fails, delete both buffers, queue any
+     with the `write` tool). This time is no offer, so the ledger keeps them in
+     `pendingOwner.travel` (a retry that holds a new pair queues the displaced
+     refs for cleanup in the same write); `record-booking.ts` moves them to the
+     booking, or, if the approval is cleared first, the cleanup queue takes them. Do this before creating the event. If this write fails, delete both buffers, queue any
      failed deletes in `holdCleanup`, and do not book.
   3. If it is still free, create the event with `plow-gog calendar create
      primary` using the final details ("Pick" step 1), following "Book the
@@ -635,7 +638,7 @@ does not fit and offer new times.
 If `outsideHours` is true, save the picked time in `pendingOwner` and ask the
 owner in this thread to approve the travel extension, following "Outside the
 owner's hours". If it is free and inside hours, create both travel holds and
-save their refs on that offer with `ledger.ts set-travel` before booking. If saving those refs fails,
+save their refs on that offer (for a time that is an offer) with `ledger.ts set-travel` before booking. If saving those refs fails,
 delete both travel holds, queue any failed deletes in `holdCleanup`, leave
 the meeting unbooked, and report the failure to the owner. If either hold
 cannot be created, delete any travel hold already made, leave the meeting

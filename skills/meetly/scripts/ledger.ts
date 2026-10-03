@@ -51,7 +51,7 @@ export type Request = {
   eventId?: string;
   holdCleanup?: HoldRef[];
   // The buffers of a move in progress: owned by nobody, and not yet cleanable, until the calendar update succeeds.
-  pendingTravel?: { refs: HoldRef[]; at: string };
+  pendingTravel?: { refs: HoldRef[]; at: string; revision: string };
   pendingOwner?: PendingOwner;
   format?: Format;
   locale?: string;
@@ -310,7 +310,7 @@ export function discardStaleOffers(ledger: Ledger, now: number, maxAgeMs: number
 // `pendingTravel`, which the cleanup poll ignores, so a poll between the two
 // steps cannot delete them; `commit` makes them the meeting's buffers and
 // queues the old ones, in one write, only after the calendar update succeeded.
-export function stageTravel(ledger: Ledger, id: string, refs: HoldRef[], now: number): Ledger {
+export function stageTravel(ledger: Ledger, id: string, refs: HoldRef[], now: number, revision = id): Ledger {
   checkHoldRefs(refs, "travel hold");
   const index = ledger.requests.findIndex((r) => r.id === id);
   if (index < 0) throw new Error(`no request ${id}`);
@@ -320,19 +320,22 @@ export function stageTravel(ledger: Ledger, id: string, refs: HoldRef[], now: nu
   // A second stage abandons the first one's buffers to cleanup.
   requests[index] = {
     ...current,
-    pendingTravel: { refs, at: new Date(now).toISOString() },
+    pendingTravel: { refs, at: new Date(now).toISOString(), revision },
     holdCleanup: mergeRefs(current.holdCleanup ?? [], withoutRefs(current.pendingTravel?.refs ?? [], refs)),
     updatedAt: new Date(now).toISOString(),
   };
   return { requests };
 }
 
-export function commitTravel(ledger: Ledger, id: string, now: number): Ledger {
+// A commit applies only to the stage it was issued for: when another move staged
+// in between (or the stage went stale), the ledger is left untouched and the
+// caller is told, since the buffers it staged were already queued for cleanup.
+export function commitTravel(ledger: Ledger, id: string, revision: string, now: number): { ledger: Ledger; committed: boolean } {
   const index = ledger.requests.findIndex((r) => r.id === id);
   if (index < 0) throw new Error(`no request ${id}`);
   const { pendingTravel, ...current } = ledger.requests[index]!;
   if (current.status !== "booked" || !current.booked) throw new Error(`request ${id} is not a booked meeting`);
-  if (!pendingTravel) throw new Error(`request ${id} has no staged travel buffers (they may have gone stale: stage them again)`);
+  if (!pendingTravel || pendingTravel.revision !== revision) return { ledger, committed: false };
   const requests = [...ledger.requests];
   requests[index] = {
     ...current,
@@ -340,7 +343,7 @@ export function commitTravel(ledger: Ledger, id: string, now: number): Ledger {
     holdCleanup: mergeRefs(current.holdCleanup ?? [], withoutRefs(current.booked.travel ?? [], pendingTravel.refs)),
     updatedAt: new Date(now).toISOString(),
   };
-  return { requests };
+  return { ledger: { requests }, committed: true };
 }
 
 // Set the buffers of one offer (open request, by its start) or of the booking
@@ -361,7 +364,14 @@ export function setTravel(ledger: Ledger, id: string, refs: HoldRef[], start: st
   if (current.status !== "offered") throw new Error(`request ${id} is ${current.status}`);
   // An owner-approved out-of-hours time is no offer: its buffers are held on the pending approval.
   if (start && current.pendingOwner && Date.parse(current.pendingOwner.start) === Date.parse(start) && !current.offered.some((o) => Date.parse(o.start) === Date.parse(start))) {
-    requests[index] = { ...current, pendingOwner: { ...current.pendingOwner, travel: refs }, updatedAt };
+    // A retry that holds a new pair displaces the first: those refs go to cleanup in the same write.
+    const displaced = withoutRefs(current.pendingOwner.travel ?? [], refs);
+    requests[index] = {
+      ...current,
+      pendingOwner: { ...current.pendingOwner, travel: refs },
+      ...(displaced.length ? { holdCleanup: mergeRefs(current.holdCleanup ?? [], displaced) } : {}),
+      updatedAt,
+    };
     return { requests };
   }
   if (!start || !current.offered.some((o) => Date.parse(o.start) === Date.parse(start))) throw new Error(`request ${id} has no offer starting ${start}`);
@@ -707,13 +717,19 @@ if (isMain(import.meta.url)) {
       case "stage-travel": {
         if (!values.id) throw new Error(`usage: ledger.ts stage-travel --id X --json-file F ({"travel":[{holdId,account},…]})`);
         const { travel } = jsonArg(values) as { travel: HoldRef[] };
-        const ledger = updateJson<Ledger>(path, EMPTY, (l) => stageTravel(l, values.id!, travel, now));
-        return { request: ledger.requests.find((r) => r.id === values.id) };
+        const revision = randomBytes(4).toString("hex");
+        const ledger = updateJson<Ledger>(path, EMPTY, (l) => stageTravel(l, values.id!, travel, now, revision));
+        return { request: ledger.requests.find((r) => r.id === values.id), revision };
       }
       case "commit-travel": {
-        if (!values.id) throw new Error("usage: ledger.ts commit-travel --id X");
-        const ledger = updateJson<Ledger>(path, EMPTY, (l) => commitTravel(l, values.id!, now));
-        return { request: ledger.requests.find((r) => r.id === values.id) };
+        if (!values.id || !values.revision) throw new Error("usage: ledger.ts commit-travel --id X --revision R");
+        let committed = false;
+        const ledger = updateJson<Ledger>(path, EMPTY, (l) => {
+          const out = commitTravel(l, values.id!, values.revision!, now);
+          committed = out.committed;
+          return out.ledger;
+        });
+        return { request: ledger.requests.find((r) => r.id === values.id), committed };
       }
       case "expired": {
         const hours = values.hours !== undefined ? Number(values.hours) : holdHours();

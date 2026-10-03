@@ -387,11 +387,12 @@ test("do not contact is checked before every contact-visible message and stored 
 
 test("travel buffer references are persisted before an outside-hours booking", () => {
   const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
-  assert.ok(group.includes("persist their refs on the offer for this start with `ledger.ts set-travel --id <id> --json-file <file>`"));
+  assert.ok(group.includes("persist their refs with `ledger.ts set-travel --id <id> --json-file <file>`"));
+  assert.ok(group.includes("the ledger keeps them in `pendingOwner.travel` (a retry that holds a new pair queues the displaced refs for cleanup in the same write)"));
   assert.ok(group.includes("Do this before creating the event"));
   assert.ok(group.includes("If this write fails, delete both buffers"));
   assert.ok(group.includes("copies that offer's `travel[]` refs into the booking (`booked.travel`)"));
-  assert.ok(group.includes("save their refs on that offer with `ledger.ts set-travel` before booking"));
+  assert.ok(group.includes("save their refs on that offer (for a time that is an offer) with `ledger.ts set-travel` before booking"));
   assert.ok(group.includes("If saving those refs fails, delete both travel holds"));
 });
 
@@ -415,7 +416,7 @@ test("travel: one exact-time check, cancel and move handle the buffers, and a pi
   assert.ok(group.includes("the buffers are `slot.travel.before` and `slot.travel.after`"));
   assert.ok(group.includes("the ledger queues the booking's travel buffers for the cleanup poll in that same write"));
   assert.ok(group.includes("first run the exact-time check (\"Travel time\") at the new time"));
-  for (const rule of ["`ledger.ts stage-travel --id <id> --json-file F`", "Only after it succeeds, run `ledger.ts commit-travel --id <id>`", "every id in `booked.travel` in `--allow-overlap`", "repeating `--allow-overlap` for each id in the request's `allowOverlap`"])
+  for (const rule of ["`ledger.ts stage-travel --id <id> --json-file F`", "Only after it succeeds, run `ledger.ts commit-travel --id <id> --revision <that revision>`", "If it prints `committed: false`, a newer move replaced this one", "every id in `booked.travel` in `--allow-overlap`", "repeating `--allow-overlap` for each id in the request's `allowOverlap`"])
     assert.ok(group.includes(rule), rule);
   assert.ok(group.includes("the picked offer has no `travel[]`, follow \"Travel time\" before booking"));
   assert.ok(group.includes("`record-booking.ts` records the booking, clears `pendingOwner` and, in that same write"));
