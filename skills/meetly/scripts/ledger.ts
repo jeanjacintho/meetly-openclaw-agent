@@ -682,6 +682,10 @@ if (isMain(import.meta.url)) {
         const revision = randomBytes(4).toString("hex");
         // The owner gate is decided here, in the locked write, from the configuration and the current request: an
         // inbound offer that has no group yet waits for the owner's approval; the caller never supplies the marker.
+        // Known limit: `origin` is written by the model, and no runtime-provided signal says whether this turn is the
+        // unattended poll (guest text) or the owner's own, so a turn fully driven by a prompt injection could claim
+        // `owner`. Closing that needs that signal from the platform; no script-side state (the poll cursor included)
+        // is a trustworthy substitute, and using it wrongly gates the owner's own requests.
         const gateOn = loadConfig().ownerGate === true;
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => {
           const hasGroup = (findOpenByHandle(l, input.handle)?.chatUid ?? input.chatUid) !== undefined;
