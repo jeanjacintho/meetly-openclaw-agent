@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULTS, REQUIRED_FIELDS, holdHours, parseField, parseTime, readableCalendars, validateConfig, type Config } from "../skills/meetly/scripts/config.ts";
 import { finish, record } from "../skills/meetly/scripts/record-setup.ts";
@@ -116,6 +116,10 @@ test("durations and horizons are bounded integers", () => {
   assert.throws(() => parseField("horizonDays", "0"));
   assert.throws(() => parseField("horizonDays", "31"));
   assert.deepEqual(parseField("horizonDays", "14"), { horizonDays: 14 });
+  // The default meeting type is one of three, and ask clears it.
+  assert.deepEqual(parseField("defaultFormat", " in_person "), { defaultFormat: "in_person" });
+  assert.deepEqual(parseField("defaultFormat", "ask"), { defaultFormat: undefined });
+  assert.throws(() => parseField("defaultFormat", "zoom"), /meet, in_person, phone or ask/);
 });
 
 test("calendars always include the default account's primary, by the id the events listing takes", () => {
@@ -190,6 +194,11 @@ test("editing a field after setup updates config.json and keeps setupDoneAt", ()
     assert.equal(config.windowStart, "10:00");
     assert.equal(config.windowEnd, "17:00");
     assert.equal(config.setupDoneAt, "2026-09-26T12:00:00.000Z");
+    assert.equal("defaultFormat" in config, false);
+    record("defaultFormat", "meet");
+    assert.equal(readJson<Config | null>(join(home, "config.json"), null)!.defaultFormat, "meet");
+    record("defaultFormat", "ask");
+    assert.equal("defaultFormat" in readJson<object>(join(home, "config.json"), {}), false);
     assert.throws(() => record("durationMin", "600"));
     assert.throws(() => record("color", "blue"), /unknown field/);
   });
@@ -203,6 +212,11 @@ test("READY carries the calendar range in the owner's zone", () => {
     assert.equal(s.status, "READY");
     assert.deepEqual(s.status === "READY" && s.range, { from: "2026-09-28T08:00:00-03:00", to: "2026-10-06T08:00:00-03:00" });
   });
+});
+
+test("the setup status instruction reports the configured default meeting type", () => {
+  const skill = readFileSync(join(import.meta.dirname, "../skills/meetly-setup/SKILL.md"), "utf8");
+  assert.match(skill, /default meeting type \(or "ask each time" when `config\.defaultFormat` is\s+unset\)/);
 });
 
 test("the CLI walks setup and finishes", () => {
