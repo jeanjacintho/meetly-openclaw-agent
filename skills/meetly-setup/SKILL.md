@@ -76,6 +76,9 @@ to install anything else.
   `record-setup.ts --field <field> --value <v>`, with the same normalization,
   then confirm in one line. During setup the owner can change the name the
   same way before answering the current question.
+- "My prayer time and gym can move" → `record-setup.ts --field movable --value <words from the titles>`
+  (for example `prayer, gym`); "nothing can move" → `none`. Meetly then offers
+  times over those blocks, and never repeats their titles to anyone.
 - "I use Zoom, here is my room: <link>" → `record-setup.ts --field videoProvider --value <their Zoom room link>`;
   "use Google Meet" → `meet`. Meetly posts that room and cannot create new Zoom links.
 - "I need at least 3 hours notice" → `record-setup.ts --field minNotice --value <hours, like 3h>`.

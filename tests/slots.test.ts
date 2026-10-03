@@ -60,6 +60,26 @@ test("requests only narrow the configured days and window", () => {
   assert.deepEqual(labels({ after: "07:00", before: "09:30", count: 2 }), ["tue 29/9 09:00", "wed 30/9 09:00"]);
 });
 
+test("a movable block is offered over and reported as an overlap, while any other block still blocks", () => {
+  // Mon 28/9 10:00-11:30 local: one block the owner marked movable, then a hard one at 11:30-12:30.
+  const busy: Busy[] = [
+    { start: "2026-09-28T13:00:00.000Z", end: "2026-09-28T14:30:00.000Z", id: "prayer", movable: true },
+    { start: "2026-09-28T14:30:00.000Z", end: "2026-09-28T15:30:00.000Z", id: "board" },
+  ];
+  const slots = findSlots(q({ busy, days: ["mon"], count: 4 })).slots;
+  // Over the movable block at 10:00-11:30, never over the hard one; the next Monday is clear and lists nothing.
+  assert.deepEqual(slots.map((s) => [s.label, s.overlaps]), [["mon 28/9 10:00", ["prayer"]], ["mon 28/9 10:30", ["prayer"]], ["mon 28/9 11:00", ["prayer"]], ["mon 5/10 09:00", undefined]]);
+  assert.equal("overlaps" in slots[3]!, false);
+  assert.equal(findSlots(q({ busy, days: ["mon"], count: 12 })).slots.some((s) => ["mon 28/9 11:30", "mon 28/9 12:00"].includes(s.label)), false);
+  // An event the request allows is reported the same way.
+  const named = findSlots(q({ busy: [{ start: "2026-09-28T13:00:00.000Z", end: "2026-09-28T14:00:00.000Z", id: "weekly" }], allowOverlap: ["weekly"], days: ["mon"], count: 1 })).slots[0]!;
+  assert.deepEqual([named.label, named.overlaps], ["mon 28/9 10:00", ["weekly"]]);
+  // A time asked for over a movable block is free, and says what it overlaps.
+  const at = checkTime({ now: NOW, config: CONFIG, busy, start: "2026-09-28T10:00:00-03:00" });
+  assert.deepEqual([at.free, at.overlaps], [true, ["prayer"]]);
+  assert.equal(checkTime({ now: NOW, config: CONFIG, busy, start: "2026-09-28T11:30:00-03:00" }).reason, "busy");
+});
+
 test("travel time before and after an in-person slot must be free too, and comes back with the slot", () => {
   // A hard block at 11:00-11:30 local on Monday 28/9.
   const busy: Busy[] = [{ start: "2026-09-28T14:00:00.000Z", end: "2026-09-28T14:30:00.000Z", id: "call" }];
@@ -151,7 +171,8 @@ test("the CLI reads busy.ts output and the stored config", () => {
   assert.equal(at.status, 0, at.stderr);
   assert.deepEqual(at.json, {
     slot: { start: "2026-10-03T10:00:00-03:00", end: "2026-10-03T11:00:00-03:00", dayOfWeek: "sat", label: "sáb., 03/10, 10:00" },
-    free: true,
+    free: false,
+    reason: "unknown",
     outsideHours: true,
     degraded: ["other@example.com"],
   });

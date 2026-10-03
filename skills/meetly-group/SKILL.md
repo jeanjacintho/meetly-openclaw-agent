@@ -317,6 +317,15 @@ An answer that arrives before booking is recorded with
 one. Never ask about the format twice in a row: once in the opener, and once
 after booking if the pick did not answer it.
 
+## Movable blocks
+
+The owner can list words from the titles of blocks Meetly may offer times
+over (`config.movable`). `busy.ts` marks those blocks `movable` without giving
+their titles, and `slots.ts` offers times over them; a slot that lists
+`overlaps` needs `--confirm-conflict` on its hold and on its booking. The
+owner's list is their standing consent to those blocks, and nothing else is.
+Never name or describe such a block to anyone; to the owner say only "a block
+you marked movable". Meetly does not move the block's event: the owner does.
 ## Video provider
 
 A video meeting (`format` `meet`) happens on Google Meet unless the owner set
@@ -478,7 +487,12 @@ offer.
      request** and do not use `ledger.ts pending` as a substitute. Select the
      hold only from this request's `offered[]`. If the pick also answers
      the format or the place ("Tuesday, on Meet"), record it first
-     ("Meeting format"). Then run
+     ("Meeting format"). Then read the calendar again (`busy.ts --fetch`) and
+     run `slots.ts --in /var/lib/plow/meetly/tmp/busy.json --at <the chosen start> --duration <the request's durationMin> --allow-overlap <the chosen hold id>`
+     (plus the request's `allowOverlap`): if `free` is false a hard conflict
+     appeared since the offer, so do not book; say the time is no longer free
+     and offer new times. Use this fresh result's `overlaps` for
+     `--confirm-conflict`, also on the fallback `create`. Then run
      `plow-gog calendar update primary <holdId> --account <account>` with
      the final title (the topic and the person's name, without "Hold:"), the
      location, and the person's `attendeeEmail` as an attendee when there is one,
@@ -523,7 +537,7 @@ offer.
 - **Only a time outside the owner's hours:** follow "Outside the owner's
   hours".
 - **A conflict when booking** (the calendar changed): if the conflicting
-  event's id is in `allowOverlap`, repeat the full original command with
+  event's id is in `allowOverlap` or in the slot's `overlaps`, repeat the full original command with
   `--confirm-conflict` and mention the overlap to the owner. Any other
   conflict: never override; offer new times.
 - **They decline or give up:** delete the holds, run `ledger.ts update` with
@@ -565,7 +579,7 @@ People in the group never can.
   --send-updates none --account <config.defaultAccount> --json`, with no
   attendees. Record the returned event id as the slot's `holdId`.
 - Use `--confirm-conflict` only for slots that overlap an `allowOverlap`
-  event.
+  event or whose slot lists `overlaps` ("Movable blocks").
 - Delete only ids that the ledger records as this request's holds, never
   any other event: `plow-gog calendar delete primary <holdId> --send-updates
   none --force --account <account>`. `--force` is required: without it gog
