@@ -115,6 +115,9 @@ still explain why no contact message was sent.
      manually, and explicitly say never to resend. Do not open another group
      or send another offer. After the warning run `ledger.ts update --id <id>
      --json '{"nudgedAt":"<now ISO>"}'` so it is sent once.
-   - For each request from `ledger.ts cleanup`: retry each delete, then
-     update `holdCleanup` to what is still left (`[]` when none).
+   - For each request from `ledger.ts cleanup`: retry each delete, and after
+     each successful one write `{ "holdId": "...", "account": "..." }` to a
+     JSON file and run `ledger.ts cleanup-remove --id <id> --json-file <file>`.
+     Never replace the whole `holdCleanup` list: a promotion or discard may
+     have queued more holds since `cleanup` read it.
 7. If nothing happened, end silently.
