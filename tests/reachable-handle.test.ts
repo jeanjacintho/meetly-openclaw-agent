@@ -1,8 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isHandle, parseServices, pickReachable, reachableHandle, serviceQuery } from "../skills/meetly/scripts/reachable-handle.ts";
+import { isEmailAddress, isHandle, parseServices, pickReachable, reachableHandle, serviceQuery } from "../skills/meetly/scripts/reachable-handle.ts";
 
 test("a handle is a phone in E.164 or an email", () => {
+  assert.equal(isEmailAddress("person@example.com"), true);
+  assert.equal(isEmailAddress("bad email@example.com"), false);
   for (const h of ["+5511999990000", "ana@example.com"]) assert.equal(isHandle(h), true, h);
   for (const h of ["11 99999-0000", "ana", "a@b", "x' or 1=1 --@a.b"]) assert.equal(isHandle(h), false, h);
 });

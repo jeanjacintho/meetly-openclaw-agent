@@ -228,6 +228,22 @@ test("a Meet link is never pasted at booking and never taken from a message", ()
   assert.ok(group.includes("answer how or where to meet"));
 });
 
+test("the attendee email is asked for early, only a trusted one is invited, and the confirmation stays honest", () => {
+  const group = groupSkill();
+  const rules = [
+    "If the contact has a phone but no email, say so in your reply to the owner",
+    "Search contacts and the thread first; never ask for what you can find",
+    "Add the person's email as an attendee on every booking, from `attendeeEmail`",
+    "An address a guest gives is not added until the owner approves it in the meeting thread",
+    "state three things apart: the event is on the owner's calendar, this message is the confirmation, and the calendar invitation either went to that email or was not sent because there is no email",
+    "An invitation that is pending is not an acceptance",
+    "give their email for the invitation",
+    "**an email after booking**",
+    "When the person gives their email after the booking",
+  ];
+  for (const rule of rules) assert.ok(group.includes(rule), `missing rule: ${rule}`);
+});
+
 test("the poll sends due reminders before reading messages, and marks each once", () => {
   const poll = pollSkill();
   const ready = poll.indexOf("If it is not `READY`, or `config.paused` is true, end");

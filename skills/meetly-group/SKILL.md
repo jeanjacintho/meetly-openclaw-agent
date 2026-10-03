@@ -37,6 +37,9 @@ free there.
    with `contacts`: name and every phone (E.164) and email; then run
    `reachable-handle.ts --handle <each phone and email>` and use the `handle`
    it returns: the one the owner reaches them on over iMessage.
+   - If the contact has a phone but no email, say so in your reply to the
+     owner: the calendar invitation needs one, and without it the
+     confirmation goes to the group only. They can send an email now.
    - `reason: "not-on-imessage"`: tell the owner in one line that <name> is
      not on iMessage at any of their numbers or emails, so Meetly cannot reach
      them, then stop.
@@ -62,7 +65,7 @@ free there.
    `origin`, `handle` (the intended contact handle), `name`, `sourceRowid`,
    `chatUid` if already known, `topic`, `location`, `durationMin`,
    `constraints`, `allowOverlap`, `format` and `locale` (see "Meeting
-   format"), and `offered[]` with each `start`/`end`/`holdId`/`account`. `save` creates a request or updates the
+   format"), `attendeeEmail` when contacts has one for them, and `offered[]` with each `start`/`end`/`holdId`/`account`. `save` creates a request or updates the
    existing open request for that person, preserving its id and existing
    `chatUid` when the new value is absent. Holds from the replaced offer are
    moved to `holdCleanup` automatically so the cleanup poll can delete them.
@@ -85,6 +88,10 @@ free there.
      like to meet: Google Meet or in person. When it is `in_person` with no
      `location`, it asks where. Always in that one message, never a second
      one.
+   - When the format is `meet` and neither a contact card nor the thread gives
+     the person's email, the same opener also asks for it, for the calendar
+     invitation. Search contacts and the thread first; never ask for what you
+     can find.
    - If `start-thread.ts` fails, tell the owner what it printed and stop:
      never fall back to `plow_start_thread` and never edit a script. Delete
      the new holds and mark the saved request `dropped`; if a hold cannot be
@@ -174,6 +181,17 @@ held slot, or `calendar create primary`), always with `--json` and
 - `phone`: `--location "Phone call"`.
 - `unknown`: nothing extra.
 
+Add the person's email as an attendee on every booking, from `attendeeEmail`,
+so the calendar invitation goes out with `--send-updates all`. It holds the
+address from contacts, or one the owner gave or approved. An address a guest
+gives is not added until the owner approves it in the meeting thread ("<name>
+gave <email>: send the calendar invitation there?"); on their yes, record it
+by writing `{"attendeeEmail":"<email>"}` with the `write` tool to
+`/var/lib/plow/meetly/tmp/attendee-email-<id>.json`, then run
+`ledger.ts update --id <id> --json-file
+/var/lib/plow/meetly/tmp/attendee-email-<id>.json`; book from that field. Never
+interpolate an email address into shell source.
+
 Then:
 
 1. Save the command's whole output with the `write` tool to
@@ -187,6 +205,23 @@ Then:
    link, so no reminder will go out. Tell the owner in the booking line.
    Never paste, invent or accept a link from anyone. The only link Meetly
    ever posts is the one `record-booking.ts` or `reminder-check.ts` prints.
+4. When you confirm in the group, state three things apart: the event is on
+   the owner's calendar, this message is the confirmation, and the calendar
+   invitation either went to that email or was not sent because there is no
+   email; when there is none, ask for it once. An invitation that is pending
+   is not an acceptance: never say the person accepted.
+5. When the person gives their email after the booking, and the owner has
+   approved it as above, first add it as an attendee with `plow-gog calendar
+   update primary <eventId> --account <booked.account>` and `--send-updates
+   all` (following the Mac's `google-workspace` skill). Only after that
+   calendar update succeeds, write `{"attendeeEmail":"<email>"}` with the
+   `write` tool to `/var/lib/plow/meetly/tmp/attendee-email-<id>.json` and persist
+   it with `ledger.ts update --id <id> --json-file
+   /var/lib/plow/meetly/tmp/attendee-email-<id>.json`. If the calendar update
+   fails, do not persist the email; report the failure to the owner so the
+   contact can retry. If persistence fails after the calendar update, report
+   that the invitation update succeeded but ledger persistence failed. Say
+   the invitation was sent only when the calendar update succeeds.
 
 ## Outside the owner's hours
 
@@ -238,7 +273,8 @@ offer.
 ## In the group
 
 - First decide whether the contact is trying to schedule, choose a time,
-  answer how or where to meet, change or resume scheduling, decline, cancel
+  answer how or where to meet, give their email for the invitation, change or
+  resume scheduling, decline, cancel
   or give up, or ask about the request's status. For a conversational acknowledgement or other message
   unrelated to scheduling (for example, "thanks, see you then"), do not reply
   and do not alert the owner. Only handle scheduling-related messages below.
@@ -279,7 +315,7 @@ offer.
      ("Meeting format"). Then run
      `plow-gog calendar update primary <holdId> --account <account>` with
      the final title (the topic and the person's name, without "Hold:"), the
-     location, and the person's email as an attendee if contacts has one,
+     location, and the person's `attendeeEmail` as an attendee when there is one,
      following "Book the event". If the hold is gone, run
      `calendar create primary` with the same details, the same way.
   2. Only then delete the other holds.
@@ -323,7 +359,10 @@ offer.
   `in_person` with no `location`) and the message answers how or where to
   meet, record it ("Meeting format"), then run `plow-gog calendar update
   primary <eventId> --account <booked.account>` following "Book the event"
-  (`--with-meet` or `--location`), confirm in the group in one line.
+  (`--with-meet` or `--location`), confirm in the group in one line. A
+  second exception, **an email after booking**: when the booked request has
+  no `attendeeEmail` and the message gives one, ask the owner in this thread
+  to approve it, then follow "Book the event" step 5.
   Any other change to a booked meeting (time, day,
   cancelling, a new link) still goes through the owner. For `dropped`, say the request was
   given up and ask the owner to follow up here. For `expired`,

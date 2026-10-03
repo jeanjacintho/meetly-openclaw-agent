@@ -5,6 +5,7 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
+import { isEmailAddress } from "./reachable-handle.ts";
 import { DEFAULT_FORMATS, holdHours, reminderLeadMin, type DefaultFormat } from "./config.ts";
 import { isMeetUrl } from "./event.ts";
 import { file } from "./paths.ts";
@@ -33,6 +34,8 @@ export type Request = {
   chatUid?: string;
   topic: string;
   location?: string;
+  // Where the calendar invitation goes: from contacts, or given by the owner, or approved by them.
+  attendeeEmail?: string;
   durationMin: number;
   constraints?: Constraints;
   allowOverlap?: string[];
@@ -57,6 +60,7 @@ export type NewRequest = Omit<Request,
   "id" | "status" | "eventId" | "holdCleanup" | "pendingOwner" | "booked" | "meetUrl" | "reminder" | "offeredAt" | "createdAt" | "updatedAt">;
 export type Patch = Partial<Pick<Request,
   "status" | "chatUid" | "eventId" | "offered" | "holdCleanup" | "name" | "location" | "allowOverlap" | "constraints" | "topic" | "format" | "locale">> & {
+  attendeeEmail?: string;
   pendingOwner?: PendingOwner | null;
   booked?: Booked | null;
   meetUrl?: string | null;
@@ -68,7 +72,7 @@ const FORMATS: readonly Format[] = [...DEFAULT_FORMATS, "unknown"];
 const OUTCOMES: readonly Reminder["outcome"][] = ["sent", "cancelled", "no-link"];
 const PATCH_KEYS = [
   "status", "chatUid", "eventId", "offered", "holdCleanup", "name", "location", "allowOverlap", "constraints", "topic", "pendingOwner",
-  "format", "locale", "booked", "meetUrl", "reminder",
+  "format", "locale", "booked", "meetUrl", "reminder", "attendeeEmail",
 ];
 // Keys a patch can clear with null.
 const NULLABLE = ["pendingOwner", "booked", "meetUrl", "reminder"] as const;
@@ -90,6 +94,12 @@ function checkBooked(b: Booked): void {
     || typeof b.account !== "string" || !b.account) {
     throw new Error(`booked needs a valid start, a later end and an account: ${JSON.stringify(b)}`);
   }
+}
+
+function checkEmail(email: unknown): string {
+  const e = typeof email === "string" ? email.trim().toLowerCase() : "";
+  if (!isEmailAddress(e)) throw new Error(`attendeeEmail must be an email address, got ${JSON.stringify(email)}`);
+  return e;
 }
 
 function checkReminder(r: Reminder): void {
@@ -158,13 +168,14 @@ export function addRequest(ledger: Ledger, input: NewRequest, now: number, id: s
   const format = input.format === undefined ? "unknown" : input.format;
   checkFormat(format);
   if (input.locale !== undefined) checkLocale(input.locale);
+  const attendeeEmail = input.attendeeEmail === undefined ? undefined : checkEmail(input.attendeeEmail);
   const open = findOpenByHandle(ledger, input.handle);
   if (open) throw new Error(`open request ${open.id} already exists for this person; update it instead`);
   const at = new Date(now).toISOString();
   // A new offer is never booked: a booking, its link and its reminder are
   // only ever set through update, where they are validated.
   const { booked: _b, meetUrl: _m, reminder: _r, ...fields } = input as NewRequest & Partial<Pick<Request, "booked" | "meetUrl" | "reminder">>;
-  const request: Request = { ...fields, format, id, status: "offered", offeredAt: at, createdAt: at, updatedAt: at };
+  const request: Request = { ...fields, ...(attendeeEmail ? { attendeeEmail } : {}), format, id, status: "offered", offeredAt: at, createdAt: at, updatedAt: at };
   return { requests: [...ledger.requests, request] };
 }
 
@@ -213,6 +224,7 @@ export function updateRequest(ledger: Ledger, id: string, patch: Patch, now: num
   }
   if (patch.format !== undefined) checkFormat(patch.format);
   if (patch.locale !== undefined) checkLocale(patch.locale);
+  const patched = patch.attendeeEmail !== undefined ? { ...patch, attendeeEmail: checkEmail(patch.attendeeEmail) } : patch;
   if (patch.booked) checkBooked(patch.booked);
   if (patch.reminder) checkReminder(patch.reminder);
   if (patch.meetUrl !== undefined && patch.meetUrl !== null && !isMeetUrl(patch.meetUrl)) {
@@ -222,7 +234,7 @@ export function updateRequest(ledger: Ledger, id: string, patch: Patch, now: num
   if (index < 0) throw new Error(`no request ${id}`);
   const at = new Date(now).toISOString();
   const updated: Request = { ...ledger.requests[index]!, updatedAt: at };
-  for (const [key, value] of Object.entries(patch)) {
+  for (const [key, value] of Object.entries(patched)) {
     if (value === null && (NULLABLE as readonly string[]).includes(key)) delete updated[key as (typeof NULLABLE)[number]];
     else if (value !== undefined) (updated as Record<string, unknown>)[key] = value;
   }
