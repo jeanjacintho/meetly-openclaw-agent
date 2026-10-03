@@ -109,6 +109,11 @@ test("an unknown time zone fails through the CLI", () => {
 });
 
 test("durations and horizons are bounded integers", () => {
+  // Travel time around an in-person meeting: minutes (or an hour), 0 to 180, none clears it.
+  for (const [value, min] of [["30", 30], ["45 min", 45], ["1h", 60], ["1.5h", 90], ["0", undefined], ["none", undefined]] as const) {
+    assert.deepEqual(parseField("travel", value), { travelMin: min }, value);
+  }
+  for (const bad of ["soon", "-5", "181", "4h", ""]) assert.throws(() => parseField("travel", bad), /travel/, bad);
   // The notice a time needs is hours or minutes, 0 to 72 hours, and default clears it.
   for (const [value, min] of [["3", 180], ["3h", 180], ["1.5h", 90], ["45 min", 45], ["0", 0]] as const) assert.deepEqual(parseField("minNotice", value), { minNoticeMin: min });
   assert.deepEqual(parseField("minNotice", "default"), { minNoticeMin: undefined });
@@ -203,6 +208,10 @@ test("editing a field after setup updates config.json and keeps setupDoneAt", ()
     record("minNotice", "default");
     assert.equal("minNoticeMin" in readJson<object>(join(home, "config.json"), {}), false);
     assert.equal(config.setupDoneAt, "2026-09-26T12:00:00.000Z");
+    record("travel", "30");
+    assert.equal(readJson<Config | null>(join(home, "config.json"), null)!.travelMin, 30);
+    record("travel", "none");
+    assert.equal("travelMin" in readJson<object>(join(home, "config.json"), {}), false);
     assert.equal("defaultFormat" in config, false);
     record("defaultFormat", "meet");
     assert.equal(readJson<Config | null>(join(home, "config.json"), null)!.defaultFormat, "meet");

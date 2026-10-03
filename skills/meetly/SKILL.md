@@ -32,8 +32,8 @@ exits non-zero: report that line; never guess a result. State lives in
 | `busy.ts` | `--fetch` (reads the Mac, writes `tmp/busy.json`) | `{file, busy:<count>, degraded, unknownAfter?}` |
 | | `--in F [--in F2…] [--max 100]` | `{busy:[{start,end,id,account}], unknownAfter?, degraded}` |
 | `owner-events.ts` | `--from <ISO> --to <ISO>` | `{events:[{id,account,calendarId,title,start,end}], degraded}`: the owner's events read on the Mac, cut down to those fields (for the owner cancelling or moving a meeting) |
-| `slots.ts` | `--in busy.json [--duration N] [--days mon,thu] [--after HH:MM] [--before HH:MM] [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--allow-overlap ID]… [--exclude ISO]… [--count N] [--locale TAG]` | `{slots:[{start,end,dayOfWeek,label}], unknownAfter?, degraded}` |
-| | `--in busy.json --at <ISO or YYYY-MM-DDTHH:MM in the owner's zone> [--duration N] [--allow-overlap ID]… [--locale TAG]` | `{slot, free, reason?: busy\|too-soon\|unknown, outsideHours, degraded}` |
+| `slots.ts` | `--in busy.json [--duration N] [--days mon,thu] [--after HH:MM] [--before HH:MM] [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--allow-overlap ID]… [--exclude ISO]… [--count N] [--travel MIN] [--locale TAG]` | `{slots:[{start,end,dayOfWeek,label}], unknownAfter?, degraded}`; with `--travel`, each slot also has `travel:{before,after}` (the buffer blocks as UTC `{start,end}`) |
+| | `--in busy.json --at <ISO or YYYY-MM-DDTHH:MM in the owner's zone> [--duration N] [--allow-overlap ID]… [--travel MIN] [--locale TAG]` | `{slot, free, reason?: busy\|too-soon\|unknown, outsideHours, travel?, degraded}` |
 | `owner-chat.ts` | | `{chatUid}`: the owner's DM |
 | `start-thread.ts` | `--member <+E164 or email> [--member …] --body TEXT --key K` | `{chatUid, messageSent:true}` or `{chatUid:null, deliveryUnknown:true}`. After an unknown delivery, running it again with the same `--key` and members (only when the owner asks; the opener wording may be regenerated) returns the group if Plow had opened it |
 | `contact.ts` | `--handle <+E164 or email>` | `{found:true, handle, name, phones, emails, matches}`, `{found:false, handle}` or `{found:false, handle, reason:"mac-unavailable"}` |

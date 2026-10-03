@@ -190,7 +190,7 @@ test("closed request responses are limited to scheduling intent, not acknowledge
   assert.ok(group.includes("For a conversational acknowledgement or other message unrelated to scheduling"));
   assert.ok(group.includes("do not reply and do not alert the owner"));
   assert.ok(group.includes("decline, cancel or give up"));
-  assert.ok(group.includes("**They decline or give up:** delete the holds"));
+  assert.ok(group.includes("**They decline or give up:** delete the meeting and travel holds"));
   assert.ok(group.includes("use this only when a scheduling-related message tries to choose, change or resume the request, or asks its status"));
 });
 
@@ -368,6 +368,15 @@ test("do not contact is checked before every contact-visible message and stored 
   assert.ok(group.includes("blocklist.ts block --handle <phone> --handle <email>"));
   assert.ok(poll.includes("Before each contact-visible poll message, immediately check `blocklist.ts check --handle <request.handle>`"));
   assert.ok(poll.includes("not update the reminder timestamp"));
+});
+
+test("travel buffer references are persisted before an outside-hours booking", () => {
+  const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
+  assert.ok(group.includes("Immediately after both buffers exist, persist their refs in an `offered[]` entry"));
+  assert.ok(group.includes("Do this before creating the event"));
+  assert.ok(group.includes("If this write fails, delete both buffers"));
+  assert.ok(group.includes("keep its persisted `travel[]` refs"));
+  assert.ok(group.includes("If saving those refs fails, delete both travel holds"));
 });
 
 test("an out-of-hours time with insufficient notice is not described as a calendar conflict", () => {

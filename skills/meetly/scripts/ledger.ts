@@ -13,8 +13,8 @@ import { readJson, updateJson } from "./store.ts";
 
 const STATUSES = ["offered", "booked", "dropped", "expired", "cancelled"] as const;
 export type Status = (typeof STATUSES)[number];
-export type Offer = { start: string; end: string; holdId?: string; account: string };
 export type HoldRef = { holdId: string; account: string };
+export type Offer = { start: string; end: string; holdId?: string; account: string; travel?: HoldRef[] };
 // A time outside the owner's days or window that the other person asked for,
 // waiting for the owner's yes or no.
 export type PendingOwner = { start: string; end: string; askedAt: string };
@@ -120,6 +120,13 @@ function checkReminder(r: Reminder): void {
   }
 }
 
+function checkHoldRefs(refs: unknown, field: string): asserts refs is HoldRef[] {
+  if (!Array.isArray(refs) || refs.some((h) =>
+    !h || typeof h.holdId !== "string" || !h.holdId.trim() || typeof h.account !== "string" || !h.account.trim())) {
+    throw new Error(`${field} must be a list of hold ids and accounts: ${JSON.stringify(refs)}`);
+  }
+}
+
 const isEmail = (h: string) => h.includes("@");
 
 // An email is lowercased; a phone keeps a leading + and its digits.
@@ -176,15 +183,9 @@ function checkOffers(offered: unknown): Offer[] {
       throw new Error(`each offer needs a valid start and end: ${JSON.stringify(o)}`);
     }
     if (typeof o.account !== "string" || !o.account) throw new Error(`each offer needs an account: ${JSON.stringify(o)}`);
+    if (o.travel !== undefined) checkHoldRefs(o.travel, "each offer travel");
   }
   return offered as Offer[];
-}
-
-function checkHoldRefs(refs: unknown, field: string): asserts refs is HoldRef[] {
-  if (!Array.isArray(refs) || refs.some((h) =>
-    !h || typeof h.holdId !== "string" || !h.holdId.trim() || typeof h.account !== "string" || !h.account.trim())) {
-    throw new Error(`${field} must be a list of hold ids and accounts: ${JSON.stringify(refs)}`);
-  }
 }
 
 export function addRequest(ledger: Ledger, input: NewRequest, now: number, id: string): Ledger {
@@ -193,6 +194,7 @@ export function addRequest(ledger: Ledger, input: NewRequest, now: number, id: s
   if (typeof input.topic !== "string" || !input.topic.trim()) throw new Error("topic is required");
   if (!Number.isInteger(input.durationMin) || input.durationMin <= 0) throw new Error("durationMin must be a positive whole number");
   checkOffers(input.offered);
+  if (input.holdCleanup !== undefined) checkHoldRefs(input.holdCleanup, "holdCleanup");
   const format = input.format === undefined ? "unknown" : input.format;
   checkFormat(format);
   if (input.locale !== undefined) checkLocale(input.locale);
@@ -207,8 +209,11 @@ export function addRequest(ledger: Ledger, input: NewRequest, now: number, id: s
   return { requests: [...ledger.requests, request] };
 }
 
-// An offer's holds.
-const holdRefs = (offers: Offer[]): HoldRef[] => offers.flatMap((o) => o.holdId ? [{ holdId: o.holdId, account: o.account }] : []);
+// An offer's holds: the meeting hold and its travel blocks.
+const holdRefs = (offers: Offer[]): HoldRef[] => offers.flatMap((o) => [
+  ...(o.holdId ? [{ holdId: o.holdId, account: o.account }] : []),
+  ...(o.travel ?? []),
+]);
 const mergeRefs = (...lists: HoldRef[][]): HoldRef[] => lists.flat()
   .filter((hold, i, all) => all.findIndex((h) => h.holdId === hold.holdId && h.account === hold.account) === i);
 const withoutRefs = (refs: HoldRef[], keep: HoldRef[]): HoldRef[] =>
@@ -307,6 +312,7 @@ export function updateRequest(ledger: Ledger, id: string, patch: Patch, now: num
   }
   if (patch.status !== undefined && !STATUSES.includes(patch.status)) throw new Error(`bad status: ${patch.status}`);
   if (patch.offered !== undefined) checkOffers(patch.offered);
+  if (patch.holdCleanup !== undefined) checkHoldRefs(patch.holdCleanup, "holdCleanup");
   const pending = patch.pendingOwner;
   if (pending) {
     if ([pending.start, pending.end, pending.askedAt].some((t) => typeof t !== "string" || Number.isNaN(Date.parse(t)))) {
@@ -375,13 +381,22 @@ export function pendingOwnerList(ledger: Ledger): Request[] {
   return ledger.requests.filter((r) => r.status === "offered" && r.pendingOwner !== undefined);
 }
 
+// The travel buffers created with the offer that was booked.
+export function bookedTravel(r: Request): HoldRef[] {
+  return r.offered.find((offer) => offer.holdId === r.eventId
+    || Date.parse(offer.start) === Date.parse(r.booked?.start ?? ""))?.travel ?? [];
+}
+
 // Booked Meets whose link is due in the group: from `leadMin` before the
-// start until `graceMin` after it, once.
+// start until `graceMin` after it, once. A booked meeting with travel buffers
+// is also checked until it starts, so a cancelled event queues its buffers.
 export function dueReminders(ledger: Ledger, now: number, leadMin: number, graceMin = 5): Request[] {
   return ledger.requests.filter((r) => {
-    if (r.status !== "booked" || r.format !== "meet" || !r.meetUrl || !r.booked || r.reminder) return false;
+    if (r.status !== "booked" || !r.booked || r.reminder) return false;
     const start = Date.parse(r.booked.start);
-    return now >= start - leadMin * 60_000 && now < start + graceMin * 60_000;
+    if (now >= start + graceMin * 60_000) return false;
+    if (r.format === "meet" && r.meetUrl && now >= start - leadMin * 60_000) return true;
+    return bookedTravel(r).length > 0;
   });
 }
 

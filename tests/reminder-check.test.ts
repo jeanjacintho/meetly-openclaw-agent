@@ -66,7 +66,21 @@ test("a deleted or cancelled event is recorded as cancelled and nothing is sent"
   const out = check(bookedMeet(), parseEvent(fixture("event-cancelled")), START - 5 * MIN);
   assert.equal(out.action, "cancelled");
   assert.equal(out.send, undefined);
-  assert.deepEqual(out.patch, { status: "cancelled", reminder: { at: new Date(START - 5 * MIN).toISOString(), outcome: "cancelled" } });
+  assert.deepEqual(out.patch, { status: "cancelled", holdCleanup: [], reminder: { at: new Date(START - 5 * MIN).toISOString(), outcome: "cancelled" } });
+});
+
+test("cancellation queues the booked offer's travel holds and preserves pending cleanup", () => {
+  const before = { holdId: "travel_before", account: ACCOUNT };
+  const after = { holdId: "travel_after", account: ACCOUNT };
+  const pending = { holdId: "old_hold", account: ACCOUNT };
+  const request = bookedMeet({ holdCleanup: [pending, before] }, { offered: [
+    { ...offer, travel: [before, after] },
+    { ...offer, start: "2026-10-11T04:00:00-03:00", holdId: "sibling", travel: [{ holdId: "deleted_sibling_buffer", account: ACCOUNT }] },
+  ] });
+  const out = check(request, event({ status: "cancelled" }), START - 5 * MIN);
+  const closed = updateRequest({ requests: [request] }, request.id, out.patch, START - 5 * MIN).requests[0]!;
+  assert.equal(closed.status, "cancelled");
+  assert.deepEqual(closed.holdCleanup, [pending, before, after]);
 });
 
 test("a Meet removed from the event is recorded as no-link, for the owner to hear about", () => {
@@ -190,4 +204,13 @@ test("CLI: a cancelled event is written to the ledger so the next poll skips it"
   assert.equal(cancelled.reminder.outcome, "cancelled");
   assert.equal(cancelled.status, "cancelled");
   assert.equal(cancelled.closedAt, cancelled.updatedAt);
+});
+
+test("a cancelled in-person booking queues its travel holds, and a live one is left alone", () => {
+  const travel = [{ holdId: "travel_before", account: ACCOUNT }];
+  const inPerson = bookedMeet({ format: "in_person", meetUrl: null, offered: [{ ...offer, travel }] });
+  const cancelled = check(inPerson, event({ status: "cancelled" }), START - 3 * 60 * MIN);
+  assert.equal(cancelled.action, "cancelled");
+  assert.deepEqual(cancelled.patch.holdCleanup, travel);
+  assert.equal(check(inPerson, event(), START - 5 * MIN).action, "skip");
 });
