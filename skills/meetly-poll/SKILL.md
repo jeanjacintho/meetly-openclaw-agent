@@ -75,8 +75,9 @@ still explain why no contact message was sent.
    6. Follow `meetly-group` "Offer times" with `origin: inbound`,
       `sourceRowid` = the request's rowid, the topic, any times they
       proposed, the format if their words say it (`meetly-group` "Meeting
-      format"; otherwise `unknown`), and their `locale`. `meetly-group` alone decides whether to ask the owner
-      first or open the group; the poll never opens one itself.
+      format", which also applies the owner's default), and their `locale`.
+      `meetly-group` alone decides whether to ask the owner first or open the
+      group; the poll never opens one itself.
    7. If that fails before the group started, stop processing senders. Run
       `cursor.ts set <the rowid just below this sender's first row in the
       batch>` and go to step 6.

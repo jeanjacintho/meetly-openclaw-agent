@@ -91,8 +91,12 @@ to install anything else.
   asking me first", record `record-setup.ts --field ownerGate --value off`;
   that is standing authorization for Meetly to contact people automatically.
   "Ask me before replying to new meeting requests" records it as on again.
+- "Always online" or "I prefer in person" → `record-setup.ts --field defaultFormat --value meet|in_person|phone`;
+  "ask me each time" → `ask`. Without one, Meetly asks how to meet when a
+  request does not say.
 - "Pause Meetly" → `register-crons.ts --pause`. "Resume" → `register-crons.ts --resume`.
 - "Status" → summarize `setup-status.ts`: days, window, duration, horizon,
-  travel buffer when set, video provider (Google Meet, or Zoom when
+  default meeting type (or "ask each time" when `config.defaultFormat` is
+  unset), travel buffer when set, video provider (Google Meet, or Zoom when
   `config.zoomRoomUrl` is set), whether inbound owner approval is on,
   calendars, and whether it is paused.

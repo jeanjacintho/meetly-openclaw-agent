@@ -5,7 +5,7 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
-import { holdHours, reminderLeadMin } from "./config.ts";
+import { DEFAULT_FORMATS, holdHours, reminderLeadMin, type DefaultFormat } from "./config.ts";
 import { isMeetUrl, isZoomRoomUrl } from "./event.ts";
 import { file } from "./paths.ts";
 import { readJson, updateJson } from "./store.ts";
@@ -18,7 +18,7 @@ export type Offer = { start: string; end: string; holdId?: string; account: stri
 export type PendingOwner = { start: string; end: string; askedAt: string };
 export type Constraints = { days?: string[]; after?: string; before?: string; from?: string; to?: string };
 // How the meeting happens. `unknown` until the request or an answer says it.
-export type Format = "meet" | "in_person" | "phone" | "unknown";
+export type Format = DefaultFormat | "unknown";
 // The booked event's time, and the Google account it lives on.
 export type Booked = { start: string; end: string; account: string };
 // The join-time reminder was handled: sent, or not sent for good.
@@ -90,7 +90,7 @@ export type Patch = Partial<Pick<Request,
 };
 
 const STATUSES: readonly Status[] = ["offered", "booked", "dropped", "expired", "cancelled"];
-const FORMATS: readonly Format[] = ["meet", "in_person", "phone", "unknown"];
+const FORMATS: readonly Format[] = [...DEFAULT_FORMATS, "unknown"];
 const OUTCOMES: readonly Reminder["outcome"][] = ["sent", "cancelled", "no-link"];
 const PATCH_KEYS = [
   "status", "chatUid", "eventId", "offered", "holdCleanup", "name", "location", "allowOverlap", "constraints", "topic", "pendingOwner", "ownerApprovalAt", "ownerApprovedAt",

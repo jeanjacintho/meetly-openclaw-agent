@@ -250,10 +250,15 @@ say it, from the owner's request or from the other person:
 - `in_person`: "in person", "presencial", "pessoalmente", or a named place
   ("at Starbucks Paulista", "no escritório"). Put the place in `location`.
 - `phone`: "by phone", "por telefone", "call me at <number>".
-- Anything else is `unknown`, including "call", "ligação", "a quick chat",
-  and "coffee" or "lunch" with no place. Never guess from the topic. A Zoom
-  or other link someone sends is not `meet`: leave the format `unknown` and
-  put what they said in `location`.
+- Anything else is `config.defaultFormat` when the owner set one, otherwise
+  `unknown`, including "call", "ligação", "a quick chat", and "coffee" or
+  "lunch" with no place. Never guess from the topic. A Zoom or other link
+  someone sends is not `meet`: leave the format `unknown` and put what they
+  said in `location`.
+
+What the owner or the other person says about the format always wins over
+`config.defaultFormat`. A default of `meet` or `phone` needs nothing more, so
+the opener does not ask. A default of `in_person` still asks where.
 
 Pass `locale` with every save: the other person's language tag, the same one
 used for `slots.ts --locale`.
