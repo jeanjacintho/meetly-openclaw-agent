@@ -96,10 +96,15 @@ test("setup fills the owner's name and time zone by itself and asks only when th
 
 test("every Meetly group is opened with start-thread.ts, never the base's 10-second tool", () => {
   const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
-  assert.ok(group.includes("`owner:<handle>:<first offered start>` for an owner request"));
+  assert.ok(group.includes("`request:<saved request id>` for every request"));
   assert.ok(group.includes("run `reachable-handle.ts --handle <each phone and email>` and use the `handle` it returns"));
   assert.ok(group.includes("Never the `plow_start_thread` tool"));
   assert.ok(flat(prompt).includes("Meetly opens its groups with `start-thread.ts`"));
+  // An unconfirmed group is explained plainly, never resent by itself, and retried only when the owner says it is not there.
+  assert.ok(group.includes("Plow did not confirm it"));
+  assert.ok(group.includes("the holds are kept and the request is saved"));
+  assert.ok(group.includes("never quote a status code or say you cannot confirm anything else"));
+  assert.ok(group.includes("Only if the owner says the group is not there, or asks you to try again, run `start-thread.ts` again with the same `--key` and members"));
 });
 
 test("group requests without a matching ledger entry get a safe owner escalation", () => {
