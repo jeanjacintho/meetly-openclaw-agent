@@ -89,8 +89,12 @@ to install anything else.
   requests without asking me first" → `off`. The default is off. When on,
   inbound requests are held on the calendar and the owner must approve the
   proposed times in their DM before Meetly contacts the person.
+- "Always online" or "I prefer in person" → `record-setup.ts --field defaultFormat --value meet|in_person|phone`;
+  "ask me each time" → `ask`. Without one, Meetly asks how to meet when a
+  request does not say.
 - "Pause Meetly" → `register-crons.ts --pause`. "Resume" → `register-crons.ts --resume`.
 - "Status" → summarize `setup-status.ts`: days, window, duration, horizon,
-  travel buffer when set, video provider (Google Meet, or Zoom when
+  default meeting type (or "ask each time" when `config.defaultFormat` is
+  unset), travel buffer when set, video provider (Google Meet, or Zoom when
   `config.zoomRoomUrl` is set), whether inbound owner approval is on,
   calendars, and whether it is paused.

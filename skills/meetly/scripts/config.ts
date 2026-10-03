@@ -8,6 +8,11 @@ export { DAYS, type Day };
 
 export type Calendar = { account: string; id: string };
 
+// How the owner usually meets, used when a request names no format. Unset
+// means ask, as before.
+export const DEFAULT_FORMATS = ["meet", "in_person", "phone"] as const;
+export type DefaultFormat = (typeof DEFAULT_FORMATS)[number];
+
 export type Config = {
   ownerName: string;
   timezone: string;
@@ -26,12 +31,13 @@ export type Config = {
   travelMin?: number;
   // When enabled, inbound requests wait for owner approval before contacting the person.
   ownerGate?: boolean;
+  defaultFormat?: DefaultFormat;
   setupDoneAt?: string;
   paused?: boolean;
 };
 
 // Every setting the owner can change.
-export const FIELDS = ["ownerName", "timezone", "days", "window", "durationMin", "horizonDays", "calendars", "videoProvider", "movable", "travel", "ownerGate"] as const;
+export const FIELDS = ["ownerName", "timezone", "days", "window", "durationMin", "horizonDays", "calendars", "videoProvider", "movable", "travel", "ownerGate", "defaultFormat"] as const;
 export type Field = (typeof FIELDS)[number];
 
 // What setup cannot start without, in the order it asks: nobody but the owner,
@@ -190,6 +196,12 @@ export function parseField(field: string, value: string): Partial<Config> {
       if (["off", "no", "false", "disabled"].includes(v)) return { ownerGate: false };
       throw new Error(`ownerGate must be on or off, got "${value}"`);
     }
+    case "defaultFormat": {
+      const format = value.trim();
+      if (format === "ask") return { defaultFormat: undefined };
+      if (!(DEFAULT_FORMATS as readonly string[]).includes(format)) throw new Error(`the meeting format must be meet, in_person, phone or ask, got "${value}"`);
+      return { defaultFormat: format as DefaultFormat };
+    }
     case "calendars": {
       let parsed: unknown;
       try {
@@ -252,6 +264,7 @@ export function validateConfig(partial: Partial<Config>): Config {
     if (typeof p.ownerGate !== "boolean") throw new Error("ownerGate must be true or false");
     config.ownerGate = p.ownerGate;
   }
+  if (p.defaultFormat !== undefined) config.defaultFormat = p.defaultFormat;
   if (p.setupDoneAt !== undefined) config.setupDoneAt = p.setupDoneAt;
   if (p.paused !== undefined) config.paused = p.paused;
   return config;

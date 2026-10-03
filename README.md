@@ -22,8 +22,8 @@ up with you — "coffee next week?" — it:
 2. offers three free times from your Google Calendar, inside the days and
    hours you allow,
 3. holds those times on your calendar so nothing else takes them,
-4. asks how you'll meet (Google Meet or in person) when the message does
-   not say it,
+4. asks how you'll meet (Google Meet or in person) when neither the message
+   nor your default meeting type says it,
 5. books the one they pick, invites them if it knows their email, and
    releases the other holds; for a Meet it creates the room,
 6. posts the Meet link in the group 10 minutes before the start,
@@ -43,8 +43,9 @@ signed as Meetly.
 ## What it will and won't do
 
 - **Asks how to meet only when it is not clear.** "A Google Meet on
-  Thursday" or "lunch at Fasano" is enough. "A call" or "coffee" with no
-  place gets one question, in the same message as the times.
+  Thursday" or "lunch at Fasano" is enough, and so is a default meeting type
+  you set. "A call" or "coffee" with no place and no default gets one
+  question, in the same message as the times.
 - **Posts only the Meet link it created.** The link comes from the event on
   your calendar, read again just before it is sent: move the meeting and the
   link goes out at the new time; delete it and nothing is sent. A link
@@ -93,6 +94,10 @@ Everything else starts at these defaults:
 
 Video calls use Google Meet. If you use Zoom, give Meetly your personal room
 link and it uses that for every video meeting; it cannot create new Zoom links.
+
+One more setting has no default: your default meeting type (online, in person
+or phone). Say "always online" and Meetly stops asking how to meet; whatever a
+request says still wins.
 
 Change any of it later in plain words ("make my window 10 to 17", "I don't
 take meetings on Fridays"), or say "pause Meetly" / "resume Meetly".
