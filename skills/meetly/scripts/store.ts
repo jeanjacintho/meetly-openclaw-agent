@@ -73,19 +73,26 @@ export function withLock<R>(path: string, fn: () => R, opts: LockOptions = {}): 
     if (now() >= deadline) throw new Error(`lock busy: ${lock}`);
     sleep(100);
   }
+  const release = () => rmSync(lock, { recursive: true, force: true });
+  let result: R;
   try {
-    return fn();
-  } finally {
-    rmSync(lock, { recursive: true, force: true });
+    result = fn();
+  } catch (err) {
+    release();
+    throw err;
   }
+  // An async `fn` keeps the lock until it settles.
+  if (result instanceof Promise) return result.finally(release) as R;
+  release();
+  return result;
 }
 
-export function updateJson<T>(path: string, fallback: T, fn: (v: T) => T): T {
+export function updateJson<T>(path: string, fallback: T, fn: (v: T) => T, opts: LockOptions = {}): T {
   return withLock(path, () => {
     const next = fn(readJson(path, fallback));
     writeJson(path, next);
     return next;
-  });
+  }, opts);
 }
 
 export function removeFile(path: string): void {

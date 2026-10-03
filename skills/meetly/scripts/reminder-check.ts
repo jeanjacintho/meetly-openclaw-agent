@@ -32,10 +32,12 @@ function timeLabel(ms: number, locale: string, tz: string): string {
 }
 
 export function checkReminder(request: Request, event: EventInfo, now: number, opts: Options): Decision {
-  if (request.status !== "booked" || request.format !== "meet" || request.reminder) return { action: "skip", patch: {} };
+  if (request.status !== "booked") return { action: "skip", patch: {} };
   if (event.id !== request.eventId) throw new Error(`event ${event.id} is not this request's event (${request.eventId})`);
   const at = new Date(now).toISOString();
   if (event.status === "cancelled") return { action: "cancelled", patch: { status: "cancelled", reminder: { at, outcome: "cancelled" } } };
+  // A cancellation is caught even after the reminder went out; nothing else is sent twice.
+  if (request.format !== "meet" || request.reminder) return { action: "skip", patch: {} };
 
   const patch: Patch = {};
   const booked = request.booked!;
