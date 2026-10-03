@@ -616,10 +616,10 @@ export function historyFor(ledger: Ledger, handle: string): Pick<Request, "id" |
 
 const EMPTY: Ledger = { requests: [] };
 
-// The approval state is written only by save --gate, approve, decline and expire; never by a model-supplied payload.
+// The approval state is written only by save (derived from the configuration), approve, decline and expire; never by a model-supplied payload.
 function refuseApprovalKeys(value: Record<string, unknown>): void {
   for (const key of ["ownerApprovalAt", "ownerApprovedAt"]) {
-    if (key in value) throw new Error(`${key} is written only by ledger.ts save --gate, approve, decline and expire`);
+    if (key in value) throw new Error(`${key} is written only by ledger.ts save, approve, decline and expire`);
   }
 }
 
@@ -638,7 +638,6 @@ if (isMain(import.meta.url)) {
       args: rest,
       options: {
         "handles-file": { type: "string" },
-        gate: { type: "boolean" },
         chat: { type: "string" },
         event: { type: "string" },
         account: { type: "string" },
@@ -676,11 +675,20 @@ if (isMain(import.meta.url)) {
       case "save": {
         const input = jsonArg(values);
         refuseApprovalKeys(input);
-        // --gate: the owner must approve this offer before anyone is contacted; the marker is derived here, not supplied.
-        if (values.gate) input.ownerApprovalAt = new Date(now).toISOString();
         const id = `r_${randomBytes(4).toString("hex")}`;
         const revision = randomBytes(4).toString("hex");
-        const ledger = updateJson<Ledger>(path, EMPTY, (l) => saveRequest(l, input, now, id, revision));
+        // The owner gate is decided here, in the locked write, from the configuration and the current request: an
+        // inbound offer that has no group yet waits for the owner's approval; the caller never supplies the marker.
+        // (Before setup there is no configuration and nothing is gated.)
+        const config = readJson<{ ownerGate?: boolean } | null>(file("config.json"), null);
+        const gateOn = config !== null && (config.ownerGate ?? true);
+        const ledger = updateJson<Ledger>(path, EMPTY, (l) => {
+          const hasGroup = (findOpenByHandle(l, input.handle)?.chatUid ?? input.chatUid) !== undefined;
+          if (gateOn && input.origin === "inbound" && !hasGroup) {
+            input.ownerApprovalAt = new Date(now).toISOString();
+          }
+          return saveRequest(l, input, now, id, revision);
+        });
         return { request: ledger.requests.find((r) => sameHandle(r.handle, input.handle) && r.status === "offered") };
       }
       case "update": {

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   addRequest, approveRequest, declineRequest, assertDeliverable, saveRequest, settleOffer, discardStaleOffers, removeCleanupRef, appendLog, cleanupList, pendingOwnerList, ownerApprovalList, expiredRequests, expireRequests, monitor, findByChat, findByEvent, findOpenByHandle, normalizeHandle, sameHandle, updateRequest, pipeline, stageOf,
@@ -431,14 +431,27 @@ test("CLI add, find, update and cleanup round-trip", () => {
   const pend = { start: "2026-10-03T10:00:00-03:00", end: "2026-10-03T10:30:00-03:00", askedAt: "2026-09-28T12:00:00Z" };
   cli("ledger.ts", ["update", "--id", id, "--json", JSON.stringify({ pendingOwner: pend })], env);
   assert.deepEqual(cli("ledger.ts", ["pending"], env).json.requests.map((r: { id: string }) => r.id), [id]);
-  // The approval state is never written from a model-supplied payload: update, add and save refuse it; only save --gate, approve, decline and expire write it.
+  // The approval state is never written from a model-supplied payload: update, add and save refuse it; only save (derived from the configuration), approve, decline and expire write it.
   for (const bad of ['{"ownerApprovalAt":"2026-10-03T12:00:00Z"}', '{"ownerApprovedAt":"2026-10-03T12:00:00Z"}']) {
     const refused = cli("ledger.ts", ["update", "--id", id, "--json", bad], env);
     assert.equal(refused.status, 1);
     assert.match(refused.stderr, /written only by/);
   }
   assert.equal(cli("ledger.ts", ["save", "--json", JSON.stringify(input({ handle: "+15558880000", ownerApprovalAt: "2026-10-03T12:00:00Z" }))], env).status, 1);
-  const gated = cli("ledger.ts", ["save", "--gate", "--json", JSON.stringify(input({ handle: "+15558880000" }))], env).json.request;
+  // Before setup there is no configuration and nothing is gated; with the gate on (the default) an inbound offer with no group waits.
+  const before = cli("ledger.ts", ["save", "--json", JSON.stringify(input({ handle: "+15557770000" }))], env).json.request;
+  assert.equal(before.ownerApprovalAt, undefined);
+  writeFileSync(join(home, "config.json"), JSON.stringify({ ownerName: "Jean", timezone: "America/Sao_Paulo", days: ["mon"], windowStart: "09:00", windowEnd: "18:00", durationMin: 30, horizonDays: 7, calendars: [{ account: "a@example.com", id: "a@example.com" }], defaultAccount: "a@example.com", setupDoneAt: "2026-09-28T12:00:00.000Z" }));
+  const gated = cli("ledger.ts", ["save", "--json", JSON.stringify(input({ handle: "+15558880000" }))], env).json.request;
+  assert.equal(typeof gated.ownerApprovalAt, "string");
+  // An owner request, and a request that already has a group, are never gated.
+  assert.equal(cli("ledger.ts", ["save", "--json", JSON.stringify(input({ handle: "+15556660000", origin: "owner" }))], env).json.request.ownerApprovalAt, undefined);
+  assert.equal(cli("ledger.ts", ["save", "--json", JSON.stringify(input({ handle: "+15555550000", chatUid: "g1" }))], env).json.request.ownerApprovalAt, undefined);
+  // The owner turned it off: nothing is gated.
+  const off = JSON.parse(readFileSync(join(home, "config.json"), "utf8"));
+  writeFileSync(join(home, "config.json"), JSON.stringify({ ...off, ownerGate: false }));
+  assert.equal(cli("ledger.ts", ["save", "--json", JSON.stringify(input({ handle: "+15554440000" }))], env).json.request.ownerApprovalAt, undefined);
+  writeFileSync(join(home, "config.json"), JSON.stringify(off));
   assert.deepEqual(cli("ledger.ts", ["approvals"], env).json.requests.map((r: { id: string }) => r.id), [gated.id]);
   assert.equal(cli("ledger.ts", ["approve", "--id", gated.id], env).json.approved, true);
   assert.deepEqual(cli("ledger.ts", ["approvals"], env).json.requests, []);

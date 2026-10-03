@@ -87,11 +87,17 @@ export async function startThread(opts: ApiOptions & { members: string[]; body: 
       // Same rule as the plugin: 408, 424 and 5xx may have gone through.
       if ([408, 424].includes(res.status) || res.status >= 500) return { chatUid: null, deliveryUnknown: true };
       if (!res.ok) throw new Error(`POST /v1/chats returned HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
-      const chat = (await res.json()) as { uid?: string };
-      if (!chat.uid) return { chatUid: null, deliveryUnknown: true };
-      // Link the group in the same write, before the ledger lock is released: no replacement or expiry can slip in between.
-      writeJson(file("ledger.json"), updateRequest(ledger, request.id, { chatUid: chat.uid }, Date.now()));
-      return { chatUid: chat.uid, messageSent: true };
+      // The opener has gone out. A failure to read the answer or to link the group from here on is not a failed
+      // delivery: report it as unknown, so the caller keeps the holds and the request and never runs the failure cleanup.
+      try {
+        const chat = (await res.json()) as { uid?: string };
+        if (!chat.uid) return { chatUid: null, deliveryUnknown: true };
+        // Link the group in the same write, before the ledger lock is released: no replacement or expiry can slip in between.
+        writeJson(file("ledger.json"), updateRequest(ledger, request.id, { chatUid: chat.uid }, Date.now()));
+        return { chatUid: chat.uid, messageSent: true };
+      } catch {
+        return { chatUid: null, deliveryUnknown: true };
+      }
     });
   });
 }

@@ -163,7 +163,7 @@ test("CLI: the poll's full reminder sequence", () => {
   const env = { MEETLY_HOME: home };
   writeJson(join(home, "config.json"), {
     ownerName: "Ana", timezone: TZ, days: ["mon"], windowStart: "09:00", windowEnd: "18:00", durationMin: 30, horizonDays: 7,
-    calendars: [{ account: ACCOUNT, id: ACCOUNT }], defaultAccount: ACCOUNT, setupDoneAt: new Date(T0).toISOString(),
+    calendars: [{ account: ACCOUNT, id: ACCOUNT }], defaultAccount: ACCOUNT, ownerGate: false, setupDoneAt: new Date(T0).toISOString(),
   });
   // A Meet five minutes from now, so the real clock is inside the window.
   const start = Date.now() + 5 * MIN;
@@ -203,7 +203,7 @@ test("CLI: a cancelled event is written to the ledger so the next poll skips it"
   const env = { MEETLY_HOME: home };
   writeJson(join(home, "config.json"), {
     ownerName: "Ana", timezone: TZ, days: ["mon"], windowStart: "09:00", windowEnd: "18:00", durationMin: 30, horizonDays: 7,
-    calendars: [{ account: ACCOUNT, id: ACCOUNT }], defaultAccount: ACCOUNT, setupDoneAt: new Date(T0).toISOString(),
+    calendars: [{ account: ACCOUNT, id: ACCOUNT }], defaultAccount: ACCOUNT, ownerGate: false, setupDoneAt: new Date(T0).toISOString(),
   });
   const id = cli("ledger.ts", ["save", "--json", JSON.stringify(input())], env).json.request.id;
   const eventFile = join(home, "event.txt");

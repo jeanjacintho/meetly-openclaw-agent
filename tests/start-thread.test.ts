@@ -54,7 +54,7 @@ test("posts the same chat the plow_start_thread tool would", async () => {
   assert.equal(JSON.parse(readFileSync(join(home, "ledger.json"), "utf8")).requests[0].chatUid, "chat_9");
 });
 
-test("a request replaced between validation and the POST is not sent, and an unknown delivery links nothing", async () => {
+test("a request replaced between validation and the POST is not sent", async () => {
   const calls: Call[] = [];
   const replaceOnIdentity = (async (url: string | URL | Request, init?: RequestInit) => {
     calls.push({ url: String(url), init });
@@ -69,10 +69,6 @@ test("a request replaced between validation and the POST is not sent, and an unk
   }) as typeof fetch;
   await assert.rejects(startThread({ ...args, fetch: replaceOnIdentity, base, token: "t" }), /changed since it was authorized/);
   assert.equal(calls.length, 1, "no POST was made");
-  assert.equal(JSON.parse(readFileSync(join(home, "ledger.json"), "utf8")).requests[0].chatUid, undefined);
-  // An uncertain delivery leaves the request unlinked.
-  seedRequest(home);
-  assert.deepEqual(await startThread({ ...args, fetch: fakeFetch(() => new Response("", { status: 502 })), base, token: "t" }), { chatUid: null, deliveryUnknown: true });
   assert.equal(JSON.parse(readFileSync(join(home, "ledger.json"), "utf8")).requests[0].chatUid, undefined);
 });
 
@@ -98,8 +94,12 @@ test("a server error or a lost connection means delivery is unknown", async () =
     () => new Response("", { status: 502 }),
     () => new Response("", { status: 408 }),
     () => { throw new TypeError("fetch failed"); },
+    // The opener went out but its answer cannot be read: still unknown, never a failure that drops the request.
+    () => new Response("not json", { status: 200 }),
   ]) {
     assert.deepEqual(await startThread({ ...args, fetch: fakeFetch(post), base, token: "t" }), { chatUid: null, deliveryUnknown: true });
+    // An uncertain delivery links nothing.
+    assert.equal(JSON.parse(readFileSync(join(home, "ledger.json"), "utf8")).requests[0].chatUid, undefined);
   }
 });
 

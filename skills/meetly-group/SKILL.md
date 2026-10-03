@@ -77,8 +77,7 @@ free there.
    `origin`, `handle` (the intended contact handle), `name`, `sourceRowid`,
    `chatUid` if already known, `topic`, `location`, `durationMin`,
    `constraints`, `allowOverlap`, `format` and `locale` (see "Meeting
-   format"), `attendeeEmail` when contacts has one for them, and `offered[]` with each `start`/`end`/`holdId`/`account`; pass `--gate` to `save` when the
-   owner gate below applies; include `holdCleanup` when earlier
+   format"), `attendeeEmail` when contacts has one for them, and `offered[]` with each `start`/`end`/`holdId`/`account`; include `holdCleanup` when earlier
    deletes failed. `save` creates a request or updates the
    existing open request for that person, preserving its id and existing
    `chatUid` when the new value is absent. When the request already has a
@@ -89,11 +88,11 @@ free there.
    If it fails, delete each hold just
    created, stop and report the ledger error to the owner; do not send an
    offer. If any deletion fails, report those hold ids too.
-   - **Owner gate:** when `origin` is `inbound`, `config.ownerGate` is
-     true and the request has no `chatUid` yet (a re-offer to a group it
-     already has is sent and promoted as above), run the step 5 `ledger.ts save` with `--gate`, so the request is saved
-     already gated in one write (the ledger writes the waiting marker itself:
-     it is never in the payload, and `ledger.ts update` refuses it). Do not
+   - **Owner gate:** `ledger.ts save` decides this itself: when `origin` is
+     `inbound`, `config.ownerGate` is true and the request has no `chatUid` yet (a re-offer to a
+     group it already has is sent and promoted as above), it saves the request
+     already gated, in one locked write (the waiting marker is never in the
+     payload, and `ledger.ts update` refuses it). Then do not
      open a group or send any proposed time to the other person yet. Run
      `owner-chat.ts`, then use `message` (`action: send`, channel `plow`,
      accountId `chat`, target its `chatUid`) to send the owner one private
@@ -216,7 +215,7 @@ and topic in the approval message; if more than one fits, ask which one.
   returns `deliveryUnknown`, leave `chatUid` absent and follow the no-retry
   rule: approval is recorded separately from delivery certainty. If any held
   time is no longer free, do not send the stale options: run "Offer times"
-  again with `--gate`. Create the fresh holds first and save
+  again (the same `save` gates it afresh). Create the fresh holds first and save
   them; that `save` replaces the pending request and queues the old holds for
   cleanup in the same write (never delete the old holds yourself, so an
   interrupted turn never leaves the request pointing at deleted holds), and
