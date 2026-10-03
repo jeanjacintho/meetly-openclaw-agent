@@ -135,6 +135,25 @@ test("a group pick re-reads the current request and never substitutes pending", 
   assert.ok(flat(prompt).includes("A closed chat request does not count as a disagreement with an open handle match"));
 });
 
+test("an owner booking with no time named takes the announced first option, through Pick, and never for an inbound request", () => {
+  const group = groupSkill();
+  const rules = [
+    'say "book it" and Meetly takes the first option, or name another',
+    "without naming a time, and more than one offered time is open, book the first offered time through \"Pick\" (update that hold, then delete the other holds)",
+    "the first option because no time was named",
+    "A time the other person already picked, or the owner names, is the time",
+    "request of theirs that is already open (`origin: owner`), with no time, resolve it in",
+    "`ledger.ts find --handle <contact handle>`. Re-read it",
+    "Book its first current offered time through **Owner request pick** below",
+    "Send the booking confirmation to the request's `chatUid`",
+    "A request someone else made (`origin: inbound`) is approved only in its meeting thread: point the owner there and book nothing",
+  ];
+  for (const rule of rules) assert.ok(group.includes(rule), `missing rule: ${rule}`);
+  const ownerPick = group.slice(group.indexOf("- **Owner request pick**"));
+  assert.ok(ownerPick.indexOf("If it has no `chatUid`, stop before booking") < ownerPick.indexOf("2. Follow **Pick**"));
+  assert.ok(flat(prompt).includes("a request someone else made, `origin: inbound`, is approved only in its meeting thread"));
+});
+
 test("closed Meetly requests stay in group handling, and true lookup disagreements are specific", () => {
   const group = flat(readFileSync(join(ROOT, "skills/meetly-group/SKILL.md"), "utf8"));
   assert.ok(flat(prompt).includes("A request in the chat, including one with status `booked`, `dropped` or `expired`, makes it a **Meetly group**"));
@@ -207,6 +226,22 @@ test("a Meet link is never pasted at booking and never taken from a message", ()
   assert.ok(group.includes("**the format answer after booking**"));
   assert.ok(group.includes("Any other change to a booked meeting (time, day, cancelling, a new link) still goes through the owner"));
   assert.ok(group.includes("answer how or where to meet"));
+});
+
+test("the attendee email is asked for early, only a trusted one is invited, and the confirmation stays honest", () => {
+  const group = groupSkill();
+  const rules = [
+    "If the contact has a phone but no email, say so in your reply to the owner",
+    "Search contacts and the thread first; never ask for what you can find",
+    "Add the person's email as an attendee on every booking, from `attendeeEmail`",
+    "An address a guest gives is not added until the owner approves it in the meeting thread",
+    "state three things apart: the event is on the owner's calendar, this message is the confirmation, and the calendar invitation either went to that email or was not sent because there is no email",
+    "An invitation that is pending is not an acceptance",
+    "give their email for the invitation",
+    "**an email after booking**",
+    "When the person gives their email after the booking",
+  ];
+  for (const rule of rules) assert.ok(group.includes(rule), `missing rule: ${rule}`);
 });
 
 test("the poll sends due reminders before reading messages, and marks each once", () => {
