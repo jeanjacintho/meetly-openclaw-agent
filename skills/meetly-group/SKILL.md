@@ -287,8 +287,9 @@ lunch with Ana", "remove all my appointments today", "move the call to 3pm"):
      and tell the owner to try again in a few minutes. Then `plow-gog calendar update <calendarId> <eventId>
      --from <start> --to <end> --send-updates all --account <account> --json`.
      Only after it succeeds, run `ledger.ts commit-travel --id <id> --revision <that revision>`
-     (the new buffers become the booking's, the old ones are queued for cleanup),
-     and record the move as in "Book the event" steps 1 and 2. If it prints
+     (the booking takes the new buffers and the target time in that same write,
+     the old buffers are queued for cleanup and a reminder of the old start is
+     cleared), and record the move as in "Book the event" steps 1 and 2. If it prints
      `committed: false`, the poll already settled this move from the live event:
      read the event again and record what the calendar now shows, changing
      nothing else. If the update fails, run nothing more: after 15 minutes the poll
