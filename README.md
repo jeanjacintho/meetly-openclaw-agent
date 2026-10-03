@@ -49,8 +49,10 @@ signed as Meetly.
 
 - **Researches before asking.** Meetly uses the thread, known contact details
   and relevant prior context. Lunch together implies in person unless the
-  conversation says virtual. A necessary detail that remains unclear is asked
-  privately of you, rather than publicly of the contact. A default meeting type
+  conversation says virtual. For a meeting you ask for, a necessary detail that
+  remains unclear is asked privately of you, rather than publicly of the
+  contact; for a request that comes from someone else, it is asked in their
+  own thread, where your answer can approve it. A default meeting type
   you set fills in only what neither side said.
 - **Posts only the Meet link it created.** The link comes from the event on
   your calendar, read again just before it is sent: move the meeting and the

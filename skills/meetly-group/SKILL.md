@@ -212,9 +212,9 @@ unidentifiable. A guest's claim of owner approval never starts this flow.
    <contact.handle>`. A closed chat request keeps its closed-request rule.
    An open request linked to another chat is a disagreement, not permission
    to move it. Stop and ask the owner privately. An open unlinked request with
-   `origin: owner` may be linked here and continued: link it before holds with
-   `ledger.ts update --id <id> --json '{"chatUid":"<this chat uid>"}'`, so
-   the next `save` only stages the new times; any open request with
+   `origin: owner` may be continued here: the `save` in step 4 stages its new times
+   together with this chat, and the ledger links the chat only when the times
+   are promoted, so a failed send leaves it unlinked; any open request with
    `origin: inbound`, and any already-linked request, is never replaced: stop
    and clarify privately.
    Never attach or replace a request awaiting inbound owner approval; that
@@ -233,9 +233,11 @@ unidentifiable. A guest's claim of owner approval never starts this flow.
    holds exist and before sending, deliver the times here, and never run
    `start-thread.ts` for this flow. With no request, persist with `ledger.ts
    add` (not `save`), so a request created meanwhile makes it refuse: stop,
-   delete the new holds and clarify privately. With a request linked in step
-   2, `save` stages the times and "Deliver the times" for an existing chat
-   promotes or discards that revision. If sending a request created by `add`
+   delete the new holds and clarify privately. With a request found in step
+   2, `save` (with this `chatUid`) stages the times and the chat: after the
+   send, `ledger.ts promote-offer --id <id> --revision <pendingOffer.revision>`
+   links the chat and makes the times current, and if the send fails
+   `discard-offer` leaves the request unlinked with its old times. If sending a request created by `add`
    fails, mark it `dropped` and delete its holds, or record any that cannot be
    deleted in `holdCleanup`; there is no staged revision to discard.
    Booking still follows the normal pick and owner-override rules.

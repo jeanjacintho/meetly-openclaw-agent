@@ -70,6 +70,26 @@ test("save replaces a duplicate open offer by normalized handle and preserves it
   assert.equal(findOpenByHandle(saved, "+15551234567")!.id, "r_1");
 });
 
+test("an unlinked request offered into a group is linked only when the offer is promoted", () => {
+  const original = addRequest(empty(), input(), T0 - HOUR, "r_1");
+  const newOffer = { ...offer, start: "2026-09-30T12:00:00-03:00", holdId: "h_new" };
+  const staged = saveRequest(original, input({ chatUid: "group_1", offered: [newOffer] }), T0, "r_2", "rev1");
+  const request = staged.requests[0]!;
+  assert.equal(request.chatUid, undefined);
+  assert.equal(request.pendingOffer!.chatUid, "group_1");
+  assert.deepEqual(request.offered, original.requests[0]!.offered);
+  // Failed send: still unlinked, the old times stand, the new holds are queued.
+  const discarded = settleOffer(staged, "r_1", "rev1", "discard", T0).requests[0]!;
+  assert.equal(discarded.chatUid, undefined);
+  assert.equal(discarded.pendingOffer, undefined);
+  assert.deepEqual(discarded.offered, original.requests[0]!.offered);
+  assert.deepEqual(discarded.holdCleanup!.map((h) => h.holdId), ["h_new"]);
+  // Sent: linked and current.
+  const promoted = settleOffer(staged, "r_1", "rev1", "promote", T0).requests[0]!;
+  assert.equal(promoted.chatUid, "group_1");
+  assert.deepEqual(promoted.offered, [newOffer]);
+});
+
 test("a re-offer to an existing group stays staged until its send succeeds", () => {
   const original = addRequest(empty(), input({ chatUid: "chat_1" }), T0 - 10 * HOUR, "r_1");
   const newOffer = { ...offer, start: "2026-09-30T12:00:00-03:00", holdId: "h_new" };

@@ -44,7 +44,8 @@ export type Request = {
   // A re-offer to a group the person already has: it becomes `offered` only
   // once its message is sent (`settleOffer`), so the last delivered offer
   // stays current, and keeps its holds, until then.
-  pendingOffer?: { revision: string; offered: Offer[]; offeredAt: string };
+  // `chatUid` is a group the request will be linked to when the offer is promoted, so a failed send leaves it unlinked.
+  pendingOffer?: { revision: string; offered: Offer[]; offeredAt: string; chatUid?: string };
   status: Status;
   eventId?: string;
   holdCleanup?: HoldRef[];
@@ -230,14 +231,17 @@ export function saveRequest(ledger: Ledger, input: NewRequest, now: number, id: 
   };
   const next = holdRefs(validated.offered);
   let replacement: Request;
-  if (existing.chatUid !== undefined) {
+  if (existing.chatUid !== undefined || input.chatUid !== undefined) {
     if (existing.pendingOffer) throw new Error(`request ${existing.id} already has an offer being sent; wait for it to settle, or for the cleanup poll to discard it`);
+    // An unlinked request offered into a group is linked to it only when the offer is promoted.
+    const link = existing.chatUid === undefined ? input.chatUid : undefined;
     replacement = {
       ...fields,
       offered: existing.offered,
       offeredAt: existing.offeredAt,
-      pendingOffer: { revision, offered: validated.offered, offeredAt: validated.offeredAt },
+      pendingOffer: { revision, offered: validated.offered, offeredAt: validated.offeredAt, ...(link !== undefined ? { chatUid: link } : {}) },
     };
+    if (link !== undefined) delete replacement.chatUid;
   } else {
     const { pendingOffer: _p, ...rest } = fields;
     replacement = { ...rest, holdCleanup: mergeRefs(existing.holdCleanup ?? [], withoutRefs(holdRefs(existing.offered), next)) };
@@ -261,7 +265,7 @@ export function settleOffer(ledger: Ledger, id: string, revision: string, outcom
   const requests = [...ledger.requests];
   requests[index] = {
     ...current,
-    ...(promote ? { offered: pendingOffer.offered, offeredAt: new Date(now).toISOString() } : {}),
+    ...(promote ? { offered: pendingOffer.offered, offeredAt: new Date(now).toISOString(), ...(pendingOffer.chatUid !== undefined ? { chatUid: pendingOffer.chatUid } : {}) } : {}),
     holdCleanup: mergeRefs(current.holdCleanup ?? [], withoutRefs(holdRefs(loser), holdRefs(winner))),
     updatedAt: new Date(now).toISOString(),
   };
