@@ -81,6 +81,9 @@ with no meeting thread, use `owner-chat.ts` and target the printed `chatUid`.
      `meetly-group`), then `ledger.ts update --id <id> --json
      '{"status":"expired","pendingOwner":null}'`. If it has a `chatUid`, tell
      the group the held times were released; this also notifies the owner.
-   - For each request from `ledger.ts cleanup`: retry each delete, then
-     update `holdCleanup` to what is still left (`[]` when none).
+   - For each request from `ledger.ts cleanup`: retry each delete, and after
+     each successful one write `{ "holdId": "...", "account": "..." }` to a
+     JSON file and run `ledger.ts cleanup-remove --id <id> --json-file <file>`.
+     Never replace the whole `holdCleanup` list: a promotion or discard may
+     have queued more holds since `cleanup` read it.
 7. If nothing happened, end silently.
