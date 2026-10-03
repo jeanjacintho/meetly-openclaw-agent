@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { addRequest, appendLog, historyFor, monitor, pipeline, updateRequest, type Ledger, type NewRequest } from "../skills/meetly/scripts/ledger.ts";
-import { cli, tmpHome, handlesFile } from "./helpers.ts";
+import { cli, tmpHome, handlesFile, saveCli } from "./helpers.ts";
 
 const ROOT = join(import.meta.dirname, "..");
 const flat = (path: string) => readFileSync(join(ROOT, path), "utf8").replace(/\s+/g, " ");
@@ -84,7 +84,7 @@ test("history lists everything with a person, newest first, so the goal and the 
 
 test("the CLI prints the pipeline and a person's history", () => {
   const env = { MEETLY_HOME: tmpHome() };
-  cli("ledger.ts", ["add", "--json", JSON.stringify(input("+15550000001", { name: "Ana" }))], env);
+  saveCli(env, input("+15550000001", { name: "Ana" }));
   const p = cli("ledger.ts", ["pipeline"], env);
   assert.equal(p.status, 0, p.stderr);
   assert.deepEqual(Object.keys(p.json), ["waitingOnOwner", "deliveryUnknown", "waitingOnThem", "booked", "closed"]);
@@ -150,12 +150,27 @@ test("a request keeps a dated log of what happened, newest last, bounded, and re
   // The history for the model carries no log; it is read with `ledger.ts log --id`.
   assert.equal("log" in historyFor(l, "+15550000001")[0]!, false);
   const env = { MEETLY_HOME: tmpHome() };
-  const id = cli("ledger.ts", ["add", "--json", JSON.stringify(input("+15550000001"))], env).json.request.id;
+  const id = saveCli(env, input("+15550000001")).json.request.id;
   // Free text never rides on the command line: it goes through a file.
   const textFile = join(env.MEETLY_HOME, "log.txt");
   writeFileSync(textFile, "Offer sent; $(touch pwned)\n");
   assert.equal(cli("ledger.ts", ["log", "--id", id, "--text-file", textFile], env).json.log[0].text, "Offer sent; $(touch pwned)");
   assert.equal(cli("ledger.ts", ["log", "--id", id], env).json.log.length, 1);
+});
+
+test("a gated inbound request counts as waiting on the owner everywhere: stage, pipeline time and the 4-hour reminder", () => {
+  const asked = new Date(T0 - 5 * HOUR).toISOString();
+  const gated = addRequest({ requests: [] }, input("+15550009999", { origin: "inbound", ownerApprovalAt: asked }), T0 - 5 * HOUR, "r_gate");
+  const request = gated.requests[0]!;
+  assert.equal(request.chatUid, undefined);
+  // The pipeline lists it under the owner, with the hours since the approval ask.
+  const p = pipeline(gated, T0);
+  assert.deepEqual(p.waitingOnOwner.map((i) => [i.id, i.stage, i.hoursWaiting]), [["r_gate", "waiting_on_us", 5]]);
+  // The monitor reminds the owner after four hours, with no chat uid (so the poll reminds them in their DM), and once.
+  const m = monitor(gated, T0);
+  assert.deepEqual(m.ownerWaiting.map((i) => [i.id, i.hoursWaiting, i.chatUid]), [["r_gate", 5, undefined]]);
+  assert.deepEqual(monitor(gated, T0 - 2 * HOUR).ownerWaiting, []);
+  assert.deepEqual(monitor(updateRequest(gated, "r_gate", { nudgedAt: new Date(T0).toISOString() }, T0), T0 + HOUR).ownerWaiting, []);
 });
 
 test("the monitor lists owner decisions, unknown delivery warnings and contact nudges once", () => {

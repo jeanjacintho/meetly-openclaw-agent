@@ -31,7 +31,7 @@ Options considered:
    plugin behaviour that could change under us, and it has no delivery-state
    tracking. An uncertain result is treated as "uncertain delivery"
    (§6: record without `chatUid`, never resend on its own; only when the owner
-   says the group is not there, run it again with the same `--key`).
+   says the group is not there, retry with the same saved `requestId` and members; request identity preserves idempotency).
 2. **The poll asks the owner first.** The poll DMs the owner "X wants to set
    up Y; reply ok and I'll open the group". The owner's reply is an inbound
    message, so `plow_start_thread` works in that turn. This breaks the
@@ -43,7 +43,7 @@ Options considered:
 Still to confirm in [LOCAL] L1 §3: the tools a cron turn
 can see, and whether `exec` gets `PLOW_API_BASE`/`PLOW_AGENT_TOKEN`.
 - `start-thread.ts` from a cron turn: the group opens with the owner and the
-  phone, `trusted: true`, and a retry with the same `--key` does not open a
+  phone, `trusted: true`, and a retry with the same saved `requestId` and members does not open a
   second group.
 
 ## Meet link through Latch (local, 2026-09-29)

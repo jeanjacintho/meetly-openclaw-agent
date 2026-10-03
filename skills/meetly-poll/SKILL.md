@@ -67,7 +67,12 @@ still explain why no contact message was sent.
       marketing, automated senders, mentions of something already booked,
       and anything unclear.
    3. If the owner replied after the request, skip: the owner is handling it.
-   4. If `ledger.ts find --handles-file <file with the sender>` has an open request, skip. If
+   4. If `ledger.ts find --handles-file <file with the sender>` has an open request, skip,
+      except one waiting for owner approval (listed by `ledger.ts approvals`)
+      whose `sourceRowid` `cursor.ts` still has held: the previous run died before the
+      owner's ask was delivered, so send that saved ask again (`meetly-group` owner
+      gate, from the saved offer) and run `cursor.ts set` only after that DM
+      succeeded. If
       `blocklist.ts check --handles-file <file with the sender>` says `blocked`, skip.
    5. Run `cursor.ts hold <the request's rowid>` (the same rowid you pass as
       `sourceRowid`) before anything else. Until the ledger records a request
@@ -78,18 +83,24 @@ still explain why no contact message was sent.
    6. Follow `meetly-group` "Offer times" with `origin: inbound`,
       `sourceRowid` = the request's rowid, the topic, any times they
       proposed, the format if their words say it (`meetly-group` "Meeting
-      format", which also applies the owner's default), and their `locale`. Open the group with `start-thread.ts --input-file` (key
-      `request:<saved request id>`), not `plow_start_thread`.
+      format", which also applies the owner's default), and their `locale`.
+      `meetly-group` alone decides whether to ask the owner first or open the
+      group; the poll never opens one itself.
    7. If that fails before the group started, stop processing senders. Run
       `cursor.ts set <the rowid just below this sender's first row in the
       batch>` and go to step 6.
 5. Run `cursor.ts set <highest rowid in the batch>`.
 6. Maintenance:
-   - For each request from `ledger.ts expired`: delete its meeting and travel
-     holds ("Holds" in `meetly-group`), then `ledger.ts update --id <id> --json
-     '{"status":"expired","pendingOwner":null}'`. If it has a `chatUid`, check
-     the blocklist then tell the group the held times were released; this also
-     notifies the owner.
+   - Run `ledger.ts expire`: in one locked write it closes every request whose
+     holds ran out, queues their holds for the cleanup step
+     below, and returns those requests as they were. For each one returned:
+     If it has a `chatUid`, check the blocklist then tell the group the held
+     times were released; this also notifies the owner. If `ownerApprovalAt`
+     was set, `ownerApprovedAt` is absent and there is no `chatUid`, tell the
+     owner in their DM that approval expired and the holds were released. If
+     `ownerApprovedAt` is set but there is no `chatUid`, tell the owner the
+     delivery is unknown, the holds expired and they must check Messages; do
+     not resend. Never contact the other person before approval.
    - Run `ledger.ts monitor`: it lists what waits on the owner, Meetly or the
      other person too long. For each `waitingOnThem` item, read the latest
      messages in that meeting thread first. If the person has already
@@ -106,7 +117,11 @@ still explain why no contact message was sent.
      one line and in their language, that the time they were asked about is
      still waiting for their yes or no, with its `nextStep`, then run
      `ledger.ts update --id <id> --json '{"nudgedAt":"<now ISO>"}'` so it is
-     sent once. For each
+     sent once. For an `ownerWaiting` item with no `chatUid` (a gated inbound
+     request that has no group yet), remind the owner in their DM instead
+     (`owner-chat.ts`, then `message` to its `chatUid`): the contact is not
+     messaged, so no blocklist check is needed; run the same `nudgedAt` update.
+     For each
      `deliveryUnknown` item, tell the owner in their DM that Meetly cannot
      confirm whether the group offer arrived, ask them to check Messages
      manually, and explicitly say never to resend. Do not open another group

@@ -76,6 +76,13 @@ to install anything else.
   `record-setup.ts --field <field> --value <v>`, with the same normalization,
   then confirm in one line. During setup the owner can change the name the
   same way before answering the current question.
+- For every inbound meeting request, Meetly holds proposed times on the
+  calendar and asks you in your DM before contacting the person. This is on by
+  default, including for existing configurations without an `ownerGate`
+  setting. If you explicitly say "you can answer meeting requests without
+  asking me first", record `record-setup.ts --field ownerGate --value off`;
+  that is standing authorization for Meetly to contact people automatically.
+  "Ask me before replying to new meeting requests" records it as on again.
 - "Leave an hour for travel around in-person meetings" →
   `record-setup.ts --field travel --value <minutes>`; accept minutes or hours
   from 1 minute to 3 hours. `none` clears the buffer. The default is no buffer.
@@ -98,5 +105,5 @@ to install anything else.
   default meeting type (or "ask each time" when `config.defaultFormat` is
   unset), travel buffer when set, calendars, and whether it is paused.
   unset), video provider (Google Meet, or Zoom when
-  `config.zoomRoomUrl` is set), the movable title phrases (`config.movable`, or
+  `config.zoomRoomUrl` is set), whether inbound owner approval is on, the movable title phrases (`config.movable`, or
   "none"), calendars, and whether it is paused.

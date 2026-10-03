@@ -13,14 +13,15 @@ import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
 import { isBlocked, loadBlocked } from "./blocklist.ts";
-import { withLock } from "./store.ts";
 import { fetchIdentity, findOwnerDm, plowApi, type ApiOptions } from "./owner-chat.ts";
+import { assertDeliverable, awaitingOwnerApproval, sameHandle, updateRequest, type Ledger } from "./ledger.ts";
 import { file } from "./paths.ts";
 import { isHandle } from "./reachable-handle.ts";
+import { readJson, withLock, writeJson } from "./store.ts";
 
 export type Started = { chatUid: string; messageSent: true } | { chatUid: null; deliveryUnknown: true };
 
-export async function startThread(opts: ApiOptions & { members: string[]; body: string; key: string }): Promise<Started> {
+export async function startThread(opts: ApiOptions & { members: string[]; body: string; requestId: string }): Promise<Started> {
   if (opts.members.length === 0) throw new Error("give at least one phone number");
   // A phone in E.164 or an iMessage email: reachable-handle.ts says which one.
   for (const m of opts.members) {
@@ -32,8 +33,13 @@ export async function startThread(opts: ApiOptions & { members: string[]; body: 
   for (const m of opts.members) if (isBlocked(blockedInitially, m)) {
     throw new Error(`do not contact: ${m} is on the owner's do-not-contact list; the owner must take them off it first`);
   }
+  // The group is opened for one saved, open request, and only for its person; an
+  // inbound request still waiting for the owner never reaches them.
+  const request = readJson<Ledger>(file("ledger.json"), { requests: [] }).requests.find((r) => r.id === opts.requestId);
+  if (!request || request.status !== "offered") throw new Error(`request ${opts.requestId} is not an open request: save the offer first`);
+  if (awaitingOwnerApproval(request)) throw new Error(`request ${request.id} is waiting for the owner's approval: nothing may be sent yet`);
+  if (!opts.members.every((m) => sameHandle(m, request.handle))) throw new Error(`the member must be the request's person (${request.handle})`);
   if (!opts.body.trim()) throw new Error("the body is empty");
-  if (!opts.key.trim()) throw new Error("the key is empty");
   const api = plowApi(opts);
   const identity = await fetchIdentity(api);
   const lineUid = identity.line?.uid;
@@ -52,26 +58,41 @@ export async function startThread(opts: ApiOptions & { members: string[]; body: 
     }
     // The request identity must survive regenerated wording after an unknown
     // delivery; the opener body is not durable state in the ledger.
-    const idempotencyKey = createHash("sha256").update(JSON.stringify([lineUid, opts.key, members])).digest("hex");
+    const idempotencyKey = createHash("sha256").update(JSON.stringify([lineUid, `request:${request.id}`, members])).digest("hex");
+    // The ledger lock is held from the last check through the POST and the link of the group, so a concurrent
+    // replacement, approval change or expiry cannot slip in between: the request that was validated is the one
+    // that is sent and linked.
+    return withLock(file("ledger.json"), async (): Promise<Started> => {
+      const ledger = readJson<Ledger>(file("ledger.json"), { requests: [] });
+      assertDeliverable(ledger, request.id, { handle: request.handle, offeredAt: request.offeredAt, ownerApprovedAt: request.ownerApprovedAt });
 
-    let res: Response;
-    try {
-      res = await api.fetch(`${api.base}/v1/chats`, {
-        method: "POST",
-        headers: { ...api.headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ line_uid: lineUid, members, body: opts.body, trusted: true, idempotency_key: idempotencyKey }),
-        redirect: "error",
-        signal: AbortSignal.timeout(30_000),
-      });
-    } catch {
-      return { chatUid: null, deliveryUnknown: true };
-    }
-    // Same rule as the plugin: 408, 424 and 5xx may have gone through.
-    if ([408, 424].includes(res.status) || res.status >= 500) return { chatUid: null, deliveryUnknown: true };
-    if (!res.ok) throw new Error(`POST /v1/chats returned HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
-    const chat = (await res.json()) as { uid?: string };
-    if (!chat.uid) return { chatUid: null, deliveryUnknown: true };
-    return { chatUid: chat.uid, messageSent: true };
+      let res: Response;
+      try {
+        res = await api.fetch(`${api.base}/v1/chats`, {
+          method: "POST",
+          headers: { ...api.headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ line_uid: lineUid, members, body: opts.body, trusted: true, idempotency_key: idempotencyKey }),
+          redirect: "error",
+          signal: AbortSignal.timeout(30_000),
+        });
+      } catch {
+        return { chatUid: null, deliveryUnknown: true };
+      }
+      // Same rule as the plugin: 408, 424 and 5xx may have gone through.
+      if ([408, 424].includes(res.status) || res.status >= 500) return { chatUid: null, deliveryUnknown: true };
+      if (!res.ok) throw new Error(`POST /v1/chats returned HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+      // The opener has gone out. A failure to read the answer or to link the group from here on is not a failed
+      // delivery: report it as unknown, so the caller keeps the holds and the request and never runs the failure cleanup.
+      try {
+        const chat = (await res.json()) as { uid?: string };
+        if (!chat.uid) return { chatUid: null, deliveryUnknown: true };
+        // Link the group in the same write, before the ledger lock is released: no replacement or expiry can slip in between.
+        writeJson(file("ledger.json"), updateRequest(ledger, request.id, { chatUid: chat.uid }, Date.now()));
+        return { chatUid: chat.uid, messageSent: true };
+      } catch {
+        return { chatUid: null, deliveryUnknown: true };
+      }
+    });
   });
 }
 
@@ -79,10 +100,10 @@ if (isMain(import.meta.url)) {
   run(() => {
     // Members and body come from the conversation, so they never go on the command line.
     const { values } = parseArgs({ options: { "input-file": { type: "string" } } });
-    if (!values["input-file"]) throw new Error('pass --input-file F (JSON {"members":[…],"body":"…","key":"request:<the saved request id>"})');
-    const input = JSON.parse(readFileSync(values["input-file"], "utf8")) as { members?: string[]; body?: string; key?: string };
-    if (!input.key) throw new Error("the input needs a key (request:<the saved request id>) so a retry cannot open a second group");
+    if (!values["input-file"]) throw new Error('pass --input-file F (JSON {"members":[…],"body":"…","requestId":"<the saved request id>"})');
+    const input = JSON.parse(readFileSync(values["input-file"], "utf8")) as { members?: string[]; body?: string; requestId?: string };
+    if (!input.requestId) throw new Error("the input needs requestId (the saved request id)");
     if (input.body === undefined) throw new Error("the input needs a body");
-    return startThread({ members: input.members ?? [], body: input.body, key: input.key });
+    return startThread({ members: input.members ?? [], body: input.body, requestId: input.requestId });
   });
 }

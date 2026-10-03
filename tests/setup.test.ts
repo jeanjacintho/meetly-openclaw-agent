@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { DEFAULTS, REQUIRED_FIELDS, holdHours, parseField, parseTime, readableCalendars, validateConfig, type Config } from "../skills/meetly/scripts/config.ts";
+import { DEFAULTS, REQUIRED_FIELDS, holdHours, loadConfig, parseField, parseTime, readableCalendars, validateConfig, type Config } from "../skills/meetly/scripts/config.ts";
 import { finish, record } from "../skills/meetly/scripts/record-setup.ts";
 import { status, statusFilling } from "../skills/meetly/scripts/setup-status.ts";
 import { readJson } from "../skills/meetly/scripts/store.ts";
@@ -40,6 +40,22 @@ test("empty home needs setup, starting with the owner's name", () => {
   });
 });
 
+test("saved configurations without ownerGate require approval", () => {
+  withHome((home) => {
+    const legacy = {
+      ownerName: "Jean", timezone: "America/Sao_Paulo", days: DEFAULTS.days,
+      windowStart: "09:00", windowEnd: "18:00", durationMin: 30, horizonDays: 14,
+      calendars: [{ account: "jean@example.com", id: "jean@example.com" }],
+      defaultAccount: "jean@example.com", setupDoneAt: "2026-09-01T00:00:00.000Z",
+    };
+    writeFileSync(join(home, "config.json"), JSON.stringify(legacy));
+    const s = status();
+    assert.equal(s.status, "READY");
+    assert.equal(s.config.ownerGate, true);
+    assert.equal(loadConfig().ownerGate, true);
+  });
+});
+
 test("only what nobody can infer is asked: the name, the time zone and the calendars", () => {
   withHome(() => {
     assert.deepEqual([...REQUIRED_FIELDS], ["ownerName", "timezone", "calendars"]);
@@ -56,7 +72,7 @@ test("only what nobody can infer is asked: the name, the time zone and the calen
 });
 
 test("the days, the hours and the horizon default, an answer given before finishing wins, and finishing fills the rest in", () => {
-  assert.deepEqual(DEFAULTS, { days: ["mon", "tue", "wed", "thu", "fri"], windowStart: "09:00", windowEnd: "18:00", durationMin: 30, horizonDays: 14 });
+  assert.deepEqual(DEFAULTS, { days: ["mon", "tue", "wed", "thu", "fri"], windowStart: "09:00", windowEnd: "18:00", durationMin: 30, horizonDays: 14, ownerGate: true });
   withHome((home) => {
     record("ownerName", "Jean");
     record("timezone", "America/Sao_Paulo");
@@ -68,6 +84,7 @@ test("the days, the hours and the horizon default, an answer given before finish
     const config = readJson<Config | null>(join(home, "config.json"), null)!;
     assert.deepEqual([config.days, config.windowStart, config.windowEnd, config.durationMin, config.horizonDays],
       [DEFAULTS.days, "09:00", "18:00", 45, 14]);
+    assert.equal(config.ownerGate, true);
     assert.equal(status().status, "READY");
   });
 });
@@ -109,6 +126,9 @@ test("an unknown time zone fails through the CLI", () => {
 });
 
 test("durations and horizons are bounded integers", () => {
+  assert.deepEqual(parseField("ownerGate", "on"), { ownerGate: true });
+  assert.deepEqual(parseField("ownerGate", "off"), { ownerGate: false });
+  assert.throws(() => parseField("ownerGate", "maybe"), /ownerGate/);
   // Movable blocks are title words the owner lists: lowercased, deduplicated, bounded; none clears them.
   assert.deepEqual(parseField("movable", " Prayer, GYM ,prayer "), { movable: ["prayer", "gym"] });
   assert.deepEqual(parseField("movable", "none"), { movable: undefined });
@@ -222,6 +242,13 @@ test("editing a field after setup updates config.json and keeps setupDoneAt", ()
     record("minNotice", "default");
     assert.equal("minNoticeMin" in readJson<object>(join(home, "config.json"), {}), false);
     assert.equal(config.setupDoneAt, "2026-09-26T12:00:00.000Z");
+    record("ownerGate", "on");
+    assert.equal(readJson<Config | null>(join(home, "config.json"), null)!.ownerGate, true);
+    record("ownerGate", "off");
+    assert.equal(readJson<Config | null>(join(home, "config.json"), null)!.ownerGate, false);
+    assert.equal(loadConfig().ownerGate, false);
+    const standingAuthorization = status();
+    assert.equal(standingAuthorization.status === "READY" && standingAuthorization.config.ownerGate, false);
     record("travel", "30");
     assert.equal(readJson<Config | null>(join(home, "config.json"), null)!.travelMin, 30);
     record("travel", "none");
