@@ -18,7 +18,7 @@ exits non-zero: report that line; never guess a result. State lives in
 | `ledger.ts` | `find --handle H` \| `find --chat U` \| `find --event E --account A` | `{request}` or `{request:null}`; `--event` finds the request booked as that calendar event on that account |
 | | `add --json '<obj>'` \| `--json-file F` | `{request}` (refused if the person already has an open request) |
 | | `save --json '<obj>'` \| `--json-file F` | `{request}` (creates, or replaces the current open offer for that handle while preserving its id and chat link) |
-| | `update --id X --json '<patch>'` \| `--json-file F` | `{request}`; patch keys: `status, chatUid, eventId, offered, holdCleanup, name, location, allowOverlap, constraints, topic, pendingOwner, ownerApprovalAt, ownerApprovedAt, format, locale, booked, meetUrl, reminder, attendeeEmail` (`null` clears `pendingOwner`, `ownerApprovalAt`, `booked`, `meetUrl`, `reminder`) |
+| | `update --id X --json '<patch>'` \| `--json-file F` | `{request}`; patch keys: `status, chatUid, eventId, offered, holdCleanup, name, location, allowOverlap, constraints, topic, pendingOwner, ownerApprovalAt, ownerApprovedAt, format, locale, booked, meetUrl, roomUrl, reminder, attendeeEmail` (`null` clears `pendingOwner`, `ownerApprovalAt`, `booked`, `meetUrl`, `roomUrl`, `reminder`) |
 | | `expire [--hours N]` \| `pending` \| `approvals` \| `cleanup` | `{requests}`; `expire` closes the requests whose holds ran out, queues their holds for cleanup, and returns the closed requests as they were; `cleanup` first discards staged offers older than 15 minutes |
 | | `promote-offer --id X --revision R` \| `discard-offer --id X --revision R` | settles a staged re-offer (`save` on a request that already has a group stages it as `pendingOffer`): promote makes it current after a successful send, discard keeps the old one after a failed send; the losing offer's holds enter the cleanup queue; `{request, settled}`, with `settled` false when another save replaced that revision |
 | | `cleanup-remove --id X --json-file F` | removes one hold ref after its deletion succeeded |
@@ -26,7 +26,7 @@ exits non-zero: report that line; never guess a result. State lives in
 | | `reminders [--lead-min N]` | `{requests}`: booked Meets whose link is due (default 10 min before, until 5 min after the start) |
 | `blocklist.ts` | `block --handle H [--handle H …]` \| `unblock --handle H [--handle H …]` \| `check --handle H [--handle H …]` \| `list` | `{blocked}`: the list, or for `check` true if any alias is blocked; `start-thread.ts` checks again immediately before opening a group |
 | `event.ts` | `--in F` | `{id, status, start, end, meetUrl}` from a saved `plow-gog calendar create/update/event --json` output |
-| `record-booking.ts` | `--id X --event-file F --account A` | `{request, meetUrl, warning?:"no-meet-link"}`: marks the request booked from the event |
+| `record-booking.ts` | `--id X --event-file F --account A` | `{request, meetUrl, warning?:"no-meet-link"}`: marks the request booked from the event; with `config.zoomRoomUrl` set, a video meeting keeps that room as `roomUrl` and has no missing-link warning |
 | `reminder-check.ts` | `--id X --event-file F [--lead-min N]` | `{action:"send"\|"wait"\|"cancelled"\|"no-link"\|"skip", send?:{chatUid, meetUrl, name, locale, time, minutesToStart}}` |
 | | `--id X --sent` | `{request}`: the reminder went out; refused if already handled |
 | `busy.ts` | `--fetch` (reads the Mac, writes `tmp/busy.json`) | `{file, busy:<count>, degraded, unknownAfter?}` |
@@ -42,7 +42,8 @@ exits non-zero: report that line; never guess a result. State lives in
 Notes:
 - A request's `format` is `meet`, `in_person`, `phone` or `unknown`.
   `meetUrl` only ever holds `https://meet.google.com/xxx-xxxx-xxx`, only on
-  a `meet`; the ledger refuses anything else.
+  a `meet`; the ledger refuses anything else. `roomUrl` only ever holds the
+  owner's configured Zoom room (`https://zoom.us/j/...`), also only on a `meet`.
 - Booking and reminders read the event from a file of plow-gog's own
   output; never copy an event id, time or link by hand.
 - `slots.ts` only offers times inside the owner's days and window. Requests

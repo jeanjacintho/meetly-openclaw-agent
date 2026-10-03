@@ -23,11 +23,12 @@ up with you — "coffee next week?" — it:
 2. asks you privately to approve those options before contacting the person,
 3. once you approve, opens a Plow group with you and that person and offers
    the held times,
-4. asks how you'll meet (Google Meet or in person) when neither the message
+4. asks how you'll meet (a video call or in person) when neither the message
    nor your default meeting type says it,
 5. books the one they pick, invites them if it knows their email, and
-   releases the other holds; for a Meet it creates the room,
-6. posts the Meet link in the group 10 minutes before the start,
+   releases the other holds; for a Google Meet it creates the room, and with
+   your Zoom room set it books that room instead,
+6. posts the video link in the group 10 minutes before the start,
 7. confirms in the group, where both you and the other person receive it.
 
 After you approve the outreach, Meetly handles their choice and booking in
@@ -49,7 +50,8 @@ signed as Meetly.
   Thursday" or "lunch at Fasano" is enough, and so is a default meeting type
   you set. "A call" or "coffee" with no place and no default gets one
   question, in the same message as the times.
-- **Posts only the Meet link it created.** The link comes from the event on
+- **Posts only the link it created or you configured.** The link is the Meet
+  link it created or your own Zoom room, taken from the event on
   your calendar, read again just before it is sent: move the meeting and the
   link goes out at the new time; delete it and nothing is sent. A link
   someone writes in the group is never used. Pausing Meetly pauses these
@@ -98,6 +100,9 @@ Everything else starts at these defaults:
 - meeting length: 30 minutes,
 - offers up to 14 days ahead,
 - times at least 2 hours ahead (same-day times count once they clear it).
+
+Video calls use Google Meet. If you use Zoom, give Meetly your personal room
+link and it uses that for every video meeting; it cannot create new Zoom links.
 
 One more setting has no default: your default meeting type (online, in person
 or phone). Say "always online" and Meetly stops asking how to meet; whatever a
