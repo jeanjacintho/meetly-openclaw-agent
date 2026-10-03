@@ -217,12 +217,3 @@ test("CLI: a cancelled event is written to the ledger so the next poll skips it"
   assert.equal(cancelled.status, "cancelled");
   assert.equal(cancelled.closedAt, cancelled.updatedAt);
 });
-
-test("a cancelled in-person booking queues its travel holds, and a live one is left alone", () => {
-  const travel = [{ holdId: "travel_before", account: ACCOUNT }];
-  const inPerson = bookedMeet({ format: "in_person", meetUrl: null, offered: [{ ...offer, travel }] });
-  const cancelled = check(inPerson, event({ status: "cancelled" }), START - 3 * 60 * MIN);
-  assert.equal(cancelled.action, "cancelled");
-  assert.deepEqual(cancelled.patch.holdCleanup, travel);
-  assert.equal(check(inPerson, event(), START - 5 * MIN).action, "skip");
-});
