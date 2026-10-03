@@ -40,6 +40,7 @@ test("a booked event with Meet: id, status, times and link, past gog's Note line
     start: "2026-10-10T04:00:00-03:00",
     end: "2026-10-10T04:30:00-03:00",
     meetUrl: "https://meet.google.com/sai-nvgi-cdg",
+    roomUrl: null,
   });
 });
 
@@ -76,6 +77,13 @@ test("a Zoom conference is not a Meet link", () => {
   const b = body("event-plain");
   b.event.conferenceData = { entryPoints: [{ entryPointType: "video", uri: "https://zoom.us/j/123456789" }] };
   assert.equal(parseEvent(JSON.stringify(b)).meetUrl, null);
+});
+
+test("only a strictly valid Zoom room in the event location is taken as the room", () => {
+  const withLocation = (location: unknown) => { const b = body("event-plain"); b.event.location = location; return parseEvent(JSON.stringify(b)).roomUrl; };
+  assert.equal(withLocation("https://zoom.us/j/123456789?pwd=abc.DEF"), "https://zoom.us/j/123456789?pwd=abc.DEF");
+  for (const bad of ["http://zoom.us/j/1", "https://zoom.us.evil.example/j/1", "https://zoom.us/j/1?x=1", "Starbucks", "", 5, null]) assert.equal(withLocation(bad), null, String(bad));
+  assert.equal(parseEvent(fixture("event-plain")).roomUrl, null);
 });
 
 test("a bare event object and the whole plow_run_command result both parse", () => {
