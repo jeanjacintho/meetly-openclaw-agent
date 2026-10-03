@@ -391,3 +391,9 @@ test("a blocked person gets no calendar notice either, and the do-not-contact en
   assert.ok(group.includes("use `--send-updates none` and send no group message"));
   assert.ok(!group.includes("--name <name>"));
 });
+
+test("an owner reminder checks the do-not-contact list first and is sent once", () => {
+  const poll = flat(readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8"));
+  assert.ok(poll.includes("first run `blocklist.ts check --handle <item.handle>`; if blocked, skip it"));
+  assert.ok(poll.includes("then run `ledger.ts update --id <id> --json '{\"nudgedAt\":\"<now ISO>\"}'` so it is sent once"));
+});

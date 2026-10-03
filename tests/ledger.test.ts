@@ -70,15 +70,25 @@ test("save replaces a duplicate open offer by normalized handle and preserves it
   assert.equal(findOpenByHandle(saved, "+15551234567")!.id, "r_1");
 });
 
-test("monitor nudges the other person once after a day, and a fresh offer resets that nudge", () => {
+test("monitor nudges the other person once after a day; a staged replacement keeps the marker and waits, and promotion resets it", () => {
   const offered = addRequest(empty(), input({ chatUid: "chat_1" }), T0, "r_1");
   assert.equal(monitor(offered, T0 + 23 * HOUR).waitingOnThem.length, 0);
   assert.equal(monitor(offered, T0 + 24 * HOUR).waitingOnThem.length, 1);
   const nudged = updateRequest(offered, "r_1", { personNudgedAt: new Date(T0 + 24 * HOUR).toISOString() }, T0 + 24 * HOUR);
   assert.equal(monitor(nudged, T0 + 25 * HOUR).waitingOnThem.length, 0);
-  const refreshed = saveRequest(nudged, input({ chatUid: "chat_1", offered: [{ ...offer, holdId: "h2" }] }), T0 + 30 * HOUR, "r_2");
-  assert.equal(refreshed.requests[0]!.personNudgedAt, undefined);
-  assert.equal(monitor(refreshed, T0 + 54 * HOUR).waitingOnThem.length, 1);
+  // Staging a replacement does not clear the marker or allow a nudge while it is in flight, and a discard leaves it as it was.
+  const staged = saveRequest(nudged, input({ chatUid: "chat_1", offered: [{ ...offer, holdId: "h2" }] }), T0 + 30 * HOUR, "r_2", "rev1");
+  assert.equal(staged.requests[0]!.personNudgedAt, new Date(T0 + 24 * HOUR).toISOString());
+  assert.equal(monitor(staged, T0 + 60 * HOUR).waitingOnThem.length, 0);
+  assert.equal(settleOffer(staged, "r_1", "rev1", "discard", T0 + 31 * HOUR).requests[0]!.personNudgedAt, new Date(T0 + 24 * HOUR).toISOString());
+  // Promotion is a new offer: the marker is cleared and the next nudge is due a day later.
+  const promoted = settleOffer(staged, "r_1", "rev1", "promote", T0 + 31 * HOUR);
+  assert.equal(promoted.requests[0]!.personNudgedAt, undefined);
+  assert.equal(monitor(promoted, T0 + 54 * HOUR).waitingOnThem.length, 0);
+  assert.equal(monitor(promoted, T0 + 55 * HOUR).waitingOnThem.length, 1);
+  // A direct replacement (no group yet) resets it at once.
+  const direct = saveRequest(updateRequest(addRequest(empty(), input(), T0, "r_9"), "r_9", { personNudgedAt: new Date(T0).toISOString() }, T0), input({ offered: [{ ...offer, holdId: "h3" }] }), T0 + HOUR, "r_10");
+  assert.equal(direct.requests[0]!.personNudgedAt, undefined);
 });
 
 test("a re-offer to an existing group stays staged until its send succeeds", () => {

@@ -138,6 +138,7 @@ test("the monitor lists owner decisions, unknown delivery warnings and contact n
   const l = sample();
   // Ana waits on the owner; Bia's group delivery is unknown (never retry).
   const m = monitor(l, T0);
+  assert.equal(m.ownerWaiting[0]!.handle, "+15550000001");
   assert.deepEqual(m.ownerWaiting.map((i) => [i.id, i.hoursWaiting, i.chatUid, i.nextStep]), [["r_ana", 5, "c1", "owner decision needed"]]);
   assert.deepEqual(m.deliveryUnknown.map((i) => [i.id, i.hoursWaiting, i.delivery]), [["r_bia", 30, "unknown"]]);
   assert.deepEqual(m.waitingOnThem.map((i) => [i.id, i.hoursWaiting, i.chatUid]), [["r_gus", 31, "c9"]]);

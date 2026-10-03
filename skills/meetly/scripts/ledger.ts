@@ -242,7 +242,6 @@ export function saveRequest(ledger: Ledger, input: NewRequest, now: number, id: 
     // A new offer that does not name a format keeps the one already answered.
     format: validated.format === "unknown" ? existing.format ?? "unknown" : validated.format,
     locale: input.locale ?? existing.locale,
-    personNudgedAt: undefined,
     createdAt: existing.createdAt,
     updatedAt: new Date(now).toISOString(),
   };
@@ -259,7 +258,7 @@ export function saveRequest(ledger: Ledger, input: NewRequest, now: number, id: 
     };
   } else {
     const { pendingOffer: _p, ...rest } = fields;
-    replacement = { ...rest, holdCleanup: mergeRefs(existing.holdCleanup ?? [], validated.holdCleanup ?? [], withoutRefs(holdRefs(existing.offered), next)) };
+    replacement = { ...rest, personNudgedAt: undefined, holdCleanup: mergeRefs(existing.holdCleanup ?? [], validated.holdCleanup ?? [], withoutRefs(holdRefs(existing.offered), next)) };
   }
   return { requests: ledger.requests.map((r) => r.id === existing.id ? replacement : r) };
 }
@@ -280,7 +279,7 @@ export function settleOffer(ledger: Ledger, id: string, revision: string, outcom
   const requests = [...ledger.requests];
   requests[index] = {
     ...current,
-    ...(promote ? { offered: pendingOffer.offered, offeredAt: new Date(now).toISOString() } : {}),
+    ...(promote ? { offered: pendingOffer.offered, offeredAt: new Date(now).toISOString(), personNudgedAt: undefined } : {}),
     holdCleanup: mergeRefs(current.holdCleanup ?? [], withoutRefs(holdRefs(loser), holdRefs(winner))),
     updatedAt: new Date(now).toISOString(),
   };
@@ -444,15 +443,17 @@ export function stageOf(r: Request, now: number): Stage {
 // delivered (waiting on Meetly), offers the other person has to answer (oldest
 // first), meetings still to come (soonest first; one with no recorded time
 // last), and what closed in the past week.
+const pipelineItem = (r: Request, now: number, extra: Partial<PipelineItem> = {}): PipelineItem => {
+  const stage = stageOf(r, now);
+  const out: PipelineItem = { id: r.id, topic: r.topic, status: r.status, stage, delivery: r.chatUid ? "linked" : "unknown", nextStep: NEXT_STEP[stage], ...extra };
+  if (r.name !== undefined) out.name = r.name;
+  return out;
+};
+
 export function pipeline(ledger: Ledger, now: number): {
   waitingOnOwner: PipelineItem[]; deliveryUnknown: PipelineItem[]; waitingOnThem: PipelineItem[]; booked: PipelineItem[]; closed: PipelineItem[];
 } {
-  const item = (r: Request, extra: Partial<PipelineItem> = {}): PipelineItem => {
-    const stage = stageOf(r, now);
-    const out: PipelineItem = { id: r.id, topic: r.topic, status: r.status, stage, delivery: r.chatUid ? "linked" : "unknown", nextStep: NEXT_STEP[stage], ...extra };
-    if (r.name !== undefined) out.name = r.name;
-    return out;
-  };
+  const item = (r: Request, extra: Partial<PipelineItem> = {}) => pipelineItem(r, now, extra);
   const waiting = (r: Request) => ({ hoursWaiting: hoursSince(r.pendingOwner?.askedAt ?? r.offeredAt, now) });
   const open = ledger.requests.filter((r) => r.status === "offered");
   const upcoming = ledger.requests.filter((r) => r.status === "booked" && (!r.booked || Date.parse(r.booked.start) >= now));
@@ -475,26 +476,22 @@ export const PERSON_NUDGE_HOURS = 24;
 // What waits on the owner or on Meetly for too long, to be reminded once per
 // ask. The other person is nudged once per offer; replacing an offer resets it.
 export function monitor(ledger: Ledger, now: number): {
-  ownerWaiting: (PipelineItem & { chatUid?: string })[]; deliveryUnknown: PipelineItem[]; waitingOnThem: (PipelineItem & { chatUid: string; handle: string })[];
+  ownerWaiting: (PipelineItem & { chatUid?: string; handle: string })[]; deliveryUnknown: PipelineItem[]; waitingOnThem: (PipelineItem & { chatUid: string; handle: string })[];
 } {
   const asked = (r: Request) => r.pendingOwner?.askedAt;
   const due = (r: Request, since: string, hours: number) =>
     hoursSince(since, now) >= hours && (!r.nudgedAt || Date.parse(r.nudgedAt) < Date.parse(since));
   const personDue = (r: Request) => hoursSince(r.offeredAt, now) >= PERSON_NUDGE_HOURS &&
     (!r.personNudgedAt || Date.parse(r.personNudgedAt) < Date.parse(r.offeredAt));
-  const view = (r: Request, since: string): PipelineItem => {
-    const stage = stageOf(r, now);
-    return { id: r.id, ...(r.name !== undefined ? { name: r.name } : {}), topic: r.topic, status: r.status, stage,
-      delivery: r.chatUid ? "linked" : "unknown", nextStep: NEXT_STEP[stage], hoursWaiting: hoursSince(since, now) };
-  };
+  const view = (r: Request, since: string): PipelineItem => pipelineItem(r, now, { hoursWaiting: hoursSince(since, now) });
   const open = ledger.requests.filter((r) => r.status === "offered");
   return {
     ownerWaiting: open.filter((r) => stageOf(r, now) === "waiting_on_us" && asked(r) && due(r, asked(r)!, OWNER_NUDGE_HOURS))
-      .map((r) => ({ ...view(r, asked(r)!), ...(r.chatUid !== undefined ? { chatUid: r.chatUid } : {}) }))
+      .map((r) => ({ ...view(r, asked(r)!), handle: r.handle, ...(r.chatUid !== undefined ? { chatUid: r.chatUid } : {}) }))
       .sort((a, b) => b.hoursWaiting! - a.hoursWaiting!),
     deliveryUnknown: open.filter((r) => stageOf(r, now) === "delivery_unknown" && due(r, r.offeredAt, DELIVERY_UNKNOWN_NOTICE_HOURS))
       .map((r) => view(r, r.offeredAt)).sort((a, b) => b.hoursWaiting! - a.hoursWaiting!),
-    waitingOnThem: open.filter((r) => stageOf(r, now) === "waiting_on_them" && r.chatUid && personDue(r))
+    waitingOnThem: open.filter((r) => stageOf(r, now) === "waiting_on_them" && r.chatUid && !r.pendingOffer && personDue(r))
       .map((r) => ({ ...view(r, r.offeredAt), chatUid: r.chatUid!, handle: r.handle }))
       .sort((a, b) => b.hoursWaiting! - a.hoursWaiting!),
   };

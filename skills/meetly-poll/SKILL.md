@@ -97,10 +97,13 @@ still explain why no contact message was sent.
      <id> --json '{"personNudgedAt":"<now ISO>"}'` so this offer is nudged
      once. A replacement offer makes the next follow-up eligible after 24
      hours.
-     For each `ownerWaiting` item with a `chatUid`, remind the
+     For each `ownerWaiting` item with a `chatUid`, first run `blocklist.ts
+     check --handle <item.handle>`; if blocked, skip it. Otherwise remind the
      owner in that meeting thread (`message`, that chat uid as its target), in
      one line and in their language, that the time they were asked about is
-     still waiting for their yes or no, with its `nextStep`. For each
+     still waiting for their yes or no, with its `nextStep`, then run
+     `ledger.ts update --id <id> --json '{"nudgedAt":"<now ISO>"}'` so it is
+     sent once. For each
      `deliveryUnknown` item, tell the owner in their DM that Meetly cannot
      confirm whether the group offer arrived, ask them to check Messages
      manually, and explicitly say never to resend. Do not open another group
