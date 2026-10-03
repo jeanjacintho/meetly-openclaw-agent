@@ -58,9 +58,6 @@ signed as Meetly.
   is explained as too soon, with alternatives offered. If the other person can only
   do a time outside your hours, Meetly asks you in that group and books it only on
   your yes there. A yes in your DM does not approve the group request.
-- **Leaves travel time around in-person meetings when you set it.** Meetly
-  checks and holds the buffer before and after the meeting; video and phone
-  meetings do not use it. The default is no travel buffer.
 - **Can ask you before answering inbound meeting requests.** Turn on
   `ownerGate` to hold proposed times for your approval in your DM before
   Meetly contacts the other person. It is off by default.

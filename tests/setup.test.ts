@@ -112,11 +112,6 @@ test("durations and horizons are bounded integers", () => {
   assert.deepEqual(parseField("ownerGate", "on"), { ownerGate: true });
   assert.deepEqual(parseField("ownerGate", "off"), { ownerGate: false });
   assert.throws(() => parseField("ownerGate", "maybe"), /ownerGate/);
-  // Travel time around an in-person meeting: minutes (or an hour), 0 to 180, none clears it.
-  for (const [value, min] of [["30", 30], ["45 min", 45], ["1h", 60], ["1.5h", 90], ["0", undefined], ["none", undefined]] as const) {
-    assert.deepEqual(parseField("travel", value), { travelMin: min }, value);
-  }
-  for (const bad of ["soon", "-5", "181", "4h", ""]) assert.throws(() => parseField("travel", bad), /travel/, bad);
   // Movable blocks are title words the owner lists: lowercased, deduplicated, bounded; none clears them.
   assert.deepEqual(parseField("movable", " Prayer, GYM ,prayer "), { movable: ["prayer", "gym"] });
   assert.deepEqual(parseField("movable", "none"), { movable: undefined });
@@ -233,10 +228,6 @@ test("editing a field after setup updates config.json and keeps setupDoneAt", ()
     assert.deepEqual(readJson<Config | null>(join(home, "config.json"), null)!.movable, ["prayer", "gym"]);
     record("movable", "none");
     assert.equal("movable" in readJson<object>(join(home, "config.json"), {}), false);
-    record("travel", "30");
-    assert.equal(readJson<Config | null>(join(home, "config.json"), null)!.travelMin, 30);
-    record("travel", "none");
-    assert.equal("travelMin" in readJson<object>(join(home, "config.json"), {}), false);
     record("ownerGate", "on");
     assert.equal(readJson<Config | null>(join(home, "config.json"), null)!.ownerGate, true);
     record("ownerGate", "off");

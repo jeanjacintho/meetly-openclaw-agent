@@ -70,21 +70,6 @@ test("save replaces a duplicate open offer by normalized handle and preserves it
   assert.equal(findOpenByHandle(saved, "+15551234567")!.id, "r_1");
 });
 
-test("an offer's travel blocks are holds: validated, and queued for deletion when the offer is replaced", () => {
-  const travel = [{ holdId: "t1", account: "jean@example.com" }, { holdId: "t2", account: "jean@example.com" }];
-  const withTravel = addRequest(empty(), input({ offered: [{ ...offer, travel }] }), T0, "r_1");
-  assert.deepEqual(withTravel.requests[0]!.offered[0]!.travel, travel);
-  for (const bad of [[{ holdId: "", account: "a" }], [{ holdId: "t1" }], "t1"]) {
-    assert.throws(() => addRequest(empty(), input({ offered: [{ ...offer, travel: bad }] } as never), T0, "x"), /travel/);
-  }
-  // Replacing the offer moves the old slot's hold and both its travel blocks to cleanup, once.
-  const replaced = saveRequest(withTravel, input({ offered: [{ ...offer, holdId: "h9", travel: [{ holdId: "t9", account: "jean@example.com" }] }] }), T0, "r_x");
-  assert.deepEqual(replaced.requests[0]!.holdCleanup!.map((h) => h.holdId).sort(), ["h1", "t1", "t2"]);
-  // A travel block kept in the new offer is not queued.
-  const kept = saveRequest(withTravel, input({ offered: [{ ...offer, holdId: "h9", travel: [travel[0]!] }] }), T0, "r_y");
-  assert.deepEqual(kept.requests[0]!.holdCleanup!.map((h) => h.holdId).sort(), ["h1", "t2"]);
-});
-
 test("monitor nudges the other person once after a day, and a fresh offer resets that nudge", () => {
   const offered = addRequest(empty(), input({ chatUid: "chat_1" }), T0, "r_1");
   assert.equal(monitor(offered, T0 + 23 * HOUR).waitingOnThem.length, 0);

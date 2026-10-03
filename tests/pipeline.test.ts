@@ -104,11 +104,6 @@ test("the owner can ask who they are waiting on, and Meetly looks before it asks
   assert.ok(group.includes("The next step is advice computed from the stage, never a claim about what happened"));
   assert.ok(group.includes("Write only what the calendar or the chat confirmed, never a plan or a guess"));
   assert.ok(group.includes("`start-thread.ts` checks the list again immediately before its POST"));
-  assert.ok(group.includes("## Travel time"));
-  assert.ok(group.includes("run `slots.ts` with `--travel <config.travelMin>`"));
-  assert.ok(group.includes("record both in the offer's `travel[]`"));
-  assert.ok(group.includes("delete the other holds and their travel blocks"));
-  assert.ok(flat("skills/meetly-setup/SKILL.md").includes("`record-setup.ts --field travel --value <minutes>`"));
   assert.ok(group.includes("## Movable blocks"));
   assert.ok(group.includes("a slot that lists `overlaps` needs `--confirm-conflict`"));
   assert.ok(group.includes("say only \"a block you marked movable\""));

@@ -82,7 +82,7 @@ still explain why no contact message was sent.
       batch>` and go to step 6.
 5. Run `cursor.ts set <highest rowid in the batch>`.
 6. Maintenance:
-   - For each request from `ledger.ts expired`: delete its meeting and travel
+   - For each request from `ledger.ts expired`: delete its
      holds ("Holds" in `meetly-group`), then `ledger.ts update --id <id>
      --json '{"status":"expired","pendingOwner":null,"ownerApprovalAt":null}'`.
      If it has a `chatUid`, check the blocklist then tell the group the held

@@ -194,7 +194,7 @@ test("closed request responses are limited to scheduling intent, not acknowledge
   assert.ok(group.includes("For a conversational acknowledgement or other message unrelated to scheduling"));
   assert.ok(group.includes("do not reply and do not alert the owner"));
   assert.ok(group.includes("decline, cancel or give up"));
-  assert.ok(group.includes("**They decline or give up:** delete the meeting and travel holds"));
+  assert.ok(group.includes("**They decline or give up:** delete the holds"));
   assert.ok(group.includes("use this only when a scheduling-related message tries to choose, change or resume the request, or asks its status"));
 });
 

@@ -81,9 +81,6 @@ to install anything else.
 - "My prayer time and gym can move" → `record-setup.ts --field movable --value <words from the titles>`
   (for example `prayer, gym`); "nothing can move" → `none`. Meetly then offers
   times over those blocks, and never repeats their titles to anyone.
-- "Leave an hour for travel around in-person meetings" →
-  `record-setup.ts --field travel --value <minutes>`; accept minutes or hours
-  from 1 minute to 3 hours. `none` clears the buffer. The default is no buffer.
 - "Ask me before replying to new meeting requests" →
   `record-setup.ts --field ownerGate --value on`; "you can answer meeting
   requests without asking me first" → `off`. The default is off. When on,
@@ -99,6 +96,6 @@ to install anything else.
 - "Status" → summarize `setup-status.ts`: days, window, duration, horizon,
   the minimum notice (2 hours when `config.minNoticeMin` is unset),
   default meeting type (or "ask each time" when `config.defaultFormat` is
-  unset), travel buffer when set, video provider (Google Meet, or Zoom when
+  unset), video provider (Google Meet, or Zoom when
   `config.zoomRoomUrl` is set), whether inbound owner approval is on,
   calendars, and whether it is paused.
