@@ -141,6 +141,18 @@ ahead so its reminder fires during the run.
 22. [ ] **Hold deletes.** After any pick, the other `Hold:` events are gone
     (this needs `--force`; see `checks/spike.md`).
 
+23. [ ] **Owner starts in an existing group (#58).** Create a group with Meetly
+    and one contact, introduce the contact, then say "How about lunch on
+    October 13th?" with no ledger request for this chat or contact.
+    - Expect: the contact is resolved from the roster, lunch and the date are
+      extracted, and available times are held and offered in this same group.
+    - If a needed venue cannot be found in context, expect a private owner
+      question before holds, not a public request to identify the meeting.
+    - Check: the saved request has `origin: owner` and this group's `chatUid`;
+      no additional group is opened and no booking happens until a pick.
+    - Repeat from a guest without an owner request, with two guests, and with
+      an open request linked to another group: expect no new holds or booking.
+
 Known limit: a meeting moved *earlier* in Google Calendar, to before its old
 reminder window, is not reminded. Meetly only re-reads the event when the
 old time comes due.

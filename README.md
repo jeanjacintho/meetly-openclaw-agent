@@ -1,8 +1,8 @@
 # Meetly
 
 Your scheduling assistant, on a text thread. When someone asks to meet you,
-Meetly opens a group with them, offers your free times, holds them on your
-calendar and books the one they pick. You receive the confirmation in the same group.
+Meetly researches the request, holds your free times, offers them in a group
+and books the one they pick. You receive the confirmation in the same group.
 
 An [OpenClaw](https://github.com/openclaw/openclaw) agent on
 [Plow Chat](https://howto.plow.co/). It is one person's assistant: your days,
@@ -18,8 +18,9 @@ Every five minutes Meetly reads your new iMessages on your Mac, through
 [Latch](https://howto.plow.co/latch). When someone is trying to set something
 up with you — "coffee next week?" — it:
 
-1. opens a Plow group with you and that person,
-2. offers three free times from your Google Calendar, inside the days and
+1. researches the person and meeting details, clarifying privately with you
+   only when something necessary remains unclear,
+2. finds three free times from your Google Calendar, inside the days and
    hours you allow,
 3. holds those times on your calendar so nothing else takes them,
 4. asks how you'll meet (a video call or in person) when neither the message
@@ -36,6 +37,11 @@ You can also ask it directly: *"set up lunch with Patrick next week — it can g
 over Weekly Claw"*. Meetly finds Patrick in your contacts, respects what you
 said for that one request, and runs the same group.
 
+In a group you already created with one contact, a clear request such as
+"How about lunch on October 13th?" starts scheduling there even without a
+previous ledger entry. Meetly uses the participant and conversation context,
+keeps the requested date, and offers times in that group.
+
 Meetly always speaks as your assistant, in the third person: *"Jean is free Tue
 29/9 at 12:00"*, never *"I'm free"*. It never texts from your own Messages
 account; every conversation with the other person happens in the Plow group,
@@ -43,6 +49,13 @@ signed as Meetly.
 
 ## What it will and won't do
 
+- **Researches before asking.** Meetly uses the thread, known contact details
+  and relevant prior context. Lunch together implies in person unless the
+  conversation says virtual. For a meeting you ask for, a necessary detail that
+  remains unclear is asked privately of you, rather than publicly of the
+  contact; for a request that comes from someone else, it is asked in their
+  own thread, where your answer can approve it. A default meeting type
+  you set fills in only what neither side said.
 - **Asks how to meet only when it is not clear.** "A Google Meet on
   Thursday" or "lunch at Fasano" is enough, and so is a default meeting type
   you set. "A call" or "coffee" with no place and no default gets one
@@ -187,8 +200,9 @@ message is skipped.
   volume and survives restarts and rebuilds.
 - **Chat.** Your phone DM is the main session and runs setup. A group Meetly
   opened is recognized from its ledger and handled as that one meeting.
-- **Opening groups.** Meetly uses `start-thread.ts` for owner requests and
-  the scheduled poll. It calls `POST /v1/chats` with the owner plus the
+- **Opening groups.** Meetly uses `start-thread.ts` to open a new group for
+  owner requests and the scheduled poll; an owner request made in an existing
+  one-contact group reuses it. It calls `POST /v1/chats` with the owner plus the
   contact, trusted, and an idempotency key. An uncertain delivery is
   recorded without a chat and never resent on its own; if you say the group
   is not there, Meetly tries again with the same key. Meeting confirmations and
