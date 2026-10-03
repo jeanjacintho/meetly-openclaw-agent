@@ -115,6 +115,17 @@ test("CLI books from gog's saved output and prints the link", () => {
   assert.match(bad.stderr, /^error: /);
 });
 
+test("a booking at an owner-approved time that is no offer takes the buffers held on the pending approval", () => {
+  const travel = [{ holdId: "t_before", account: ACCOUNT }, { holdId: "t_after", account: ACCOUNT }];
+  const l = offered("in_person");
+  const ev = plainEvent();
+  l.requests[0]!.pendingOwner = { start: ev.start, end: ev.end, askedAt: new Date(T0).toISOString(), travel };
+  const booked = recordBooking(l, "r_1", ev, ACCOUNT, T0).ledger.requests[0]!;
+  assert.deepEqual(booked.booked!.travel, travel);
+  assert.equal(booked.pendingOwner, undefined);
+  assert.equal(booked.holdCleanup, undefined);
+});
+
 test("booking keeps the offer's travel refs on the booking, in the same write, and a move keeps them", () => {
   const travel = [{ holdId: "t_before", account: ACCOUNT }, { holdId: "t_after", account: ACCOUNT }];
   const l = offered("in_person");

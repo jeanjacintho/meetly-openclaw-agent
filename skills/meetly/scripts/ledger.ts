@@ -17,7 +17,8 @@ export type HoldRef = { holdId: string; account: string };
 export type Offer = { start: string; end: string; holdId?: string; account: string; travel?: HoldRef[] };
 // A time outside the owner's days or window that the other person asked for,
 // waiting for the owner's yes or no.
-export type PendingOwner = { start: string; end: string; askedAt: string };
+// `travel`: the buffers held for this time while the owner decides; the booking takes them, anything else queues them for cleanup.
+export type PendingOwner = { start: string; end: string; askedAt: string; travel?: HoldRef[] };
 export type Constraints = { days?: string[]; after?: string; before?: string; from?: string; to?: string };
 // How the meeting happens. `unknown` until the request or an answer says it.
 export type Format = DefaultFormat | "unknown";
@@ -355,6 +356,39 @@ export function commitTravel(ledger: Ledger, id: string, revision: string, now: 
   return { ledger: promoteTravel(ledger, index, now), committed: true };
 }
 
+// Set the buffers of one offer (open request, by its start) or of the booking
+// (booked request): a targeted write, so a caller never rewrites `offered[]`.
+export function setTravel(ledger: Ledger, id: string, refs: HoldRef[], start: string | undefined, now: number): Ledger {
+  checkHoldRefs(refs, "travel hold");
+  const index = ledger.requests.findIndex((r) => r.id === id);
+  if (index < 0) throw new Error(`no request ${id}`);
+  const current = ledger.requests[index]!;
+  const requests = [...ledger.requests];
+  const updatedAt = new Date(now).toISOString();
+  if (current.status === "booked") {
+    if (!current.booked) throw new Error(`request ${id} has no booking`);
+    const { travel: _t, ...booked } = current.booked;
+    requests[index] = { ...current, booked: refs.length ? { ...booked, travel: refs } : booked, updatedAt };
+    return { requests };
+  }
+  if (current.status !== "offered") throw new Error(`request ${id} is ${current.status}`);
+  // An owner-approved out-of-hours time is no offer: its buffers are held on the pending approval.
+  if (start && current.pendingOwner && Date.parse(current.pendingOwner.start) === Date.parse(start) && !current.offered.some((o) => Date.parse(o.start) === Date.parse(start))) {
+    // A retry that holds a new pair displaces the first: those refs go to cleanup in the same write.
+    const displaced = withoutRefs(current.pendingOwner.travel ?? [], refs);
+    requests[index] = {
+      ...current,
+      pendingOwner: { ...current.pendingOwner, travel: refs },
+      ...(displaced.length ? { holdCleanup: mergeRefs(current.holdCleanup ?? [], displaced) } : {}),
+      updatedAt,
+    };
+    return { requests };
+  }
+  if (!start || !current.offered.some((o) => Date.parse(o.start) === Date.parse(start))) throw new Error(`request ${id} has no offer starting ${start}`);
+  requests[index] = { ...current, offered: current.offered.map((o) => (Date.parse(o.start) === Date.parse(start) ? { ...o, travel: refs } : o)), updatedAt };
+  return { requests };
+}
+
 // A turn that died between the stage and the commit leaves a stage behind. After
 // the stage timeout the poll reads the live event and decides: if the calendar
 // accepted the move (the event is at the target time) the booking takes the new
@@ -434,6 +468,12 @@ export function updateRequest(ledger: Ledger, id: string, patch: Patch, now: num
     const owned = [...(currentRequest.booked?.travel ?? []), ...(currentRequest.pendingTravel?.refs ?? [])];
     if (owned.length) updated.holdCleanup = mergeRefs(updated.holdCleanup ?? [], owned);
     delete updated.pendingTravel;
+  }
+  // Buffers held for a pending approval that is cleared or replaced without becoming the booking go to cleanup.
+  const heldForOwner = currentRequest.pendingOwner?.travel;
+  if (heldForOwner?.length && (patch.pendingOwner !== undefined || (patch.status !== undefined && patch.status !== "offered"))) {
+    const kept = withoutRefs(heldForOwner, [...(updated.booked?.travel ?? []), ...(updated.pendingOwner?.travel ?? [])]);
+    if (kept.length) updated.holdCleanup = mergeRefs(updated.holdCleanup ?? [], kept);
   }
   // A link belongs to a Meet: moving to another format drops it, and a link
   // is never set on a meeting that is not one.
@@ -693,6 +733,12 @@ if (isMain(import.meta.url)) {
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => removeCleanupRef(l, values.id!, ref, now));
         return { request: ledger.requests.find((r) => r.id === values.id) };
       }
+      case "set-travel": {
+        if (!values.id) throw new Error(`usage: ledger.ts set-travel --id X --json-file F ({"start":"<offer start>","travel":[{holdId,account},…]})`);
+        const { start, travel } = jsonArg(values) as { start?: string; travel: HoldRef[] };
+        const ledger = updateJson<Ledger>(path, EMPTY, (l) => setTravel(l, values.id!, travel, start, now));
+        return { request: ledger.requests.find((r) => r.id === values.id) };
+      }
       case "stage-travel": {
         if (!values.id) throw new Error(`usage: ledger.ts stage-travel --id X --json-file F ({"travel":[{holdId,account},…],"start":"<new start>","end":"<new end>"})`);
         const { travel } = jsonArg(values) as { travel: HoldRef[] };
@@ -744,7 +790,7 @@ if (isMain(import.meta.url)) {
         return { requests: dueReminders(readJson<Ledger>(path, EMPTY), now, lead) };
       }
       default:
-        throw new Error("usage: ledger.ts find | add | save | update | promote-offer | discard-offer | cleanup-remove | stage-travel | commit-travel | expired | pending | pipeline | monitor | history | log | cleanup | reminders");
+        throw new Error("usage: ledger.ts find | add | save | update | promote-offer | discard-offer | cleanup-remove | set-travel | stage-travel | commit-travel | expired | pending | pipeline | monitor | history | log | cleanup | reminders");
     }
   });
 }

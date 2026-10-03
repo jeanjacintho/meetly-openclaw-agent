@@ -60,6 +60,9 @@ signed as Meetly.
   is explained as too soon, with alternatives offered. If the other person can only
   do a time outside your hours, Meetly asks you in that group and books it only on
   your yes there. A yes in your DM does not approve the group request.
+- **Leaves travel time around in-person meetings when you set it.** Meetly
+  checks and holds the buffer before and after the meeting; video and phone
+  meetings do not use it. The default is no travel buffer.
 - **Holds expire.** No answer in 48 hours: the holds are deleted and the
   group is told the times were released.
 - **Tells them when you cancel or move.** Ask Meetly to cancel or move a
