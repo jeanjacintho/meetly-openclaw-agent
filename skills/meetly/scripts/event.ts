@@ -19,6 +19,14 @@ export function isMeetUrl(value: unknown): value is string {
   return typeof value === "string" && MEET_URL.test(value);
 }
 
+// The owner's personal Zoom room, only ever from their own configuration: an
+// https zoom.us meeting or personal link, with at most a pwd. Meetly cannot
+// create a Zoom link and never takes one from a message.
+const ZOOM_ROOM_URL = /^https:\/\/([a-z0-9-]+\.)?zoom\.us\/(j|my)\/[A-Za-z0-9_.-]+(\?pwd=[A-Za-z0-9._-]+)?$/;
+export function isZoomRoomUrl(value: unknown): value is string {
+  return typeof value === "string" && ZOOM_ROOM_URL.test(value);
+}
+
 type RawEvent = {
   id?: unknown;
   status?: unknown;
