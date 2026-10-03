@@ -96,7 +96,8 @@ export function toBusy(results: unknown[], opts: { tz: string; max: number; mova
       const b: Busy = { start: new Date(start).toISOString(), end: new Date(end).toISOString() };
       if (e.id !== undefined) b.id = e.id;
       if (e.account !== undefined) b.account = e.account;
-      if (e.summary && opts.movable?.some((w) => titleHasWordOrPhrase(e.summary!, w))) b.movable = true;
+      const title = e.summary?.toLowerCase();
+      if (title && opts.movable?.some((w) => title.includes(w))) b.movable = true;
       busy.push(b);
     }
     for (const { count, last } of perAccount.values()) {
@@ -107,13 +108,6 @@ export function toBusy(results: unknown[], opts: { tz: string; max: number; mova
   const out: BusyResult = { busy, degraded };
   if (unknownAfter !== undefined) out.unknownAfter = new Date(unknownAfter).toISOString();
   return out;
-}
-
-function titleHasWordOrPhrase(title: string, configured: string): boolean {
-  const normalize = (value: string) => value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/g, " ");
-  const words = normalize(title);
-  const phrase = normalize(configured);
-  return phrase.length > 0 && (` ${words} `).includes(` ${phrase} `);
 }
 
 // The listing after any notice plow-gog prints ahead of it ("Note: Using
