@@ -22,9 +22,9 @@ exits non-zero: report that line; never guess a result. State lives in
 | | `expired [--hours N]` \| `pending` \| `cleanup` | `{requests}`; `cleanup` first discards staged offers older than 15 minutes |
 | | `promote-offer --id X --revision R` \| `discard-offer --id X --revision R` | settles a staged re-offer (`save` on a request that already has a group stages it as `pendingOffer`): promote makes it current after a successful send, discard keeps the old one after a failed send; the losing offer's holds enter the cleanup queue; `{request, settled}`, with `settled` false when another save replaced that revision |
 | | `cleanup-remove --id X --json-file F` | removes one hold ref after its deletion succeeded |
-| | `pipeline` \| `history --handle H` \| `log --id X [--text T]` | `pipeline` → `{waitingOnOwner, deliveryUnknown, waitingOnThem, booked, closed}` (items include `delivery: linked\|unknown`; stages `waiting_on_us`, `delivery_unknown`, `sent`, `waiting_on_them`, `confirmed`, `passed`, derived and never stored); `history` → `{requests}` for that person, newest first, with topic, format, location and length; unknown delivery always means check Messages manually and never resend; `log` → `{log:[{at,text}]}`, appending `--text` first when given |
-| | `reminders [--lead-min N]` | `{requests}`: booked Meets whose link is due (default 10 min before, until 5 min after the start) |
-| `blocklist.ts` | `block --handle H [--handle H …]` \| `unblock --handle H [--handle H …]` \| `check --handle H [--handle H …]` \| `list` | `{blocked}`: the list, or for `check` true if any alias is blocked; `start-thread.ts` checks again immediately before opening a group |
+| | `pipeline` \| `history --handle H` \| `log --id X [--text-file F]` | `pipeline` → `{waitingOnOwner, deliveryUnknown, waitingOnThem, booked, closed}` (items include `delivery: linked\|unknown`; stages `waiting_on_us`, `delivery_unknown`, `sent`, `waiting_on_them`, `confirmed`, `passed`, derived and never stored); `history` → `{requests}` for that person, newest first, with topic, format, location and length; unknown delivery always means check Messages manually and never resend; `log` → `{log:[{at,text}]}`, appending `--text-file` first when given |
+| | `reminders [--lead-min N]` | `{requests}`: booked meetings to re-read: a cancellation is caught for any format, a Meet with a link is due (default 10 min before, until 5 min after the start) |
+| `blocklist.ts` | `block` \| `unblock` \| `check`, each with `--handles-file F` (a JSON array of aliases) \| `list` | `{blocked}`: the list, or for `check` true if any alias is blocked; `start-thread.ts` checks again immediately before opening a group |
 | `event.ts` | `--in F` | `{id, status, start, end, meetUrl}` from a saved `plow-gog calendar create/update/event --json` output |
 | `record-booking.ts` | `--id X --event-file F --account A` | `{request, meetUrl, warning?:"no-meet-link"}`: marks the request booked from the event; with `config.zoomRoomUrl` set, a video meeting keeps that room as `roomUrl` and has no missing-link warning |
 | `reminder-check.ts` | `--id X --event-file F [--lead-min N]` | `{action:"send"\|"wait"\|"cancelled"\|"no-link"\|"skip", send?:{chatUid, meetUrl, name, locale, time, minutesToStart}}` |
@@ -35,11 +35,18 @@ exits non-zero: report that line; never guess a result. State lives in
 | `slots.ts` | `--in busy.json [--duration N] [--days mon,thu] [--after HH:MM] [--before HH:MM] [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--allow-overlap ID]… [--exclude ISO]… [--count N] [--travel MIN] [--locale TAG]` | `{slots:[{start,end,dayOfWeek,label}], unknownAfter?, degraded}`; with `--travel`, each slot also has `travel:{before,after}` (the buffer blocks as UTC `{start,end}`) |
 | | `--in busy.json --at <ISO or YYYY-MM-DDTHH:MM in the owner's zone> [--duration N] [--allow-overlap ID]… [--travel MIN] [--locale TAG]` | `{slot, free, reason?: busy\|too-soon\|unknown, outsideHours, degraded}`; with `--travel`, the buffers are `slot.travel` |
 | `owner-chat.ts` | | `{chatUid}`: the owner's DM |
-| `start-thread.ts` | `--member <+E164 or email> [--member …] --body TEXT --key K` | `{chatUid, messageSent:true}` or `{chatUid:null, deliveryUnknown:true}`. After an unknown delivery, running it again with the same `--key` and members (only when the owner asks; the opener wording may be regenerated) returns the group if Plow had opened it |
-| `contact.ts` | `--handle <+E164 or email>` | `{found:true, handle, name, phones, emails, matches}`, `{found:false, handle}` or `{found:false, handle, reason:"mac-unavailable"}` |
-| `reachable-handle.ts` | `--handle <+E164 or email> [--handle …]` | `{handle, via:"iMessage"}`, `{handle:null, reason:"not-on-imessage", services}` or `{handle:null, reason:"mac-unavailable"}` |
+| `start-thread.ts` | `--input-file F` (JSON `{"members":[…],"body":"…","key":"request:<id>"}`) | `{chatUid, messageSent:true}` or `{chatUid:null, deliveryUnknown:true}`. After an unknown delivery, running it again with the same `key` and members (only when the owner asks; the opener wording may be regenerated) returns the group if Plow had opened it |
+| `contact.ts` | `--handles-file F` (a JSON array with the one phone or email) | `{found:true, handle, name, phones, emails, matches}`, `{found:false, handle}` or `{found:false, handle, reason:"mac-unavailable"}` |
+| `reachable-handle.ts` | `--handles-file F` (a JSON array of phones and emails) | `{handle, via:"iMessage"}`, `{handle:null, reason:"not-on-imessage", services}` or `{handle:null, reason:"mac-unavailable"}` |
 
 Notes:
+
+- Anything that came from a conversation or a contact card (handles, emails,
+  opener text, log text) reaches a script only through a JSON or text file the
+  `write` tool saves under `/var/lib/plow/meetly/tmp/`, named for the
+  operation (`<purpose>-<request id, chat uid or message rowid>`), never a
+  shared fixed name, and never on the command line: an email can carry shell
+  syntax, and two turns must not read each other's file.
 - A request's `format` is `meet`, `in_person`, `phone` or `unknown`.
   `meetUrl` only ever holds `https://meet.google.com/xxx-xxxx-xxx`, only on
   a `meet`; the ledger refuses anything else. `roomUrl` only ever holds the

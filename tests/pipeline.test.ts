@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { addRequest, appendLog, historyFor, pipeline, updateRequest, type Ledger, type NewRequest } from "../skills/meetly/scripts/ledger.ts";
 import { cli, tmpHome } from "./helpers.ts";
@@ -92,6 +92,11 @@ test("the CLI prints the pipeline and a person's history", () => {
   const h = cli("ledger.ts", ["history", "--handle", "+15550000001"], env);
   assert.equal(h.json.requests[0].topic, "coffee");
   assert.notEqual(cli("ledger.ts", ["history"], env).status, 0);
+  // A blocked person is not in the owner's pipeline.
+  const blockFile = join(env.MEETLY_HOME, "block.json");
+  writeFileSync(blockFile, JSON.stringify(["5550000001"]));
+  cli("blocklist.ts", ["block", "--handles-file", blockFile], env);
+  assert.equal(cli("ledger.ts", ["pipeline"], env).json.deliveryUnknown.length, 0);
 });
 
 test("the owner can ask who they are waiting on, and Meetly looks before it asks the other person", () => {
@@ -114,7 +119,7 @@ test("the owner can ask who they are waiting on, and Meetly looks before it asks
   assert.ok(group.includes("Meetly cannot create a Zoom link and never takes one from a message"));
   assert.ok(flat("skills/meetly-setup/SKILL.md").includes("`record-setup.ts --field videoProvider --value <their Zoom room link>`"));
   assert.ok(flat("README.md").includes("give Meetly your personal room link"));
-  assert.ok(flat("skills/meetly-poll/SKILL.md").includes("`blocklist.ts check --handle <sender>` says `blocked`, skip"));
+  assert.ok(flat("skills/meetly-poll/SKILL.md").includes("`blocklist.ts check --handles-file <file with the sender>` says `blocked`, skip"));
   assert.ok(group.includes("## Research before proposing"));
   assert.ok(group.includes("and `ledger.ts history --handle <their handle>`"));
   assert.ok(group.includes("Never ask the other person for something these sources answer"));
@@ -140,6 +145,9 @@ test("a request keeps a dated log of what happened, newest last, bounded, and re
   assert.equal("log" in historyFor(l, "+15550000001")[0]!, false);
   const env = { MEETLY_HOME: tmpHome() };
   const id = cli("ledger.ts", ["add", "--json", JSON.stringify(input("+15550000001"))], env).json.request.id;
-  assert.equal(cli("ledger.ts", ["log", "--id", id, "--text", "Offer sent"], env).json.log[0].text, "Offer sent");
+  // Free text never rides on the command line: it goes through a file.
+  const textFile = join(env.MEETLY_HOME, "log.txt");
+  writeFileSync(textFile, "Offer sent; $(touch pwned)\n");
+  assert.equal(cli("ledger.ts", ["log", "--id", id, "--text-file", textFile], env).json.log[0].text, "Offer sent; $(touch pwned)");
   assert.equal(cli("ledger.ts", ["log", "--id", id], env).json.log.length, 1);
 });

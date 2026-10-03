@@ -5,6 +5,7 @@
 // Messages archive knows which handle each person is on iMessage under, so
 // this asks it, on the Mac, for the service of each handle (metadata only,
 // never a message body) and picks the iMessage one used most recently.
+import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
 import { runOnMac, type BridgeOptions } from "./mac.ts";
@@ -49,7 +50,7 @@ export function pickReachable(services: HandleService[]): string | undefined {
 }
 
 export async function reachableHandle(handles: string[], opts: BridgeOptions = {}): Promise<Reachable> {
-  if (handles.length === 0) throw new Error("give at least one handle (--handle +E164 or --handle email)");
+  if (handles.length === 0) throw new Error("give at least one handle (a JSON array of +E164 phones and emails)");
   for (const h of handles) if (!isHandle(h)) throw new Error(`not a phone in E.164 (like +15551234567) or an email: ${h}`);
   const output = await runOnMac({
     argv: ["/bin/sh", "-c", 'exec /usr/bin/sqlite3 -readonly -separator "|" "$HOME/Library/Messages/chat.db" "$1"', "sh", serviceQuery(handles)],
@@ -64,7 +65,9 @@ export async function reachableHandle(handles: string[], opts: BridgeOptions = {
 
 if (isMain(import.meta.url)) {
   run(() => {
-    const { values } = parseArgs({ options: { handle: { type: "string", multiple: true } } });
-    return reachableHandle(values.handle ?? []);
+    // Contact text never goes on the command line: the handles come from a JSON array file.
+    const { values } = parseArgs({ options: { "handles-file": { type: "string" } } });
+    if (!values["handles-file"]) throw new Error("usage: reachable-handle.ts --handles-file F (a JSON array of phones and emails)");
+    return reachableHandle(JSON.parse(readFileSync(values["handles-file"], "utf8")) as string[]);
   });
 }
