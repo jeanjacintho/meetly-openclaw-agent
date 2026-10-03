@@ -553,7 +553,10 @@ offer.
      location, and the person's `attendeeEmail` as an attendee when there is one,
      following "Book the event". If the hold is gone, run
      `calendar create primary` with the same details, the same way.
-  2. Only then delete the other holds and their travel blocks. Keep the picked
+  2. Only then delete the other holds and their travel blocks: `record-booking.ts`
+     already queued them in `holdCleanup`, so after each successful delete run
+     `ledger.ts cleanup-remove` (or leave the deletion to the cleanup poll), or
+     the poll would retry events that are already gone. Keep the picked
      offer's travel blocks for the booked in-person meeting.
   3. Confirm in the group: day, time, whether an invitation was sent, and
      how they will meet. For `meet`: it is a Google Meet, and the link will

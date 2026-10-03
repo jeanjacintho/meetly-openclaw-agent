@@ -421,6 +421,8 @@ test("travel: one exact-time check, cancel and move handle the buffers, and a pi
   assert.ok(group.includes("**Exact-time check.** Read the calendar (`busy.ts --fetch`), then run `slots.ts --in /var/lib/plow/meetly/tmp/busy.json --at <start>"));
   assert.ok(group.includes("the buffers are `slot.travel.before` and `slot.travel.after`"));
   assert.ok(group.includes("the ledger queues the booking's travel buffers for the cleanup poll in that same write"));
+  // Pick deletes the hold set record-booking queued, and removes each from the queue so the poll does not retry gone events.
+  assert.ok(group.includes("so after each successful delete run `ledger.ts cleanup-remove` (or leave the deletion to the cleanup poll)"));
   assert.ok(group.includes("first run the exact-time check (\"Travel time\") at the new time") || group.includes("With it set, first run the exact-time check (\"Travel time\") at the new time"));
   // Buffers follow the current setting: created when enabled after booking, released with `travel: []` when cleared, kept on a location answer.
   for (const rule of ["the buffers follow the current `config.travelMin`, not what the booking happens to hold", "also when the booking has none because the setting was turned on after it was booked", "stage `{\"travel\":[],…}` so the move releases the old ones atomically", "needs no new check and no new holds: keep them", "`record-booking.ts` already queued them in `holdCleanup` in the booking write"])
