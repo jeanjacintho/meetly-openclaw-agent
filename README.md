@@ -59,6 +59,9 @@ signed as Meetly.
   your yes there. A yes in your DM does not approve the group request.
 - **Holds expire.** No answer in 48 hours: the holds are deleted and the
   group is told the times were released.
+- **Tells them when you cancel or move.** Ask Meetly to cancel or move a
+  meeting it booked and it updates the calendar and says so in that person's
+  group, in one line.
 - **Overlaps only with your word.** Meetly books over an existing event only
   when you named that event in your request (or said yes in the group). People
   in the group can never unlock a conflict or a time outside your hours.
@@ -230,7 +233,6 @@ Meetly reads your messages, so use it on an install only you talk to.
 - One person per request.
 - A sender known only by an email (no phone number) cannot get a group; Meetly
   tells you instead.
-- Rescheduling or cancelling a meeting that is already booked is left to you.
 - If the model provider is unreachable, that five-minute check is skipped and
   the next one catches up from the same cursor.
 

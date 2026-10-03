@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fetchBusy, instant, toBusy } from "../skills/meetly/scripts/busy.ts";
 import { writeJson } from "../skills/meetly/scripts/store.ts";
-import { cli, tmpHome } from "./helpers.ts";
+import { cli, macBridge, tmpHome, type MacCall as Call } from "./helpers.ts";
 
 const TZ = "America/Sao_Paulo";
 const FIX = join(import.meta.dirname, "fixtures", "calendar");
@@ -84,17 +84,6 @@ test("the CLI merges several files using the configured zone", () => {
   assert.equal(noSetup.status, 1);
 });
 
-type Call = { argv: string[] };
-function macBridge(reply: (argv: string[]) => string | undefined, calls: Call[] = []): typeof fetch {
-  return (async (_url: string | URL | Request, init?: RequestInit) => {
-    const argv = JSON.parse(String(init?.body)).params.arguments.argv as string[];
-    calls.push({ argv });
-    const output = reply(argv);
-    const out = output === undefined ? { exit_code: 1, output: "gog: 401" } : { exit_code: 0, output };
-    const result = { content: [{ type: "text", text: JSON.stringify(out) }] };
-    return new Response(`event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", id: 1, result })}\n\n`);
-  }) as typeof fetch;
-}
 
 const range = { from: "2026-09-30T13:36:05-03:00", to: "2026-10-04T13:36:05-03:00" };
 const gogEvent = (id: string, start: string, end: string) =>
@@ -126,6 +115,16 @@ test("fetchBusy reports an account it could not read as degraded, never as free"
   assert.deepEqual(r, { busy: [], degraded: ["work@example.com"] });
   const noMac = await fetchBusy({ timezone: TZ, calendars: [{ account: "owner@example.com", id: "owner@example.com" }] }, range, { token: "" });
   assert.deepEqual(noMac.degraded, ["owner@example.com"]);
+});
+
+test("fetchBusy preserves the earliest server truncation as unknownAfter", async () => {
+  const r = await fetchBusy({
+    timezone: TZ,
+    calendars: [{ account: "owner@example.com", id: "owner@example.com" }, { account: "work@example.com", id: "work@example.com" }],
+  }, range, { token: "tok", fetch: macBridge((argv) => argv.includes("work@example.com")
+    ? JSON.stringify({ events: [], truncated: { after: "2026-10-02T12:00:00-03:00" } })
+    : JSON.stringify({ events: [], truncated: { after: "2026-10-01T12:00:00-03:00" } })) });
+  assert.deepEqual(r, { busy: [], degraded: [], unknownAfter: "2026-10-01T15:00:00.000Z" });
 });
 
 test("the CLI's --fetch writes tmp/busy.json for slots.ts and prints only a short summary", () => {
