@@ -416,6 +416,8 @@ test("a blocked person gets no calendar notice either, and the do-not-contact en
 
 test("travel: one exact-time check, cancel and move handle the buffers, and a pick reaches the travel path", () => {
   const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
+  assert.ok(group.includes("and every id in the chosen offer's `travel[]`, its own buffer holds"));
+  assert.ok(group.includes("for each id in the chosen offer's `travel[]` (the offer's own buffer holds are not conflicts)"));
   assert.ok(group.includes("**Exact-time check.** Read the calendar (`busy.ts --fetch`), then run `slots.ts --in /var/lib/plow/meetly/tmp/busy.json --at <start>"));
   assert.ok(group.includes("the buffers are `slot.travel.before` and `slot.travel.after`"));
   assert.ok(group.includes("the ledger queues the booking's travel buffers for the cleanup poll in that same write"));

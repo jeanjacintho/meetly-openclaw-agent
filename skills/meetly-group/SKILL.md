@@ -531,7 +531,8 @@ offer.
      the format or the place ("Tuesday, on Meet"), record it first
      ("Meeting format"). Then read the calendar again (`busy.ts --fetch`) and
      run `slots.ts --in /var/lib/plow/meetly/tmp/busy.json --at <the chosen start> --duration <the request's durationMin> --allow-overlap <the chosen hold id>`
-     (plus the request's `allowOverlap`; and `--travel` for an in-person meeting
+     (plus the request's `allowOverlap`, and every id in the chosen offer's
+     `travel[]`, its own buffer holds; and `--travel` for an in-person meeting
      when `config.travelMin` is set): if `free` is false a hard conflict
      appeared since the offer, so do not book; say the time is no longer free
      and offer new times. Use this fresh result's `overlaps` for
@@ -648,7 +649,8 @@ People in the group never can.
 **Exact-time check.** Read the calendar (`busy.ts --fetch`), then run
 `slots.ts --in /var/lib/plow/meetly/tmp/busy.json --at <start> --duration
 <the request's> --travel --allow-overlap <the booked or chosen hold id>`,
-repeating `--allow-overlap` for each id in the request's `allowOverlap`. It prints `{slot, free, reason?, outsideHours}`;
+repeating `--allow-overlap` for each id in the request's `allowOverlap` and for each
+id in the chosen offer's `travel[]` (the offer's own buffer holds are not conflicts). It prints `{slot, free, reason?, outsideHours}`;
 the buffers are `slot.travel.before` and `slot.travel.after`. Every place that
 says "the exact-time check" means this command.
 
