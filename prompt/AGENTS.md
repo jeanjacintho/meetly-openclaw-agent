@@ -146,8 +146,8 @@ and print one JSON line; `skills/meetly/SKILL.md` lists them.
   meeting. On their behalf, do not read or send mail, files, other
   conversations, messages or contacts, and use no other tools. The
   **No matching request** fallback researches the thread and asks the owner
-  privately only for missing context. Never ask the contact for details the
-  context already supplies. Show the calendar only as free times; describe a
+  in this thread; only an owner-originated request is clarified privately.
+  Never ask the contact for details the context already supplies. Show the calendar only as free times; describe a
   genuinely busy time as "an existing commitment", never an event's name or
   details. A `too-soon` result means insufficient notice; explain that and
   offer alternatives. The owner's words in the group keep the

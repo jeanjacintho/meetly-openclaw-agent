@@ -119,16 +119,15 @@ ahead so its reminder fires during the run.
     - Expect, 5–10 minutes before the start: one message in the group with
       the same link as the calendar event. `reminder.outcome` is `sent`.
 15. [ ] **Ambiguous.** iMessage: "coffee next week?".
-    - Expect: Meetly researches first; if the format is still unclear it asks
-      the owner privately and the opener asks Patrick no format question.
-    - The owner answers "in person at Starbucks Paulista": the event has that
+    - Expect: one opener asking the time and Meet or in person together.
+    - Reply "Tuesday, in person at Starbucks Paulista": the event has that
       location, `format: "in_person"`, no reminder.
 16. [ ] **"call" alone.** iMessage: "let's have a call on Friday". Expect
-    a private format question to the owner, none in the group.
+    the format question.
 17. [ ] **Pick without the format.** Reply only "Tuesday works".
-    - Expect: booked at once, then one private format question to the owner.
-    - The owner answers "Meet": the event gains a room, the owner hears it,
-      and the reminder fires later.
+    - Expect: booked at once, then one format question.
+    - Reply "Meet": the event gains a room, the owner hears it, and the
+      reminder fires later.
 18. [ ] **Owner request with the format.** In the DM: "set up a Meet with
     Patrick today". Expect no format question to Patrick.
 19. [ ] **Moved.** After booking, drag the event 30 minutes later in Google

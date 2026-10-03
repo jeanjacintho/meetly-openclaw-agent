@@ -115,7 +115,7 @@ test("group requests without a matching ledger entry get a safe owner escalation
   assert.ok(group.includes("A closed (`dropped`, `expired`, `cancelled` or `booked`) request linked to this chat still makes it a Meetly group"));
   assert.ok(group.includes("do not infer which meeting or time"));
   assert.ok(group.includes("do not ask a generic confirmation question"));
-  assert.ok(group.includes("Ask the owner privately for the missing context, after checking the current thread"));
+  assert.ok(group.includes("ask the owner in this thread to identify the request, after checking the current thread"));
   assert.ok(flat(prompt).includes("link it with `ledger.ts update --id <request.id>"));
   assert.ok(flat(prompt).includes("--json '{\"chatUid\":\"<this chat uid>\"}'`"));
 });
@@ -133,6 +133,12 @@ test("a clear owner request can start in an existing group without a ledger entr
     "chatUid: <this chat uid>",
     "Never run `start-thread.ts` for this flow",
     "ask privately only for what remains genuinely unclear",
+    "`reachable-handle.ts --handle <contact.handle>`: unless it returns an iMessage `handle`, stop before holds",
+    "any open request with `origin: inbound`, and any already-linked request, is never replaced",
+    "is not saved on the request or used in the opener or the calendar event until the owner approves sharing it",
+    "persist with `ledger.ts add` (not `save`)",
+    "there is no staged revision to discard",
+    "for an inbound or guest request, anything the owner must answer is asked in the requesting thread",
   ]) assert.ok(group.includes(rule), rule);
   assert.ok(flat(prompt).includes("The current thread can identify a new request without a ledger entry"));
 });
@@ -229,13 +235,13 @@ test("meeting details use explicit words and context, with private clarification
   assert.ok(group.includes("A request to have lunch together also indicates `in_person`, unless the context explicitly says virtual"));
   assert.ok(group.includes("never invent a venue"));
   assert.ok(group.includes("never ask again for something this context answers"));
-  assert.ok(group.includes("Do not add a public format or venue question"));
-  assert.ok(group.includes("Never ask about the format twice in a row"));
+  assert.ok(group.includes("adds no public format or venue question"));
+  assert.ok(group.includes("Never ask about the format twice in a row: once in the opener"));
   assert.ok(pollSkill().includes("the format if their words say it"));
   // The owner's default fills in only what neither side said, in the poll too, and a default of in_person still asks where.
   assert.ok(group.includes("Anything else is `config.defaultFormat` when the owner set one, otherwise `unknown`"));
   assert.ok(group.includes("always wins over `config.defaultFormat`"));
-  assert.ok(group.includes("A default of `in_person` still needs a place: clarify it with the owner privately"));
+  assert.ok(group.includes("A default of `in_person` still needs a place: an inbound opener asks where"));
   assert.ok(pollSkill().includes("which also applies the owner's default"));
   assert.ok(flat(readFileSync(join(ROOT, "skills/meetly-setup/SKILL.md"), "utf8")).includes("`record-setup.ts --field defaultFormat --value meet|in_person|phone`"));
 });
