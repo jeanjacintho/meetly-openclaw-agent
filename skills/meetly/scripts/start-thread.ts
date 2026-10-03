@@ -62,7 +62,7 @@ if (isMain(import.meta.url)) {
     const { values } = parseArgs({
       options: { member: { type: "string", multiple: true }, body: { type: "string" }, key: { type: "string" } },
     });
-    if (!values.key) throw new Error("pass --key (e.g. rowid:<the request's rowid>) so a retry cannot open a second group");
+    if (!values.key) throw new Error("pass --key (e.g. request:<the saved request id>) so a retry cannot open a second group");
     if (values.body === undefined) throw new Error("pass --body");
     return startThread({ members: values.member ?? [], body: values.body, key: values.key });
   });
