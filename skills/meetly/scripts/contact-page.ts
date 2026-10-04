@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
-import { loadBlocked, type Blocked } from "./blocklist.ts";
+import { isBlocked, loadBlocked, type Blocked } from "./blocklist.ts";
 import { loadConfig } from "./config.ts";
 import { holdRefs, normalizeHandle, sameIdentity, stageOf, nextStepFor, type HoldRef, type Ledger, type Request } from "./ledger.ts";
 import { file } from "./paths.ts";
@@ -29,12 +29,13 @@ function liveHolds(r: Request): HoldRef[] {
   return [...holdRefs(r.offered), ...holdRefs(r.pendingOffer?.offered ?? []), ...(r.pendingOwner?.travel ?? [])];
 }
 
-// Exact identity only: a page shows one person's history, so a local number never takes in another person's.
+// Exact identity for the history: a page shows one person's meetings, so a local number never takes in another
+// person's. The block status matches the way the block itself is enforced (isBlocked, alias-aware).
 export function renderPage(ledger: Ledger, handle: string, blocked: Blocked[], now: number, timezone: string): Page {
   const requests = ledger.requests.filter((r) => sameIdentity(r.handle, handle)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const name = requests.findLast((r) => r.name)?.name;
   const current = requests.findLast((r) => r.status === "offered") ?? requests.findLast((r) => r.status === "booked" && (!r.booked || Date.parse(r.booked.end) >= now)) ?? requests.at(-1);
-  const blockedNow = blocked.some((b) => sameIdentity(b.handle, handle));
+  const blockedNow = isBlocked(blocked, handle);
   const status = blockedNow ? "do_not_contact" : current ? stageOf(current, now) : "new";
   const nextStep = blockedNow ? "none: the owner said never to contact them" : current ? nextStepFor(current, now) : "none";
   const when = new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "short", month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });

@@ -51,6 +51,8 @@ test("a person waiting on the owner, one who was never contacted, and one on the
   assert.equal(blocked.status, "do_not_contact");
   assert.match(blocked.markdown, /next_step: none: the owner said never to contact them/);
   assert.match(blocked.markdown, /- holds: none\n/, "a closed request holds nothing");
+  // Blocked under its E.164 form, the same person's local form is blocked too, as the block itself is enforced.
+  assert.equal(renderPage({ requests: [request({ handle: "5551234567" })] }, "5551234567", [{ handle: ANA, at: at(T0) }], T0, "UTC").status, "do_not_contact");
 });
 
 test("a page belongs to one handle exactly: its file never follows a name, and a similar number is someone else", () => {
