@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { join } from "node:path";
 import { pagePath, renderPage } from "../skills/meetly/scripts/contact-page.ts";
 import type { Ledger, Request } from "../skills/meetly/scripts/ledger.ts";
@@ -25,7 +26,7 @@ test("the page says where the person stands, the exact holds, what was proposed 
       offered: [{ start: "2026-10-05T13:00:00.000Z", end: "2026-10-05T13:30:00.000Z", holdId: "h1", account: "jean@example.com",
         travel: [{ holdId: "t1", account: "jean@example.com" }] }] }),
   ] };
-  const page = renderPage(ledger, "+1 (555) 123-4567", [], T0 + 2 * HOUR, "America/Sao_Paulo");
+  const page = renderPage(ledger, "+15551234567", [], T0 + 2 * HOUR, "America/Sao_Paulo");
   assert.equal(page.status, "sent");
   assert.equal(page.name, "Ana Lima");
   assert.match(page.markdown, /^# Ana Lima\n/);
@@ -40,22 +41,26 @@ test("the page says where the person stands, the exact holds, what was proposed 
 });
 
 test("a person waiting on the owner, one who was never contacted, and one on the do-not-contact list", () => {
-  const gated = renderPage({ requests: [request({ ownerApprovalAt: at(T0) })] }, ANA, [], T0);
+  const gated = renderPage({ requests: [request({ ownerApprovalAt: at(T0) })] }, ANA, [], T0, "UTC");
   assert.equal(gated.status, "waiting_on_us");
   assert.match(gated.markdown, /next_step: owner decision needed/);
-  const nobody = renderPage({ requests: [] }, "+15559990000", [], T0);
+  const nobody = renderPage({ requests: [] }, "+15559990000", [], T0, "UTC");
   assert.equal(nobody.status, "new");
   assert.match(nobody.markdown, /None yet\./);
-  const blocked = renderPage({ requests: [request({ status: "dropped" })] }, ANA, [{ handle: ANA, at: at(T0) }], T0);
+  const blocked = renderPage({ requests: [request({ status: "dropped" })] }, ANA, [{ handle: ANA, at: at(T0) }], T0, "UTC");
   assert.equal(blocked.status, "do_not_contact");
   assert.match(blocked.markdown, /next_step: none: the owner said never to contact them/);
   assert.match(blocked.markdown, /- holds: none\n/, "a closed request holds nothing");
 });
 
-test("two people with the same name get their own page", () => {
-  assert.notEqual(pagePath(ANA, "Ana"), pagePath("+15550001111", "Ana"));
-  assert.equal(pagePath("+1 555 123 4567", "Ana"), pagePath(ANA, "Ana"));
-  assert.match(pagePath(ANA, "Ána Lima"), /pages\/ana-lima-[0-9a-f]{6}\.md$/);
+test("a page belongs to one handle exactly: its file never follows a name, and a similar number is someone else", () => {
+  assert.notEqual(pagePath(ANA), pagePath("+15550001111"));
+  assert.equal(pagePath("+1 555 123 4567"), pagePath(ANA));
+  assert.match(pagePath(ANA), /pages\/[0-9a-f]{12}\.md$/);
+  // A local number sharing Ana's last digits is another person: neither page shows the other's meetings.
+  const ledger: Ledger = { requests: [request({}), request({ id: "r_2", handle: "5551234567", name: "Other", topic: "secret" })] };
+  assert.doesNotMatch(renderPage(ledger, ANA, [], T0, "UTC").markdown, /secret/);
+  assert.doesNotMatch(renderPage(ledger, "5551234567", [], T0, "UTC").markdown, /coffee/);
 });
 
 test("the CLI writes one page, or every page, under the state directory", () => {
@@ -67,6 +72,9 @@ test("the CLI writes one page, or every page, under the state directory", () => 
   const one = cli("contact-page.ts", ["--handles-file", handlesFile(ANA)], env);
   assert.equal(one.status, 0, one.stderr);
   assert.equal(readFileSync(one.json.path, "utf8"), one.json.markdown);
+  // Private: only Meetly's user reads a person's history.
+  assert.equal(statSync(one.json.path).mode & 0o777, 0o600);
+  assert.equal(statSync(dirname(one.json.path)).mode & 0o777, 0o700);
   const all = cli("contact-page.ts", ["--all"], env);
   assert.equal(all.status, 0, all.stderr);
   assert.deepEqual(all.json.pages.map((p: { name: string | null; status: string }) => [p.name, p.status]),

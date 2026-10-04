@@ -157,6 +157,10 @@ export function normalizeHandle(h: string): string {
   return (t.startsWith("+") ? "+" : "") + t.replace(/\D/g, "");
 }
 
+// The same person exactly, with no suffix matching: for what shows one person's history, so a local number never
+// takes in someone else's meetings.
+export const sameIdentity = (a: string, b: string): boolean => normalizeHandle(a) === normalizeHandle(b);
+
 // iMessage gives +15551234567 while Contacts gives (555) 123-4567: two phones
 // match when the shorter one (7+ digits) is a suffix of the longer.
 export function sameHandle(a: string, b: string): boolean {
@@ -744,8 +748,7 @@ export function monitor(ledger: Ledger, now: number): {
 // was for, how it was to happen, where, for how long.
 export function historyFor(ledger: Ledger, handle: string): Pick<Request, "id" | "status" | "name" | "topic" | "format" | "location" | "durationMin" | "createdAt">[] {
   // Exact, not suffix, matching: a similar number must never see this person's meetings.
-  const who = normalizeHandle(handle);
-  return ledger.requests.filter((r) => normalizeHandle(r.handle) === who)
+  return ledger.requests.filter((r) => sameIdentity(r.handle, handle))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .map(({ id, status, name, topic, format, location, durationMin, createdAt }) => ({ id, status, name, topic, format, location, durationMin, createdAt }));
 }

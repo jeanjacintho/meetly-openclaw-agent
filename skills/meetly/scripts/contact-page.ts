@@ -5,25 +5,20 @@
 // group confirmed it). It is what to read before proposing to someone again:
 // how they met before, and what is still open.
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
-import { isBlocked, loadBlocked, type Blocked } from "./blocklist.ts";
+import { loadBlocked, type Blocked } from "./blocklist.ts";
 import { loadConfig } from "./config.ts";
-import { holdRefs, normalizeHandle, sameHandle, stageOf, nextStepFor, type HoldRef, type Ledger, type Request } from "./ledger.ts";
+import { holdRefs, normalizeHandle, sameIdentity, stageOf, nextStepFor, type HoldRef, type Ledger, type Request } from "./ledger.ts";
 import { file } from "./paths.ts";
-import { readJson } from "./store.ts";
+import { readJson, writeText } from "./store.ts";
 
 export type Page = { handle: string; name?: string; status: string; path: string; markdown: string };
 
-const slug = (text: string) => text.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase()
-  .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
-
-/** The page's file: the person's name for reading, plus a short hash of the handle so two people never share one. */
-export function pagePath(handle: string, name?: string): string {
-  const id = createHash("sha256").update(normalizeHandle(handle)).digest("hex").slice(0, 6);
-  return file(`pages/${slug(name ?? "") || "contact"}-${id}.md`);
+/** The page's file, named by the person's handle alone (hashed): a name can change, the page stays one file. */
+export function pagePath(handle: string): string {
+  return file(`pages/${createHash("sha256").update(normalizeHandle(handle)).digest("hex").slice(0, 12)}.md`);
 }
 
 // A request's live calendar entries: the offered holds and their travel blocks, a staged offer's, an out-of-hours
@@ -34,11 +29,12 @@ function liveHolds(r: Request): HoldRef[] {
   return [...holdRefs(r.offered), ...holdRefs(r.pendingOffer?.offered ?? []), ...(r.pendingOwner?.travel ?? [])];
 }
 
-export function renderPage(ledger: Ledger, handle: string, blocked: Blocked[], now: number, timezone = "UTC"): Page {
-  const requests = ledger.requests.filter((r) => sameHandle(r.handle, handle)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+// Exact identity only: a page shows one person's history, so a local number never takes in another person's.
+export function renderPage(ledger: Ledger, handle: string, blocked: Blocked[], now: number, timezone: string): Page {
+  const requests = ledger.requests.filter((r) => sameIdentity(r.handle, handle)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const name = requests.findLast((r) => r.name)?.name;
   const current = requests.findLast((r) => r.status === "offered") ?? requests.findLast((r) => r.status === "booked" && (!r.booked || Date.parse(r.booked.end) >= now)) ?? requests.at(-1);
-  const blockedNow = isBlocked(blocked, handle);
+  const blockedNow = blocked.some((b) => sameIdentity(b.handle, handle));
   const status = blockedNow ? "do_not_contact" : current ? stageOf(current, now) : "new";
   const nextStep = blockedNow ? "none: the owner said never to contact them" : current ? nextStepFor(current, now) : "none";
   const when = new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "short", month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
@@ -68,31 +64,20 @@ export function renderPage(ledger: Ledger, handle: string, blocked: Blocked[], n
   lines.push("", "## Log", "");
   if (log.length === 0) lines.push("Nothing logged yet.");
   for (const e of log) lines.push(`- ${at(e.at)} (${e.topic}): ${e.text}`);
-  const page: Page = { handle: normalizeHandle(handle), status, path: pagePath(handle, name), markdown: lines.join("\n") + "\n" };
+  const page: Page = { handle: normalizeHandle(handle), status, path: pagePath(handle), markdown: lines.join("\n") + "\n" };
   if (name !== undefined) page.name = name;
   return page;
 }
 
-// Written whole and renamed into place, so a reader never sees half a page.
+// Through the state writer: private (0600 in a 0700 folder) and atomic, so a reader never sees half a page.
 function write(page: Page): void {
-  mkdirSync(dirname(page.path), { recursive: true });
   let old: string | undefined;
   try {
     old = readFileSync(page.path, "utf8");
   } catch {
     old = undefined;
   }
-  if (old === page.markdown) return;
-  writeFileSync(`${page.path}.tmp`, page.markdown);
-  renameSync(`${page.path}.tmp`, page.path);
-}
-
-function timezone(): string {
-  try {
-    return loadConfig().timezone;
-  } catch {
-    return "UTC";
-  }
+  if (old !== page.markdown) writeText(page.path, page.markdown);
 }
 
 /** Every person in the ledger or on the do-not-contact list gets a current page. */
@@ -101,9 +86,9 @@ export function writeAll(now: number = Date.now()): Page[] {
   const blocked = loadBlocked();
   const people: string[] = [];
   for (const h of [...ledger.requests.map((r) => r.handle), ...blocked.map((b) => b.handle)]) {
-    if (!people.some((p) => sameHandle(p, h))) people.push(h);
+    if (!people.some((p) => sameIdentity(p, h))) people.push(h);
   }
-  const tz = timezone();
+  const tz = loadConfig().timezone;
   const pages = people.map((h) => renderPage(ledger, h, blocked, now, tz));
   for (const p of pages) write(p);
   return pages;
@@ -117,7 +102,7 @@ if (isMain(import.meta.url)) {
     // A handle came from a message or a contact card, so it arrives in a file, never on the command line.
     const handle = (JSON.parse(readFileSync(values["handles-file"], "utf8")) as string[])[0];
     if (!handle) throw new Error("the handles file is empty");
-    const page = renderPage(readJson<Ledger>(file("ledger.json"), { requests: [] }), handle, loadBlocked(), Date.now(), timezone());
+    const page = renderPage(readJson<Ledger>(file("ledger.json"), { requests: [] }), handle, loadBlocked(), Date.now(), loadConfig().timezone);
     write(page);
     return page;
   });

@@ -6,20 +6,9 @@ import type { Busy } from "../skills/meetly/scripts/busy.ts";
 import type { Config } from "../skills/meetly/scripts/config.ts";
 import { checkTime, findSlots, type SlotQuery } from "../skills/meetly/scripts/slots.ts";
 import { writeJson } from "../skills/meetly/scripts/store.ts";
-import { cli, tmpHome } from "./helpers.ts";
+import { cli, testConfig, tmpHome } from "./helpers.ts";
 
-const CONFIG: Config = {
-  ownerName: "Jean",
-  timezone: "America/Sao_Paulo",
-  days: ["mon", "tue", "wed", "thu", "fri"],
-  windowStart: "09:00",
-  windowEnd: "18:00",
-  durationMin: 30,
-  horizonDays: 7,
-  calendars: [{ account: "jean@example.com", id: "primary" }],
-  defaultAccount: "jean@example.com",
-  setupDoneAt: "2026-09-26T12:00:00.000Z",
-};
+const CONFIG: Config = testConfig();
 const NOW = Date.parse("2026-09-28T08:00:00-03:00");
 const withTravel = (travelMin: number): Config => ({ ...CONFIG, travelMin });
 const q = (over: Partial<SlotQuery> = {}): SlotQuery => ({ now: NOW, config: CONFIG, busy: [], ...over });

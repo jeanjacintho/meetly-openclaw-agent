@@ -242,7 +242,7 @@ and topic in the approval message; if more than one fits, ask which one.
   approved: do nothing else, delete nothing, and tell the owner what the
   ledger now shows. Only a claimed request is acted on; `start-thread.ts`
   refuses one that is still waiting. Then re-read the calendar and run
-  `slots.ts --in … --at <start>` for every held time, passing that offer's hold
+  `slots.ts --in … --at <start> --duration <the request's durationMin>` for every held time, passing that offer's hold
   ids and every id in its `travel[]` with `--allow-overlap` (and `--travel` for
   an in-person offer when `config.travelMin` is set). If the times are still free, open the saved
   offer's group with its existing holds; do not run "Offer times" or
@@ -590,7 +590,8 @@ the meeting thread to answer there, and make no calendar changes.
 - **Yes:**
   1. Re-check with the exact-time check ("Travel time") at
      `<pendingOwner.start>` for an in-person request when `config.travelMin`
-     is set; for any other request run `slots.ts --in` and `--at` without `--travel`.
+     is set; for any other request run `slots.ts --in` and `--at` without `--travel`. Either way pass
+     `--duration <the request's durationMin>`.
   2. If an in-person time needs travel buffers, create both travel holds
      before the meeting event. If either cannot be created, delete any buffer
      already made, keep failed deletes in `holdCleanup`, and do not book.
