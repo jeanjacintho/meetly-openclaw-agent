@@ -11,9 +11,14 @@ export type Recorded =
   | { saved: Field; config: Config }
   | { saved: Field; next: RequiredField | null; question: string | null };
 
-export function record(field: string, value: string): Recorded {
+// `ownerTurn` is true only when the plugin's meetly_set_owner_gate calls this from the owner's own DM turn, as the
+// runtime reports it. A script run never is: a turn driven by a guest's text must not switch the approval off.
+export function record(field: string, value: string, { ownerTurn = false } = {}): Recorded {
   if (!isField(field)) throw new Error(`unknown field: ${field}`);
   const patch = parseField(field, value);
+  if (patch.ownerGate === false && !ownerTurn) {
+    throw new Error("only the owner can turn approval off, with the meetly_set_owner_gate tool in their own DM; no script can");
+  }
   const configPath = file("config.json");
   if (readJson<Config | null>(configPath, null)?.setupDoneAt) {
     const config = updateJson<Config | null>(configPath, null, (c) => validateConfig({ ...c!, ...patch }));

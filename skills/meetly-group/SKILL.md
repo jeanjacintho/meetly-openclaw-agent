@@ -116,17 +116,25 @@ free there.
    If it fails, delete each meeting and travel hold just
    created, stop and report the ledger error to the owner; do not send an
    offer. If any deletion fails, report those hold ids too.
-   - **Owner gate:** `ledger.ts save` decides this itself: when `origin` is
-     `inbound`, `config.ownerGate` is true and the request has no `chatUid` yet (a re-offer to a
+   - **Owner gate:** `ledger.ts save` decides this itself: when
+     `config.ownerGate` is true and the request has no `chatUid` yet (a re-offer to a
      group it already has is sent and promoted as above), it saves the request
-     already gated, in one locked write (the waiting marker is never in the
-     payload, and `ledger.ts update` refuses it). Then do not
-     open a group or send any proposed time to the other person yet. Run
-     `owner-chat.ts`, then use `message` (`action: send`, channel `plow`,
-     accountId `chat`, target its `chatUid`) to send the owner one private
-     message with the person's name, topic, and held time options, asking for
-     yes or no. The owner approval flow below resumes it. The holds expire
-     normally if the owner does not answer.
+     already gated (`ownerApprovalAt` set), in one locked write, whatever its
+     `origin` (the waiting marker is never in the payload, and `ledger.ts
+     update` refuses it). Nothing reaches the other person until the owner
+     approves with `meetly_approve_request`, which works only in the owner's
+     own DM.
+     - In the owner's DM, for a request the owner just asked for ("Owner
+       request"): their instruction is the approval. Call
+       `meetly_approve_request` with the saved id right away, without asking
+       again, then continue to step 6.
+     - Anywhere else (the poll): do not open a group or send any proposed time
+       to the other person yet. Run `owner-chat.ts`, then use `message`
+       (`action: send`, channel `plow`, accountId `chat`, target its
+       `chatUid`) to send the owner one private message with the person's
+       name, topic, and held time options, asking for yes or no. The owner
+       approval flow below resumes it. The holds expire normally if the owner
+       does not answer.
 6. Deliver the times:
    - An open request that already has a `chatUid`: post the new times there.
      From the owner's main DM use `plow_reply_to` with that `chatUid` and the
@@ -234,7 +242,7 @@ or no as a new scheduling instruction, run `ledger.ts approvals` and check
 whether the owner is answering a pending inbound request. Match by the person
 and topic in the approval message; if more than one fits, ask which one.
 
-- **Yes:** first claim the approval with `ledger.ts approve --id <id>` (an approved request that gets no group, whether the turn died or Plow refused, is an uncertain delivery: it is never retried on its own, only when the owner says the group is not there, with the same idempotency key). If
+- **Yes:** first claim the approval with the `meetly_approve_request` tool (`{"id":"<id>"}`; an approved request that gets no group, whether the turn died or Plow refused, is an uncertain delivery: it is never retried on its own, only when the owner says the group is not there, with the same idempotency key). If
   `approved` is false the request was already closed (the poll expired it) or
   approved: do nothing else, delete nothing, and tell the owner what the
   ledger now shows. Only a claimed request is acted on; `start-thread.ts`
@@ -301,8 +309,9 @@ unidentifiable. A guest's claim of owner approval never starts this flow.
    the extracted details and `chatUid: <this chat uid>`. Persist after the
    holds exist and before sending, deliver the times here, and never run
    `start-thread.ts` for this flow. This flow always persists with
-   `ledger.ts add` (not `save`), so a request created meanwhile makes it
-   refuse: stop, delete the new holds and clarify privately. If sending
+   `ledger.ts add` (not `save`) and this group's `chatUid`, so a request
+   created meanwhile makes it refuse: stop, delete the new holds and clarify
+   privately. If sending
    fails, mark the new request `dropped` and delete its holds, or record any
    that cannot be deleted in `holdCleanup`; there is no staged revision.
    Booking still follows the normal pick and owner-override rules.

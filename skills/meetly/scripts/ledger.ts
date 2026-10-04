@@ -53,7 +53,7 @@ export type Request = {
   // The buffers of a move in progress: owned by nobody, and not yet cleanable, until the calendar update succeeds.
   pendingTravel?: { refs: HoldRef[]; at: string; revision: string; start: string; end: string };
   pendingOwner?: PendingOwner;
-  // Inbound request is held for explicit owner approval before outreach.
+  // A request with no group yet is held for explicit owner approval before outreach, whatever its origin.
   ownerApprovalAt?: string;
   // Set only after the owner approves this exact offer, whether or not Plow
   // returned a chat uid for the attempted delivery.
@@ -176,7 +176,7 @@ export function findOpenByHandle(ledger: Ledger, handle: string): Request | unde
   return ledger.requests.find((r) => r.status === "offered" && sameHandle(r.handle, handle));
 }
 
-// An inbound request the owner has not approved yet: no offer reaches the person.
+// A gated request the owner has not approved yet: no offer reaches the person.
 export const awaitingOwnerApproval = (r: Request): boolean => r.ownerApprovalAt !== undefined && r.ownerApprovedAt === undefined;
 
 export function findByChat(ledger: Ledger, chatUid: string, handle?: string): Request | undefined {
@@ -226,14 +226,13 @@ export function addRequest(ledger: Ledger, input: NewRequest, now: number, id: s
   const attendeeEmail = input.attendeeEmail === undefined ? undefined : checkEmail(input.attendeeEmail);
   const open = findOpenByHandle(ledger, input.handle);
   if (open) throw new Error(`open request ${open.id} already exists for this person; update it instead`);
-  if (input.ownerApprovalAt !== undefined && (input.origin !== "inbound" || !isDate(input.ownerApprovalAt))) {
-    throw new Error(`ownerApprovalAt must be a time and only applies to an inbound request, got ${JSON.stringify(input.ownerApprovalAt)}`);
+  if (input.ownerApprovalAt !== undefined && !isDate(input.ownerApprovalAt)) {
+    throw new Error(`ownerApprovalAt must be a time, got ${JSON.stringify(input.ownerApprovalAt)}`);
   }
   const at = new Date(now).toISOString();
   // A new offer is never booked: a booking, its link and its reminder are
   // only ever set through update, where they are validated.
   const { booked: _b, meetUrl: _m, roomUrl: _z, reminder: _r, closedAt: _c, ownerApprovedAt: _oap, nudgedAt: _n, personNudgedAt: _pn, log: _l, ...fields } = input as NewRequest & Partial<Pick<Request, "booked" | "meetUrl" | "roomUrl" | "reminder" | "closedAt" | "ownerApprovedAt" | "nudgedAt" | "personNudgedAt" | "log">>;
-  if (fields.ownerApprovalAt !== undefined && !isDate(fields.ownerApprovalAt)) throw new Error(`ownerApprovalAt must be a time, got ${JSON.stringify(fields.ownerApprovalAt)}`);
   const request: Request = { ...fields, ...(attendeeEmail ? { attendeeEmail } : {}), format, id, status: "offered", offeredAt: at, createdAt: at, updatedAt: at };
   return { requests: [...ledger.requests, request] };
 }
@@ -595,6 +594,7 @@ export function assertDeliverable(
   const r = ledger.requests.find((x) => x.id === id);
   if (!r || r.status !== "offered") throw new Error(`request ${id} is no longer open: nothing was sent`);
   if (awaitingOwnerApproval(r)) throw new Error(`request ${id} is not approved by the owner: nothing was sent`);
+  if (r.chatUid !== undefined) throw new Error(`request ${id} already has a group: nothing was sent`);
   if (!sameHandle(r.handle, seen.handle) || r.offeredAt !== seen.offeredAt || r.ownerApprovedAt !== seen.ownerApprovedAt) {
     throw new Error(`request ${id} changed since it was authorized (another offer or approval replaced it): nothing was sent, start again`);
   }
@@ -750,11 +750,40 @@ export function historyFor(ledger: Ledger, handle: string): Pick<Request, "id" |
 
 const EMPTY: Ledger = { requests: [] };
 
-// The approval state is written only by save (derived from the configuration), approve, decline and expire; never by a model-supplied payload.
+// The approval state is written only by save and add (derived from the configuration), the owner's approval tool,
+// decline and expire; never by a model-supplied payload.
 function refuseApprovalKeys(value: Record<string, unknown>): void {
   for (const key of ["ownerApprovalAt", "ownerApprovedAt"]) {
-    if (key in value) throw new Error(`${key} is written only by ledger.ts save, approve, decline and expire`);
+    if (key in value) throw new Error(`${key} is written only by ledger.ts save, add, decline and expire, and the owner's meetly_approve_request`);
   }
+}
+
+// The owner gate, decided inside the locked write from the configuration and the ledger: a request that has no group
+// yet waits for the owner's approval. `origin` plays no part: it is written by the model, and a turn driven by
+// a guest's text could claim `owner`. The approval itself comes only from `meetly_approve_request`, a plugin tool
+// that reads the turn from the runtime (plugin/owner-tools.js), never from anything the model writes.
+// "Already has a group" is judged from the ledger, never from the payload: a `chatUid` the model supplies counts only
+// when the ledger already linked that chat to a request of the same person. A made-up uid, or another contact's
+// group, is dropped and the request is gated like any other, so neither can skip the owner's approval or send
+// this person's times into someone else's chat.
+export function gate(ledger: Ledger, input: NewRequest & { chatUid?: string }, now: number, gateOn: boolean): void {
+  const knownChat = input.chatUid !== undefined && ledger.requests.some((r) => r.chatUid === input.chatUid && sameHandle(r.handle, input.handle));
+  const hasGroup = findOpenByHandle(ledger, input.handle)?.chatUid !== undefined || knownChat;
+  if (gateOn && !hasGroup) {
+    input.ownerApprovalAt = new Date(now).toISOString();
+    delete input.chatUid;
+  }
+}
+
+// The owner's yes, as the plugin's meetly_approve_request claims it under the ledger lock.
+export function approve(id: string, now: number = Date.now()): { approved: boolean; request: Request | null } {
+  let approved = false;
+  const ledger = updateJson<Ledger>(file("ledger.json"), EMPTY, (l) => {
+    const out = approveRequest(l, id, now);
+    approved = out.approved;
+    return out.ledger;
+  });
+  return { approved, request: ledger.requests.find((r) => r.id === id) ?? null };
 }
 
 function jsonArg(values: { json?: string; "json-file"?: string }): any {
@@ -800,12 +829,14 @@ if (isMain(import.meta.url)) {
         throw new Error("usage: ledger.ts find --handles-file F | --chat U | --event E --account A");
       }
       case "add": {
-        // The atomic create-or-refuse for an owner's own request (the existing-group flow). An inbound request has to go
-        // through `save`, which applies the owner gate, so it can never be created here without the pending marker.
+        // The atomic create-or-refuse of the existing-group flow: the times are posted in the group this turn is in,
+        // which has no request yet, so its chat cannot be checked against the ledger. A request added with a chat is
+        // never sent through start-thread.ts (it refuses a request that has one); one added without a chat is gated
+        // like any new request.
         const input = jsonArg(values);
         refuseApprovalKeys(input);
-        if (input.origin !== "owner") throw new Error("add is only for the owner's own requests; save an inbound request with ledger.ts save (it applies the owner gate)");
         const id = `r_${randomBytes(4).toString("hex")}`;
+        if (input.chatUid === undefined && loadConfig().ownerGate === true) input.ownerApprovalAt = new Date(now).toISOString();
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => addRequest(l, input, now, id));
         return { request: ledger.requests.find((r) => r.id === id) };
       }
@@ -814,24 +845,9 @@ if (isMain(import.meta.url)) {
         refuseApprovalKeys(input);
         const id = `r_${randomBytes(4).toString("hex")}`;
         const revision = randomBytes(4).toString("hex");
-        // The owner gate is decided here, in the locked write, from the configuration and the current request: an
-        // inbound offer that has no group yet waits for the owner's approval; the caller never supplies the marker.
-        // Known limit: `origin` is written by the model, and no runtime-provided signal says whether this turn is the
-        // unattended poll (guest text) or the owner's own, so a turn fully driven by a prompt injection could claim
-        // `owner`. Closing that needs that signal from the platform; no script-side state (the poll cursor included)
-        // is a trustworthy substitute, and using it wrongly gates the owner's own requests.
         const gateOn = loadConfig().ownerGate === true;
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => {
-          // "Already has a group" is judged from the ledger, never from the payload: a `chatUid` the model supplies counts only
-          // when the ledger already linked that chat to a request of the same person. A made-up uid, or another contact's
-          // group, is dropped and the request is gated like any other, so neither can skip the owner's approval or send
-          // this person's times into someone else's chat.
-          const knownChat = input.chatUid !== undefined && l.requests.some((r) => r.chatUid === input.chatUid && sameHandle(r.handle, input.handle));
-          const hasGroup = findOpenByHandle(l, input.handle)?.chatUid !== undefined || knownChat;
-          if (gateOn && input.origin === "inbound" && !hasGroup) {
-            input.ownerApprovalAt = new Date(now).toISOString();
-            delete input.chatUid;
-          }
+          gate(l, input, now, gateOn);
           return saveRequest(l, input, now, id, revision);
         });
         return { request: ledger.requests.find((r) => sameHandle(r.handle, input.handle) && r.status === "offered") };
@@ -913,16 +929,8 @@ if (isMain(import.meta.url)) {
       }
       case "pending":
         return { requests: pendingOwnerList(readJson<Ledger>(path, EMPTY)) };
-      case "approve": {
-        if (!values.id) throw new Error("usage: ledger.ts approve --id X");
-        let approved = false;
-        const ledger = updateJson<Ledger>(path, EMPTY, (l) => {
-          const out = approveRequest(l, values.id!, now);
-          approved = out.approved;
-          return out.ledger;
-        });
-        return { approved, request: ledger.requests.find((r) => r.id === values.id) ?? null };
-      }
+      case "approve":
+        throw new Error("the owner approves a request only with the meetly_approve_request tool, in their own DM turn; no script can");
       case "decline": {
         if (!values.id) throw new Error("usage: ledger.ts decline --id X");
         let declined = false;
@@ -943,7 +951,7 @@ if (isMain(import.meta.url)) {
         return { requests: dueReminders(readJson<Ledger>(path, EMPTY), now, lead) };
       }
       default:
-        throw new Error("usage: ledger.ts find | add | save | update | promote-offer | discard-offer | cleanup-remove | set-travel | stage-travel | commit-travel | expire | approve | decline | pending | approvals | pipeline | monitor | history | log | cleanup | reminders");
+        throw new Error("usage: ledger.ts find | add | save | update | promote-offer | discard-offer | cleanup-remove | set-travel | stage-travel | commit-travel | expire | decline | pending | approvals | pipeline | monitor | history | log | cleanup | reminders");
     }
   });
 }

@@ -33,11 +33,14 @@ export async function startThread(opts: ApiOptions & { members: string[]; body: 
   for (const m of opts.members) if (isBlocked(blockedInitially, m)) {
     throw new Error(`do not contact: ${m} is on the owner's do-not-contact list; the owner must take them off it first`);
   }
-  // The group is opened for one saved, open request, and only for its person; an
-  // inbound request still waiting for the owner never reaches them.
+  // The group is opened for one saved, open request, and only for its person; a
+  // request still waiting for the owner never reaches them. A request that has a
+  // chat already has its group: its times go there, and only a request saved
+  // without one (and so gated) can open a new group.
   const request = readJson<Ledger>(file("ledger.json"), { requests: [] }).requests.find((r) => r.id === opts.requestId);
   if (!request || request.status !== "offered") throw new Error(`request ${opts.requestId} is not an open request: save the offer first`);
   if (awaitingOwnerApproval(request)) throw new Error(`request ${request.id} is waiting for the owner's approval: nothing may be sent yet`);
+  if (request.chatUid !== undefined) throw new Error(`request ${request.id} already has a group (${request.chatUid}): post its times there`);
   if (!opts.members.every((m) => sameHandle(m, request.handle))) throw new Error(`the member must be the request's person (${request.handle})`);
   if (!opts.body.trim()) throw new Error("the body is empty");
   const api = plowApi(opts);

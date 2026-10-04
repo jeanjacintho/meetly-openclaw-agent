@@ -80,9 +80,12 @@ to install anything else.
   calendar and asks you in your DM before contacting the person. This is on by
   default, including for existing configurations without an `ownerGate`
   setting. If you explicitly say "you can answer meeting requests without
-  asking me first", record `record-setup.ts --field ownerGate --value off`;
+  asking me first", call the `meetly_set_owner_gate` tool with `{"on": false}`
+  (only the owner's own DM can; `record-setup.ts` refuses to turn it off);
   that is standing authorization for Meetly to contact people automatically.
-  "Ask me before replying to new meeting requests" records it as on again.
+  "Ask me before replying to new meeting requests" records it as on again
+  (`meetly_set_owner_gate` with `{"on": true}`, or `record-setup.ts --field
+  ownerGate --value on`).
 - "Leave an hour for travel around in-person meetings" →
   `record-setup.ts --field travel --value <minutes>`; accept minutes or hours
   from 1 minute to 3 hours. `none` clears the buffer. The default is no buffer.

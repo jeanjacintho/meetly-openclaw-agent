@@ -64,10 +64,16 @@ test("a finished setup is passed along, and output that is not a status adds not
   assert.equal(gateContext(status({ ok: true })), undefined);
 });
 
-test("the plugin registers one before_prompt_build hook that skips other turns", async () => {
+test("the plugin registers one before_prompt_build hook that skips other turns, and the owner's tools", async () => {
   const hooks: Record<string, (event: unknown, ctx: unknown) => unknown> = {};
-  gate.register({ on: (name: string, fn: (event: unknown, ctx: unknown) => unknown) => { hooks[name] = fn; }, logger: { info() {} } });
+  const tools: string[] = [];
+  gate.register({
+    on: (name: string, fn: (event: unknown, ctx: unknown) => unknown) => { hooks[name] = fn; },
+    registerTool: (factory: (ctx: unknown) => { name: string }) => { tools.push(factory({}).name); },
+    logger: { info() {} },
+  });
   assert.deepEqual(Object.keys(hooks), ["before_prompt_build"]);
+  assert.deepEqual(tools, ["meetly_approve_request", "meetly_set_owner_gate"]);
   assert.equal(await hooks.before_prompt_build!({}, { channel: "plow", sessionKey: "agent:main:plow:group:x" }), undefined);
 });
 

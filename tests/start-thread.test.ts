@@ -74,7 +74,8 @@ test("a request replaced between validation and the POST is not sent", async () 
 
 test("the same request and people give the same idempotency key even if wording changes", async () => {
   const keys: string[] = [];
-  const fetch = fakeFetch(() => new Response('{"uid":"c"}', { status: 200 }), []);
+  // Plow does not confirm the group (the retry case), so the request stays unlinked and may be sent again.
+  const fetch = fakeFetch(() => new Response("", { status: 502 }), []);
   const spy = (async (url: string | URL | Request, init?: RequestInit) => {
     if (init?.body) keys.push(JSON.parse(String(init.body)).idempotency_key);
     return fetch(url, init);

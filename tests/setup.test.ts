@@ -244,7 +244,10 @@ test("editing a field after setup updates config.json and keeps setupDoneAt", ()
     assert.equal(config.setupDoneAt, "2026-09-26T12:00:00.000Z");
     record("ownerGate", "on");
     assert.equal(readJson<Config | null>(join(home, "config.json"), null)!.ownerGate, true);
-    record("ownerGate", "off");
+    // Only the owner's own turn (the plugin's meetly_set_owner_gate) turns approval off; a script run cannot.
+    assert.throws(() => record("ownerGate", "off"), /meetly_set_owner_gate/);
+    assert.equal(readJson<Config | null>(join(home, "config.json"), null)!.ownerGate, true);
+    record("ownerGate", "off", { ownerTurn: true });
     assert.equal(readJson<Config | null>(join(home, "config.json"), null)!.ownerGate, false);
     assert.equal(loadConfig().ownerGate, false);
     const standingAuthorization = status();
