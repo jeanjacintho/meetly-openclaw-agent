@@ -15,7 +15,7 @@ import { isMain, run } from "./cli.ts";
 import { isBlocked, loadBlocked } from "./blocklist.ts";
 import { fetchIdentity, findOwnerDm, plowApi, type ApiOptions } from "./owner-chat.ts";
 import { loadConfig } from "./config.ts";
-import { assertDeliverable, awaitingOwnerApproval, sameHandle, updateRequest, type Ledger } from "./ledger.ts";
+import { assertDeliverable, sameHandle, updateRequest, waitsForOwner, type Ledger } from "./ledger.ts";
 import { file } from "./paths.ts";
 import { isHandle } from "./reachable-handle.ts";
 import { readJson, withLock, writeJson } from "./store.ts";
@@ -42,7 +42,7 @@ export async function startThread(opts: ApiOptions & { members: string[]; body: 
   if (!request || request.status !== "offered") throw new Error(`request ${opts.requestId} is not an open request: save the offer first`);
   const gateOn = loadConfig().ownerGate === true;
   // With the gate on, only the owner's yes opens a group: a request with no marker (saved before markers existed) waits too.
-  if (awaitingOwnerApproval(request) || (gateOn && request.ownerApprovedAt === undefined)) {
+  if (waitsForOwner(request, gateOn)) {
     throw new Error(`request ${request.id} is waiting for the owner's approval: nothing may be sent yet`);
   }
   if (request.chatUid !== undefined) throw new Error(`request ${request.id} already has a group (${request.chatUid}): post its times there`);

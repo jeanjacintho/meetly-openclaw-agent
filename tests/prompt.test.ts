@@ -423,7 +423,7 @@ test("inbound offers require owner DM approval by default", () => {
   assert.ok(setup.includes("`record-setup.ts` refuses to turn it off"));
   assert.ok(!group.includes("--gate"));
   assert.ok(flat(readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8")).includes("send that saved ask again"));
-  assert.ok(flat(prompt).includes("except when it has `ownerApprovalAt` and no `ownerApprovedAt`: never link that request"));
+  assert.ok(flat(prompt).includes("except when it waits for the owner (`ledger.ts approvals` lists it): never link that request"));
   assert.ok(setup.includes("This is on by default"));
   assert.ok(setup.includes("that is standing authorization"));
   assert.ok(flat(prompt).includes("inbound owner gate, enabled by default"));

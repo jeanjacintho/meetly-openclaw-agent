@@ -6,10 +6,21 @@
 // owner; here it is refused.
 export const SCRIPTS = "/opt/plow/skills/meetly/scripts";
 
-/** The owner's main Plow DM, as the runtime reports the turn: the same test the base's plugin applies. */
+// The turn's Plow conversation, as the base's plugin reads it from the runtime.
+const conversationUid = (context) => (context?.nativeChannelId ?? context?.deliveryContext?.to)?.replace(/^plow:/i, "");
+
+/** The owner's main Plow DM, as the runtime reports the turn: the same fields the base's ownerDmTurn checks. */
 export function isOwnerDm(context) {
   return context?.sessionKey === "agent:main:main" && context.messageChannel === "plow"
-    && context.agentAccountId === "chat" && context.senderIsOwner === true;
+    && context.agentAccountId === "chat" && context.senderIsOwner === true
+    && Boolean(context.requesterSenderId) && Boolean(conversationUid(context));
+}
+
+// Then, like the base's ownerDmTurn, Plow itself confirms that conversation is the owner's DM (owner-chat.ts applies
+// the Plow channel's own rule). The base does not export that check, so Meetly makes the same one.
+async function ownerDmConfirmed(context, load) {
+  if (!isOwnerDm(context)) return false;
+  return (await load("owner-chat.ts")).ownerChat().then(({ chatUid }) => chatUid === conversationUid(context), () => false);
 }
 
 const object = (properties, required) => ({ type: "object", properties, required, additionalProperties: false });
@@ -42,7 +53,7 @@ export function registerOwnerTools(api, load = importScript) {
       async execute(_id, args) {
         let result;
         try {
-          result = isOwnerDm(context) ? await run(load, args ?? {}) : { error: NOT_OWNER };
+          result = await ownerDmConfirmed(context, load) ? await run(load, args ?? {}) : { error: NOT_OWNER };
         } catch (error) {
           result = { error: error instanceof Error ? error.message : String(error) };
         }

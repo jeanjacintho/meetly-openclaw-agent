@@ -7,10 +7,11 @@ import { startThread } from "../skills/meetly/scripts/start-thread.ts";
 import { cli, seedRequest, tmpHome, writeConfig } from "./helpers.ts";
 
 const SCRIPTS = resolve(import.meta.dirname, "..", "skills", "meetly", "scripts");
-const load = (name: string) => import(join(SCRIPTS, name));
+// Plow, as owner-chat.ts reads it: the owner's DM is chat "dm".
+const load = (name: string) => name === "owner-chat.ts" ? Promise.resolve({ ownerChat: async () => ({ chatUid: "dm" }) }) : import(join(SCRIPTS, name));
 
 // The turns as the runtime hands them to a plugin tool.
-const OWNER_DM = { sessionKey: "agent:main:main", messageChannel: "plow", agentAccountId: "chat", senderIsOwner: true, requesterSenderId: "plow-owner" };
+const OWNER_DM = { sessionKey: "agent:main:main", messageChannel: "plow", agentAccountId: "chat", senderIsOwner: true, requesterSenderId: "plow-owner", nativeChannelId: "dm" };
 const POLL = { sessionKey: "agent:main:cron:meetly-poll", agentId: "main" };
 const GUEST_IN_GROUP = { sessionKey: "agent:main:plow:group:cht_g", messageChannel: "plow", agentAccountId: "chat", senderIsOwner: false, requesterSenderId: "+15551234567" };
 
@@ -58,6 +59,8 @@ test("only the owner's own Plow DM, as the runtime reports it, is the owner's tu
     { ...OWNER_DM, senderIsOwner: undefined },
     { ...OWNER_DM, agentAccountId: "email" },
     { ...OWNER_DM, messageChannel: "webchat" },
+    { ...OWNER_DM, nativeChannelId: undefined },
+    { ...OWNER_DM, requesterSenderId: undefined },
     {},
     undefined,
   ]) assert.equal(isOwnerDm(ctx), false, JSON.stringify(ctx));
@@ -94,6 +97,22 @@ test("a poll turn cannot reach a guest without the owner's approval, whatever or
   assert.equal(posts.length, 1);
   // A second yes changes nothing.
   assert.equal((await tools(OWNER_DM).meetly_approve_request!.execute("call", { id, offeredAt })).details.approved, false);
+});
+
+test("Plow must confirm the turn's chat is the owner's DM, as the base's ownerDmTurn does", async () => {
+  seedRequest(home, { ownerApprovalAt: "2026-09-28T12:00:00.000Z" });
+  const offeredAt = ledger()[0].offeredAt;
+  // Every runtime field says owner DM, but Plow's owner DM is another chat (or Plow cannot be read): refused.
+  const elsewhere = await tools({ ...OWNER_DM, nativeChannelId: "cht_other" }).meetly_approve_request!.execute("call", { id: "r_1", offeredAt });
+  assert.equal(elsewhere.isError, true);
+  const plowDown = (name: string) => name === "owner-chat.ts" ? Promise.resolve({ ownerChat: async () => { throw new Error("HTTP 503"); } }) : import(join(SCRIPTS, name));
+  const out: Record<string, Tool> = {};
+  registerOwnerTools({ registerTool: (factory: (ctx: object) => Tool) => { const t = factory(OWNER_DM); out[t.name] = t; } }, plowDown);
+  assert.equal((await out.meetly_approve_request!.execute("call", { id: "r_1", offeredAt })).isError, true);
+  assert.equal(ledger()[0].ownerApprovedAt, undefined);
+  // The DM Plow confirms (delivered as plow:<uid>): approved.
+  const ok = await tools({ ...OWNER_DM, nativeChannelId: undefined, deliveryContext: { to: "plow:dm" } }).meetly_approve_request!.execute("call", { id: "r_1", offeredAt });
+  assert.deepEqual([ok.isError, ok.details.approved], [false, true]);
 });
 
 test("a request added with a chat never opens a new group, so a made-up chat cannot skip the gate", async () => {

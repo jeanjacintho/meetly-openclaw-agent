@@ -642,15 +642,16 @@ offer.
   or status is stale. A request with status `booked`, `dropped`, `expired` or `cancelled`
   linked to this chat still makes it a Meetly group. Prefer the open
   (`offered`) handle match as the current request, even when the chat lookup
-  finds a closed request; if it has no `chatUid`, link it to this chat with
+  finds a closed request; if it has no `chatUid` and is not waiting for the
+  owner (next rule), link it to this chat with
   `ledger.ts update --id <id> --json '{"chatUid":"<this chat uid>"}'`
   before proceeding. A closed chat request does not count as a disagreement.
   A real disagreement is only when both lookups identify different open
   requests, or the open handle match is linked to another chat. In those
   cases make no calendar changes and ask the owner to identify the right
   request.
-- If either lookup identifies an inbound request with `ownerApprovalAt` and
-  no `ownerApprovedAt`, the
+- If either lookup identifies a request that waits for the owner's approval
+  (it is listed by `ledger.ts approvals`), whatever its `origin`, the
   owner gate is still active. Do not link the chat, replace or update the
   offer, create holds, book, or send any message to the contact. Leave the
   ledger request untouched and tell the owner privately that this contact

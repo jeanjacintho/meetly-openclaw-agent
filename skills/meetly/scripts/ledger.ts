@@ -179,6 +179,12 @@ export function findOpenByHandle(ledger: Ledger, handle: string): Request | unde
 // A gated request the owner has not approved yet: no offer reaches the person.
 export const awaitingOwnerApproval = (r: Request): boolean => r.ownerApprovalAt !== undefined && r.ownerApprovedAt === undefined;
 
+// What waits for the owner's yes, as every approval path reads it (listed, approved, declined, delivered): a gated
+// request, and, while the gate is on, an open request with no group and no yes even without the marker (one saved
+// before markers existed, or while the gate was off), so it can still be approved instead of being stuck.
+export const waitsForOwner = (r: Request, gateOn: boolean): boolean =>
+  r.status === "offered" && r.ownerApprovedAt === undefined && (r.ownerApprovalAt !== undefined || (gateOn && r.chatUid === undefined));
+
 export function findByChat(ledger: Ledger, chatUid: string, handle?: string): Request | undefined {
   // Resolve an open request for the sender even when it has not been linked
   // yet. This lets a replacement offer supersede a closed request in the chat.
@@ -577,10 +583,9 @@ export function pendingOwnerList(ledger: Ledger): Request[] {
 // The owner's yes, claimed atomically: it succeeds only while the request is
 // still open and waiting, so an expiry that closed it first wins, and once it
 // is claimed the expiry clock restarts from the approval (`expiredRequests`).
-export function approveRequest(ledger: Ledger, id: string, now: number, offeredAt: string): { ledger: Ledger; approved: boolean } {
+export function approveRequest(ledger: Ledger, id: string, now: number, offeredAt: string, gateOn: boolean): { ledger: Ledger; approved: boolean } {
   const r = ledger.requests.find((x) => x.id === id);
-  if (!r || r.status !== "offered") return { ledger, approved: false };
-  if (!awaitingOwnerApproval(r)) return { ledger, approved: false };
+  if (!r || !waitsForOwner(r, gateOn)) return { ledger, approved: false };
   // The yes is for the times the owner saw: an offer replaced since then (a new offeredAt) is not approved by it.
   if (r.offeredAt !== offeredAt) return { ledger, approved: false };
   return { ledger: updateRequest(ledger, id, { ownerApprovedAt: new Date(now).toISOString() }, now), approved: true };
@@ -597,7 +602,7 @@ export function assertDeliverable(
   if (!r || r.status !== "offered") throw new Error(`request ${id} is no longer open: nothing was sent`);
   // With the gate on, a new group needs the owner's yes itself, not just the absence of a waiting marker: a request
   // with no marker (saved before markers existed) is not approved either.
-  if (awaitingOwnerApproval(r) || (gateOn && r.ownerApprovedAt === undefined)) throw new Error(`request ${id} is not approved by the owner: nothing was sent`);
+  if (waitsForOwner(r, gateOn)) throw new Error(`request ${id} is not approved by the owner: nothing was sent`);
   if (r.chatUid !== undefined) throw new Error(`request ${id} already has a group: nothing was sent`);
   if (!sameHandle(r.handle, seen.handle) || r.offeredAt !== seen.offeredAt || r.ownerApprovedAt !== seen.ownerApprovedAt) {
     throw new Error(`request ${id} changed since it was authorized (another offer or approval replaced it): nothing was sent, start again`);
@@ -607,15 +612,15 @@ export function assertDeliverable(
 // The owner's no, in one write: the request closes and every hold goes to the
 // cleanup queue before any is deleted, so an interruption never leaves a pending
 // request pointing at deleted holds.
-export function declineRequest(ledger: Ledger, id: string, now: number): { ledger: Ledger; declined: boolean } {
+export function declineRequest(ledger: Ledger, id: string, now: number, gateOn: boolean): { ledger: Ledger; declined: boolean } {
   const r = ledger.requests.find((x) => x.id === id);
-  if (!r || r.status !== "offered" || !awaitingOwnerApproval(r)) return { ledger, declined: false };
+  if (!r || !waitsForOwner(r, gateOn)) return { ledger, declined: false };
   const next = updateRequest(ledger, id, { status: "dropped", ownerApprovalAt: null, holdCleanup: mergeRefs(r.holdCleanup ?? [], holdRefs(r.offered)) }, now);
   return { ledger: next, declined: true };
 }
 
-export function ownerApprovalList(ledger: Ledger): Request[] {
-  return ledger.requests.filter((r) => r.status === "offered" && awaitingOwnerApproval(r));
+export function ownerApprovalList(ledger: Ledger, gateOn: boolean): Request[] {
+  return ledger.requests.filter((r) => waitsForOwner(r, gateOn));
 }
 
 // Booked meetings to re-read from the calendar: from `leadMin` before the
@@ -783,7 +788,7 @@ export function gate(ledger: Ledger, input: NewRequest & { chatUid?: string }, n
 export function approve(id: string, offeredAt: string, now: number = Date.now()): { approved: boolean; request: Request | null } {
   let approved = false;
   const ledger = updateJson<Ledger>(file("ledger.json"), EMPTY, (l) => {
-    const out = approveRequest(l, id, now, offeredAt);
+    const out = approveRequest(l, id, now, offeredAt, loadConfig().ownerGate === true);
     approved = out.approved;
     return out.ledger;
   });
@@ -937,15 +942,16 @@ if (isMain(import.meta.url)) {
       case "decline": {
         if (!values.id) throw new Error("usage: ledger.ts decline --id X");
         let declined = false;
+        const gateOn = loadConfig().ownerGate === true;
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => {
-          const out = declineRequest(l, values.id!, now);
+          const out = declineRequest(l, values.id!, now, gateOn);
           declined = out.declined;
           return out.ledger;
         });
         return { declined, request: ledger.requests.find((r) => r.id === values.id) ?? null };
       }
       case "approvals":
-        return { requests: ownerApprovalList(readJson<Ledger>(path, EMPTY)) };
+        return { requests: ownerApprovalList(readJson<Ledger>(path, EMPTY), loadConfig().ownerGate === true) };
       case "cleanup":
         return { requests: cleanupList(updateJson<Ledger>(path, EMPTY, (l) => discardStaleOffers(l, now, 15 * 60_000))).map((r) => ({ id: r.id, holdCleanup: r.holdCleanup })) };
       case "reminders": {
