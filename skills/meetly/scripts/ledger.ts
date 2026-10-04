@@ -671,6 +671,8 @@ const NEXT_STEP: Record<Stage, string> = {
 // approval. One definition for the stage, the pipeline's waiting time and the monitor's reminders.
 const ownerDecisionAt = (r: Request): string | undefined => r.pendingOwner?.askedAt ?? (awaitingOwnerApproval(r) ? r.ownerApprovalAt : undefined);
 
+export const nextStepFor = (r: Request, now: number): string => NEXT_STEP[stageOf(r, now)];
+
 export function stageOf(r: Request, now: number): Stage {
   if (r.status === "booked") return "confirmed";
   if (r.status !== "offered") return "passed";

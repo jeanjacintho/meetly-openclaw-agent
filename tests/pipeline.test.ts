@@ -127,7 +127,7 @@ test("the owner can ask who they are waiting on, and Meetly looks before it asks
   assert.ok(flat("README.md").includes("give Meetly your personal room link"));
   assert.ok(flat("skills/meetly-poll/SKILL.md").includes("`blocklist.ts check --handles-file <file with the sender>` says `blocked`, skip"));
   assert.ok(group.includes("## Research before proposing"));
-  assert.ok(group.includes("and `ledger.ts history --handles-file <file with their handle>`"));
+  assert.ok(group.includes("and their page: `contact-page.ts --handles-file <file with their handle>`"));
   assert.ok(group.includes("Never ask the other person for something these sources answer"));
   assert.ok(flat("prompt/AGENTS.md").includes("the owner asks who they are waiting on, or how their meetings stand → `meetly-group`, \"Pipeline\""));
   assert.ok(flat("skills/meetly/SKILL.md").includes("`pipeline` \\| `monitor` \\| `history --handles-file F`"));

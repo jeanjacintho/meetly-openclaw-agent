@@ -9,7 +9,7 @@
 // that locale's date and time conventions; without one it is "tue 29/9 12:00".
 import { parseArgs } from "node:util";
 import { isMain, readInput, run } from "./cli.ts";
-import { loadConfig, MIN_NOTICE_MIN, minutes, parseTime, SLOT_COUNT, STEP_MIN, type Config } from "./config.ts";
+import { durationFor, loadConfig, MIN_NOTICE_MIN, minutes, parseTime, SLOT_COUNT, STEP_MIN, type Config } from "./config.ts";
 import type { Busy } from "./busy.ts";
 import { addDays, DAYS, localIso, wallParts, zonedToUtc, type Day } from "./time.ts";
 
@@ -212,6 +212,7 @@ if (isMain(import.meta.url)) {
       options: {
         in: { type: "string" },
         duration: { type: "string" },
+        format: { type: "string" },
         days: { type: "string" },
         after: { type: "string" },
         before: { type: "string" },
@@ -236,13 +237,15 @@ if (isMain(import.meta.url)) {
     const now = values.now !== undefined ? Date.parse(values.now) : Date.now();
     if (Number.isNaN(now)) throw new Error(`--now is not a time: ${values.now}`);
     const degraded = input.degraded ?? [];
+    // An explicit --duration wins; otherwise the owner's length for this format, which falls back to durationMin.
+    const durationMin = values.duration !== undefined ? positiveInt(values.duration, "--duration") : durationFor(config, values.format);
     if (values.at !== undefined) {
       for (const flag of ["days", "after", "before", "from", "to", "exclude", "count"] as const) {
         if (values[flag] !== undefined) throw new Error(`--at checks one time; drop --${flag}`);
       }
       const check: Parameters<typeof checkTime>[0] = { now, config, busy: input.busy, start: values.at };
       if (input.unknownAfter !== undefined) check.unknownAfter = input.unknownAfter;
-      if (values.duration !== undefined) check.durationMin = positiveInt(values.duration, "--duration");
+      check.durationMin = durationMin;
       if (values.travel) check.travel = true;
       if (values["allow-overlap"]) check.allowOverlap = values["allow-overlap"];
       if (values.locale !== undefined) check.locale = values.locale;
@@ -252,7 +255,7 @@ if (isMain(import.meta.url)) {
     }
     const q: SlotQuery = { now, config, busy: input.busy };
     if (input.unknownAfter !== undefined) q.unknownAfter = input.unknownAfter;
-    if (values.duration !== undefined) q.durationMin = positiveInt(values.duration, "--duration");
+    q.durationMin = durationMin;
     if (values.travel) q.travel = true;
     if (values.count !== undefined) q.count = positiveInt(values.count, "--count");
     if (values.days !== undefined) {

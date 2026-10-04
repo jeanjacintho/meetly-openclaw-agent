@@ -81,7 +81,10 @@ free there.
 2. Read the calendar.
 3. Run `slots.ts --in /var/lib/plow/meetly/tmp/busy.json --locale <their
    locale>`, with the request's constraints: `--days`, `--after`, `--before`,
-   `--from`/`--to`, `--duration`, `--allow-overlap`. For an in-person meeting,
+   `--from`/`--to`, `--allow-overlap`, and the length: `--duration` when the
+   request or the thread names one, otherwise `--format <the request's format>`
+   so the owner's length for that format applies (`config.formatDurations`,
+   else `config.durationMin`); save the slot's length as `durationMin`. For an in-person meeting,
    run `slots.ts` with `--travel` when `config.travelMin` is
    set. Slots stay inside the owner's days and window; constraints only
    narrow them.
@@ -322,6 +325,8 @@ request has a linked group; `unknown` never means "never delivered" and never
 authorizes a retry. The next step is advice computed from the stage, never a
 claim about what happened. State only what the ledger says.
 Someone on the do-not-contact list has no stage: `blocklist.ts list`.
+When the owner asks about one person, read that person's page instead
+(`contact-page.ts --handles-file <file with their handle>`) and answer from it.
 
 ## What the log says
 
@@ -351,7 +356,9 @@ around a `do not contact` result.
 Before proposing times, establish the topic, purpose, attendees, location,
 duration and meeting format from the current conversation and the owner's
 request. Then check the contact card (`contacts`, `contact.ts`), this person's
-recent Plow message thread, and `ledger.ts history --handles-file <file with their handle>`.
+recent Plow message thread, and their page: `contact-page.ts --handles-file <file
+with their handle>` (where they stand, the holds and times still open, every
+earlier meeting with its topic, format, place and length, and the dated log).
 For an owner request, also search the owner's relevant email and Plow messages
 for the contact and topic, following the Mac's `google-workspace` and
 `plow-messages` skills for their exact commands. Keep searches narrow to this
