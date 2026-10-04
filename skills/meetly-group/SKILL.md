@@ -126,8 +126,8 @@ free there.
      own DM.
      - In the owner's DM, for a request the owner just asked for ("Owner
        request"): their instruction is the approval. Call
-       `meetly_approve_request` with the saved id right away, without asking
-       again, then continue to step 6.
+       `meetly_approve_request` with the saved `id` and `offeredAt` right
+       away, without asking again, then continue to step 6.
      - Anywhere else (the poll): do not open a group or send any proposed time
        to the other person yet. Run `owner-chat.ts`, then use `message`
        (`action: send`, channel `plow`, accountId `chat`, target its
@@ -242,9 +242,9 @@ or no as a new scheduling instruction, run `ledger.ts approvals` and check
 whether the owner is answering a pending inbound request. Match by the person
 and topic in the approval message; if more than one fits, ask which one.
 
-- **Yes:** first claim the approval with the `meetly_approve_request` tool (`{"id":"<id>"}`; an approved request that gets no group, whether the turn died or Plow refused, is an uncertain delivery: it is never retried on its own, only when the owner says the group is not there, with the same idempotency key). If
-  `approved` is false the request was already closed (the poll expired it) or
-  approved: do nothing else, delete nothing, and tell the owner what the
+- **Yes:** first compare the request's current `offered` times (from `ledger.ts approvals`) with the times in the ask the owner answered. If they differ, the offer was replaced after the owner was asked: send the owner the new times and ask again; do not approve. Otherwise claim the approval with the `meetly_approve_request` tool (`{"id":"<id>","offeredAt":"<its offeredAt>"}`; an approved request that gets no group, whether the turn died or Plow refused, is an uncertain delivery: it is never retried on its own, only when the owner says the group is not there, with the same idempotency key). If
+  `approved` is false the request was already closed (the poll expired it),
+  approved, or its times changed since: do nothing else, delete nothing, and tell the owner what the
   ledger now shows. Only a claimed request is acted on; `start-thread.ts`
   refuses one that is still waiting. Then re-read the calendar and run
   `slots.ts --in … --at <start>` for every held time, passing that offer's hold

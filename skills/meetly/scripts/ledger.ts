@@ -577,10 +577,12 @@ export function pendingOwnerList(ledger: Ledger): Request[] {
 // The owner's yes, claimed atomically: it succeeds only while the request is
 // still open and waiting, so an expiry that closed it first wins, and once it
 // is claimed the expiry clock restarts from the approval (`expiredRequests`).
-export function approveRequest(ledger: Ledger, id: string, now: number): { ledger: Ledger; approved: boolean } {
+export function approveRequest(ledger: Ledger, id: string, now: number, offeredAt: string): { ledger: Ledger; approved: boolean } {
   const r = ledger.requests.find((x) => x.id === id);
   if (!r || r.status !== "offered") return { ledger, approved: false };
   if (!awaitingOwnerApproval(r)) return { ledger, approved: false };
+  // The yes is for the times the owner saw: an offer replaced since then (a new offeredAt) is not approved by it.
+  if (r.offeredAt !== offeredAt) return { ledger, approved: false };
   return { ledger: updateRequest(ledger, id, { ownerApprovedAt: new Date(now).toISOString() }, now), approved: true };
 }
 
@@ -589,11 +591,13 @@ export function approveRequest(ledger: Ledger, id: string, now: number): { ledge
 // approval replaced since validation stops the stale opener. Nothing is marked: an approved request with no chat is
 // an uncertain delivery, recovered only when the owner confirms the group is absent (same idempotency key).
 export function assertDeliverable(
-  ledger: Ledger, id: string, seen: { handle: string; offeredAt: string; ownerApprovedAt?: string },
+  ledger: Ledger, id: string, seen: { handle: string; offeredAt: string; ownerApprovedAt?: string }, gateOn: boolean,
 ): void {
   const r = ledger.requests.find((x) => x.id === id);
   if (!r || r.status !== "offered") throw new Error(`request ${id} is no longer open: nothing was sent`);
-  if (awaitingOwnerApproval(r)) throw new Error(`request ${id} is not approved by the owner: nothing was sent`);
+  // With the gate on, a new group needs the owner's yes itself, not just the absence of a waiting marker: a request
+  // with no marker (saved before markers existed) is not approved either.
+  if (awaitingOwnerApproval(r) || (gateOn && r.ownerApprovedAt === undefined)) throw new Error(`request ${id} is not approved by the owner: nothing was sent`);
   if (r.chatUid !== undefined) throw new Error(`request ${id} already has a group: nothing was sent`);
   if (!sameHandle(r.handle, seen.handle) || r.offeredAt !== seen.offeredAt || r.ownerApprovedAt !== seen.ownerApprovedAt) {
     throw new Error(`request ${id} changed since it was authorized (another offer or approval replaced it): nothing was sent, start again`);
@@ -775,11 +779,11 @@ export function gate(ledger: Ledger, input: NewRequest & { chatUid?: string }, n
   }
 }
 
-// The owner's yes, as the plugin's meetly_approve_request claims it under the ledger lock.
-export function approve(id: string, now: number = Date.now()): { approved: boolean; request: Request | null } {
+// The owner's yes to one offer (its offeredAt), as the plugin's meetly_approve_request claims it under the ledger lock.
+export function approve(id: string, offeredAt: string, now: number = Date.now()): { approved: boolean; request: Request | null } {
   let approved = false;
   const ledger = updateJson<Ledger>(file("ledger.json"), EMPTY, (l) => {
-    const out = approveRequest(l, id, now);
+    const out = approveRequest(l, id, now, offeredAt);
     approved = out.approved;
     return out.ledger;
   });
@@ -830,13 +834,12 @@ if (isMain(import.meta.url)) {
       }
       case "add": {
         // The atomic create-or-refuse of the existing-group flow: the times are posted in the group this turn is in,
-        // which has no request yet, so its chat cannot be checked against the ledger. A request added with a chat is
-        // never sent through start-thread.ts (it refuses a request that has one); one added without a chat is gated
-        // like any new request.
+        // which has no request yet, so its chat cannot be checked against the ledger. It always names that group's
+        // chat, and start-thread.ts never opens a group for a request that has one; a request with no group is saved.
         const input = jsonArg(values);
         refuseApprovalKeys(input);
+        if (typeof input.chatUid !== "string" || !input.chatUid) throw new Error("add is for the existing-group flow and needs that group's chatUid; save a request that has no group");
         const id = `r_${randomBytes(4).toString("hex")}`;
-        if (input.chatUid === undefined && loadConfig().ownerGate === true) input.ownerApprovalAt = new Date(now).toISOString();
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => addRequest(l, input, now, id));
         return { request: ledger.requests.find((r) => r.id === id) };
       }

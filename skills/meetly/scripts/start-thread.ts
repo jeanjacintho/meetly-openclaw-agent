@@ -14,6 +14,7 @@ import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
 import { isBlocked, loadBlocked } from "./blocklist.ts";
 import { fetchIdentity, findOwnerDm, plowApi, type ApiOptions } from "./owner-chat.ts";
+import { loadConfig } from "./config.ts";
 import { assertDeliverable, awaitingOwnerApproval, sameHandle, updateRequest, type Ledger } from "./ledger.ts";
 import { file } from "./paths.ts";
 import { isHandle } from "./reachable-handle.ts";
@@ -39,7 +40,11 @@ export async function startThread(opts: ApiOptions & { members: string[]; body: 
   // without one (and so gated) can open a new group.
   const request = readJson<Ledger>(file("ledger.json"), { requests: [] }).requests.find((r) => r.id === opts.requestId);
   if (!request || request.status !== "offered") throw new Error(`request ${opts.requestId} is not an open request: save the offer first`);
-  if (awaitingOwnerApproval(request)) throw new Error(`request ${request.id} is waiting for the owner's approval: nothing may be sent yet`);
+  const gateOn = loadConfig().ownerGate === true;
+  // With the gate on, only the owner's yes opens a group: a request with no marker (saved before markers existed) waits too.
+  if (awaitingOwnerApproval(request) || (gateOn && request.ownerApprovedAt === undefined)) {
+    throw new Error(`request ${request.id} is waiting for the owner's approval: nothing may be sent yet`);
+  }
   if (request.chatUid !== undefined) throw new Error(`request ${request.id} already has a group (${request.chatUid}): post its times there`);
   if (!opts.members.every((m) => sameHandle(m, request.handle))) throw new Error(`the member must be the request's person (${request.handle})`);
   if (!opts.body.trim()) throw new Error("the body is empty");
@@ -67,7 +72,7 @@ export async function startThread(opts: ApiOptions & { members: string[]; body: 
     // that is sent and linked.
     return withLock(file("ledger.json"), async (): Promise<Started> => {
       const ledger = readJson<Ledger>(file("ledger.json"), { requests: [] });
-      assertDeliverable(ledger, request.id, { handle: request.handle, offeredAt: request.offeredAt, ownerApprovedAt: request.ownerApprovedAt });
+      assertDeliverable(ledger, request.id, { handle: request.handle, offeredAt: request.offeredAt, ownerApprovedAt: request.ownerApprovedAt }, gateOn);
 
       let res: Response;
       try {

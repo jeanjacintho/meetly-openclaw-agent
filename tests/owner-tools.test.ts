@@ -71,6 +71,7 @@ test("a poll turn cannot reach a guest without the owner's approval, whatever or
   })], { MEETLY_HOME: home });
   assert.equal(saved.status, 0, saved.stderr);
   const id = saved.json.request.id;
+  const offeredAt = saved.json.request.offeredAt;
   assert.equal(typeof saved.json.request.ownerApprovalAt, "string", "gated although the payload says owner");
 
   const posts: string[] = [];
@@ -78,7 +79,7 @@ test("a poll turn cannot reach a guest without the owner's approval, whatever or
   // Neither the script nor the tool approves from the poll, or from a guest in a group.
   assert.equal(cli("ledger.ts", ["approve", "--id", id], { MEETLY_HOME: home }).status, 1);
   for (const ctx of [POLL, GUEST_IN_GROUP]) {
-    const out = await tools(ctx).meetly_approve_request!.execute("call", { id });
+    const out = await tools(ctx).meetly_approve_request!.execute("call", { id, offeredAt });
     assert.equal(out.isError, true);
     assert.match(out.details.error, /Only the owner/);
   }
@@ -87,16 +88,16 @@ test("a poll turn cannot reach a guest without the owner's approval, whatever or
   assert.deepEqual(posts, [], "nothing reached the guest");
 
   // The owner says yes in their DM: the group opens.
-  const yes = await tools(OWNER_DM).meetly_approve_request!.execute("call", { id });
+  const yes = await tools(OWNER_DM).meetly_approve_request!.execute("call", { id, offeredAt });
   assert.deepEqual([yes.isError, yes.details.approved], [false, true]);
   assert.deepEqual(await open(id, posts), { chatUid: "chat_new", messageSent: true });
   assert.equal(posts.length, 1);
   // A second yes changes nothing.
-  assert.equal((await tools(OWNER_DM).meetly_approve_request!.execute("call", { id })).details.approved, false);
+  assert.equal((await tools(OWNER_DM).meetly_approve_request!.execute("call", { id, offeredAt })).details.approved, false);
 });
 
 test("a request added with a chat never opens a new group, so a made-up chat cannot skip the gate", async () => {
-  seedRequest(home, { chatUid: "made-up" });
+  seedRequest(home, { chatUid: "made-up", ownerApprovedAt: "2026-09-28T12:05:00.000Z" });
   const posts: string[] = [];
   await assert.rejects(open("r_1", posts), /already has a group/);
   assert.deepEqual(posts, []);

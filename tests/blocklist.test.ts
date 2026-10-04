@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { block, isBlocked, unblock } from "../skills/meetly/scripts/blocklist.ts";
 import { startThread } from "../skills/meetly/scripts/start-thread.ts";
 import { writeJson } from "../skills/meetly/scripts/store.ts";
-import { cli, seedRequest, tmpHome } from "./helpers.ts";
+import { cli, seedRequest, tmpHome, writeConfig } from "./helpers.ts";
 
 const T0 = Date.parse("2026-10-01T12:00:00Z");
 
@@ -56,6 +56,7 @@ test("a group is never opened with someone on the list, and nothing is posted", 
   const saved = process.env.MEETLY_HOME;
   process.env.MEETLY_HOME = home;
   seedRequest(home);
+  writeConfig(home, { ownerGate: false });
   try {
     writeJson(join(home, "blocked.json"), [{ handle: "+15551234567", at: new Date(T0).toISOString() }]);
     let calls = 0;
@@ -76,6 +77,7 @@ test("a block added while identity is being read stops the group-open POST", asy
   const saved = process.env.MEETLY_HOME;
   process.env.MEETLY_HOME = home;
   seedRequest(home);
+  writeConfig(home, { ownerGate: false });
   try {
     let calls = 0;
     const fetch = (async (url: string | URL | Request) => {
@@ -106,6 +108,7 @@ test("a block issued during a slow opener waits for the POST instead of failing"
   process.env.MEETLY_HOME = home;
   try {
     seedRequest(home);
+  writeConfig(home, { ownerGate: false });
     const aliases = join(home, "ana.json");
     writeFileSync(aliases, JSON.stringify(["+15551234567"]));
     const events: string[] = [];

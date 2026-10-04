@@ -152,8 +152,9 @@ test("routine meeting notifications stay in the group and pre-thread gate approv
   assert.ok(group.includes("The group confirmation also notifies the owner"));
   assert.ok(group.includes("`config.ownerGate` is true and the request has no `chatUid` yet"));
   assert.ok(flat(group).includes("whatever its `origin`"));
-  assert.ok(flat(group).includes("their instruction is the approval. Call `meetly_approve_request` with the saved id right away"));
-  assert.ok(group.includes("first claim the approval with the `meetly_approve_request` tool"));
+  assert.ok(flat(group).includes("their instruction is the approval. Call `meetly_approve_request` with the saved `id` and `offeredAt` right away"));
+  assert.ok(flat(group).includes("Otherwise claim the approval with the `meetly_approve_request` tool"));
+  assert.ok(flat(group).includes("the offer was replaced after the owner was asked: send the owner the new times and ask again; do not approve"));
   assert.ok(group.includes("passing that offer's hold ids and every id in its `travel[]` with `--allow-overlap` (and `--travel` for an in-person offer"));
   assert.ok(group.includes("Create the fresh holds first and save them"));
   assert.ok(group.includes("run `ledger.ts decline --id <id>`: in one write it closes the request and queues every hold"));

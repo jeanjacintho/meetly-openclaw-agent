@@ -18,9 +18,12 @@ const NOT_OWNER = "Only the owner can do this, in their own DM with Meetly. Noth
 const definitions = [
   {
     name: "meetly_approve_request",
-    description: "Approve a request that waits for the owner (ledger.ts approvals lists them), so its group can be opened with start-thread.ts. Use it only in the owner's own DM: when the owner says yes to a pending request, or right after saving a request the owner just asked for. Returns approved: false when the request was already closed or approved.",
-    parameters: object({ id: { type: "string", description: "The request id, r_…" } }, ["id"]),
-    run: async (load, args) => (await load("ledger.ts")).approve(args.id),
+    description: "Approve a request that waits for the owner (ledger.ts approvals lists them), so its group can be opened with start-thread.ts. Use it only in the owner's own DM: when the owner says yes to a pending request, or right after saving a request the owner just asked for. Pass the offeredAt of the times the owner saw. Returns approved: false when the request was already closed or approved, or its times changed since (ask the owner again with the new ones).",
+    parameters: object({
+      id: { type: "string", description: "The request id, r_…" },
+      offeredAt: { type: "string", description: "The request's offeredAt for the times the owner saw" },
+    }, ["id", "offeredAt"]),
+    run: async (load, args) => (await load("ledger.ts")).approve(args.id, args.offeredAt),
   },
   {
     name: "meetly_set_owner_gate",
@@ -29,8 +32,6 @@ const definitions = [
     run: async (load, args) => (await load("record-setup.ts")).record("ownerGate", args.on ? "on" : "off", { ownerTurn: true }),
   },
 ];
-
-export const OWNER_TOOLS = definitions.map((d) => d.name);
 
 const importScript = (name) => import(`${SCRIPTS}/${name}`);
 

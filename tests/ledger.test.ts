@@ -8,6 +8,8 @@ import {
 } from "../skills/meetly/scripts/ledger.ts";
 import { cli, tmpHome, handlesFile, writeConfig, saveCli } from "./helpers.ts";
 
+// The owner's yes to the times they saw: the request's current offer.
+const yes = (l: Ledger, id: string, now: number) => approveRequest(l, id, now, l.requests.find((r) => r.id === id)?.offeredAt ?? "");
 const T0 = Date.parse("2026-09-28T12:00:00Z");
 const HOUR = 3600_000;
 const offer = { start: "2026-09-29T12:00:00-03:00", end: "2026-09-29T12:30:00-03:00", holdId: "h1", account: "jean@example.com" };
@@ -430,7 +432,7 @@ test("owner gate requests wait for owner approval and appear in the approvals li
   // Approved with no chat is an uncertain delivery, never a resumable approval: it is not listed, and a second yes does nothing.
   assert.equal(stageOf(approvedButUnknown.requests[0]!, T0 + 6 * HOUR), "delivery_unknown");
   assert.deepEqual(ownerApprovalList(approvedButUnknown), []);
-  assert.equal(approveRequest(approvedButUnknown, "r_1", T0 + 7 * HOUR).approved, false);
+  assert.equal(yes(approvedButUnknown, "r_1", T0 + 7 * HOUR).approved, false);
   l = updateRequest(l, "r_1", { chatUid: "approved-chat", ownerApprovedAt: new Date(T0 + 6 * HOUR).toISOString() }, T0 + 6 * HOUR);
   assert.deepEqual(ownerApprovalList(l), []);
   assert.equal(findByChat(l, "approved-chat", input().handle)?.id, "r_1");
@@ -452,39 +454,50 @@ test("the CLI expire closes an old request once and queues its holds", () => {
 test("a delivery goes only to the request that was authorized: a replaced offer or approval, or a closed request, stops the stale opener", () => {
   const gate = new Date(T0).toISOString();
   const waiting = saveRequest(empty(), input({ ownerApprovalAt: gate }), T0, "r_1");
-  const approved = approveRequest(waiting, "r_1", T0 + HOUR).ledger;
+  const approved = yes(waiting, "r_1", T0 + HOUR).ledger;
   const r = approved.requests[0]!;
   const seen = { handle: r.handle, offeredAt: r.offeredAt, ownerApprovedAt: r.ownerApprovedAt };
-  assert.doesNotThrow(() => assertDeliverable(approved, "r_1", seen));
+  assert.doesNotThrow(() => assertDeliverable(approved, "r_1", seen, true));
   // Not approved, another person, another offer or approval, or closed: refused.
-  assert.throws(() => assertDeliverable(waiting, "r_1", seen), /not approved/);
-  assert.throws(() => assertDeliverable(approved, "r_1", { ...seen, handle: "+15550000000" }), /changed since it was authorized/);
+  assert.throws(() => assertDeliverable(waiting, "r_1", seen, true), /not approved/);
+  assert.throws(() => assertDeliverable(approved, "r_1", { ...seen, handle: "+15550000000" }, true), /changed since it was authorized/);
   const replaced = saveRequest(approved, input({ offered: [{ ...offer, holdId: "h9" }], ownerApprovalAt: new Date(T0 + 3 * HOUR).toISOString() }), T0 + 3 * HOUR, "r_2");
-  assert.throws(() => assertDeliverable(replaced, "r_1", seen), /not approved|changed since/);
-  const reapproved = approveRequest(replaced, "r_1", T0 + 4 * HOUR).ledger;
-  assert.throws(() => assertDeliverable(reapproved, "r_1", seen), /changed since it was authorized/);
-  assert.throws(() => assertDeliverable(expireRequests(approved, 48, T0 + 200 * HOUR).ledger, "r_1", seen), /no longer open/);
+  assert.throws(() => assertDeliverable(replaced, "r_1", seen, true), /not approved|changed since/);
+  const reapproved = yes(replaced, "r_1", T0 + 4 * HOUR).ledger;
+  assert.throws(() => assertDeliverable(reapproved, "r_1", seen, true), /changed since it was authorized/);
+  assert.throws(() => assertDeliverable(expireRequests(approved, 48, T0 + 200 * HOUR).ledger, "r_1", seen, true), /no longer open/);
+  // With the gate on, a request with no marker at all (saved before markers existed) is not approved either; with it off it is.
+  const legacy = addRequest(empty(), input({}), T0, "r_1");
+  const legacySeen = { handle: legacy.requests[0]!.handle, offeredAt: legacy.requests[0]!.offeredAt };
+  assert.throws(() => assertDeliverable(legacy, "r_1", legacySeen, true), /not approved/);
+  assert.doesNotThrow(() => assertDeliverable(legacy, "r_1", legacySeen, false));
 });
 
 test("the owner's yes is claimed atomically: only a request still open and waiting can be approved", () => {
   const gate = new Date(T0).toISOString();
   const waiting = saveRequest(empty(), input({ ownerApprovalAt: gate }), T0, "r_1");
-  const claimed = approveRequest(waiting, "r_1", T0 + HOUR);
+  const claimed = yes(waiting, "r_1", T0 + HOUR);
   assert.equal(claimed.approved, true);
   assert.equal(claimed.ledger.requests[0]!.ownerApprovedAt, new Date(T0 + HOUR).toISOString());
   // Once approved, it leaves the list and a second yes does nothing; with a group it still does nothing.
-  assert.equal(approveRequest(claimed.ledger, "r_1", T0 + 2 * HOUR).approved, false);
+  assert.equal(yes(claimed.ledger, "r_1", T0 + 2 * HOUR).approved, false);
   assert.deepEqual(ownerApprovalList(claimed.ledger), []);
   assert.deepEqual(ownerApprovalList(waiting).map((r) => r.id), ["r_1"]);
   const opened = updateRequest(claimed.ledger, "r_1", { chatUid: "g1" }, T0 + 3 * HOUR);
-  assert.equal(approveRequest(opened, "r_1", T0 + 4 * HOUR).approved, false);
+  assert.equal(yes(opened, "r_1", T0 + 4 * HOUR).approved, false);
   assert.deepEqual(ownerApprovalList(opened), []);
+  // The yes is for the times the owner saw: an offer replaced since then (another offeredAt) is not approved by it.
+  const shown = waiting.requests[0]!.offeredAt;
+  const reoffered = saveRequest(waiting, input({ offered: [{ ...offer, holdId: "h9" }], ownerApprovalAt: new Date(T0 + HOUR).toISOString() }), T0 + HOUR, "r_9");
+  assert.notEqual(reoffered.requests[0]!.offeredAt, shown);
+  assert.equal(approveRequest(reoffered, "r_1", T0 + 2 * HOUR, shown).approved, false);
+  assert.equal(yes(reoffered, "r_1", T0 + 2 * HOUR).approved, true);
   // An unknown id, or a request the poll already expired, loses.
-  assert.equal(approveRequest(waiting, "nope", T0).approved, false);
+  assert.equal(yes(waiting, "nope", T0).approved, false);
   const expired = expireRequests(waiting, 48, T0 + 49 * HOUR).ledger;
-  assert.equal(approveRequest(expired, "r_1", T0 + 50 * HOUR).approved, false);
+  assert.equal(yes(expired, "r_1", T0 + 50 * HOUR).approved, false);
   // An approval just before expiry restarts the clock, so the poll cannot close it under the owner's turn.
-  const late = approveRequest(waiting, "r_1", T0 + 47 * HOUR).ledger;
+  const late = yes(waiting, "r_1", T0 + 47 * HOUR).ledger;
   assert.deepEqual(expireRequests(late, 48, T0 + 49 * HOUR).claimed, []);
   // A re-offer to a group the request already has is never gated.
   const linked = addRequest(empty(), input({ chatUid: "g1" }), T0, "r_2");
@@ -502,7 +515,7 @@ test("the owner's no closes the request and queues every hold in one write, only
   assert.deepEqual(ownerApprovalList(out.ledger), []);
   // Already decided, expired or approved: no change.
   assert.equal(declineRequest(out.ledger, "r_1", T0 + 2 * HOUR).declined, false);
-  assert.equal(declineRequest(approveRequest(waiting, "r_1", T0).ledger, "r_1", T0).declined, false);
+  assert.equal(declineRequest(yes(waiting, "r_1", T0).ledger, "r_1", T0).declined, false);
   assert.equal(declineRequest(waiting, "nope", T0).declined, false);
   // An offer's travel buffers are queued with its meeting hold, so a decline leaves none behind.
   const withTravel = saveRequest(empty(), input({ ownerApprovalAt: gate, offered: [{ ...offer, holdId: "h1", travel: [{ holdId: "t1", account: offer.account }, { holdId: "t2", account: offer.account }] }] }), T0, "r_t");
@@ -591,11 +604,13 @@ test("CLI add, find, update and cleanup round-trip", () => {
   for (const r of [gated, claimedOwner, crossed, synthetic]) assert.equal(cli("ledger.ts", ["decline", "--id", r.id], env).json.declined, true);
   assert.deepEqual(cli("ledger.ts", ["approvals"], env).json.requests, []);
   assert.equal(cli("ledger.ts", ["decline", "--id", gated.id], env).json.declined, false);
-  // `add` cannot skip the gate either: without a chat it waits like a save, whatever the origin, and a second open request for the person is refused.
+  // `add` is only the existing-group flow: it needs that group's chat (a request with no group is saved, and gated),
+  // and a second open request for the person is refused.
   const addedBare = cli("ledger.ts", ["add", "--json", JSON.stringify(input({ handle: "+15551110000", origin: "owner" }))], env);
-  assert.equal(addedBare.status, 0, addedBare.stderr);
-  assert.equal(typeof addedBare.json.request.ownerApprovalAt, "string");
-  assert.match(cli("ledger.ts", ["add", "--json", JSON.stringify(input({ handle: "+15551110000", origin: "owner" }))], env).stderr, /already exists/);
+  assert.equal(addedBare.status, 1);
+  assert.match(addedBare.stderr, /needs that group's chatUid/);
+  assert.equal(cli("ledger.ts", ["add", "--json", JSON.stringify(input({ handle: "+15551110000", chatUid: "g9" }))], env).status, 0);
+  assert.match(cli("ledger.ts", ["add", "--json", JSON.stringify(input({ handle: "+15551110000", chatUid: "g9" }))], env).stderr, /already exists/);
   const saved = cli("ledger.ts", ["save", "--json", JSON.stringify(input({ offered: [{ ...offer, holdId: "h2" }] }))], env);
   assert.equal(saved.status, 0, saved.stderr);
   assert.equal(saved.json.request.id, id);

@@ -16,7 +16,7 @@ exits non-zero: report that line; never guess a result. State lives in
 | `register-crons.ts` | `[--pause \| --resume]` | `{paused, actions}` |
 | `cursor.ts` | `get` \| `set <rowid>` \| `hold <rowid>` \| `release` \| `fail` \| `ok` | the cursor `{rowid, held?, …}`; `set` stops below `held` until the ledger has a request with that `sourceRowid`; `fail` → `{failingSince, warn}` |
 | `ledger.ts` | `find --handles-file F` (a JSON array with the one handle) \| `find --chat U [--handles-file F]` \| `find --event E --account A` | `{request}` or `{request:null}`; `--event` finds the request booked as that calendar event on that account |
-| | `add --json '<obj>'` \| `--json-file F` | `{request}`: the existing-group flow's create-or-refuse, refused if the person already has an open request; without a `chatUid` it is gated like `save` |
+| | `add --json '<obj>'` \| `--json-file F` | `{request}`: the existing-group flow's create-or-refuse; needs that group's `chatUid`, and is refused if the person already has an open request (a request with no group goes through `save`) |
 | | `save --json '<obj>'` \| `--json-file F` | `{request}` (creates, or replaces the current open offer for that handle while preserving its id and chat link) |
 | | `update --id X --json '<patch>'` \| `--json-file F` | `{request}`; patch keys: `status, chatUid, eventId, offered, holdCleanup, name, location, allowOverlap, constraints, topic, pendingOwner, format, locale, booked, meetUrl, roomUrl, reminder, nudgedAt, personNudgedAt, attendeeEmail` (`null` clears `pendingOwner`, `booked`, `meetUrl`, `roomUrl`, `reminder`, `personNudgedAt`) |
 | | `approve` | refused: the owner's yes is the `meetly_approve_request` tool (below), never a script |
@@ -49,10 +49,11 @@ scripts, because the runtime tells a tool whose turn it is and the model
 cannot. Both work only in the owner's own DM and refuse anywhere else (the
 poll, a group, a guest):
 
-- `meetly_approve_request` `{id}` → `{approved, request}`: the owner's yes,
-  claimed atomically. `approved` is true only if the request was still open
-  and waiting (an expiry that closed it first wins); afterwards its holds
-  expire from the approval time.
+- `meetly_approve_request` `{id, offeredAt}` → `{approved, request}`: the
+  owner's yes to the times they saw (`offeredAt` is that offer's), claimed
+  atomically. `approved` is true only if the request was still open, waiting,
+  and still on that offer (an expiry or a replaced offer wins); afterwards its
+  holds expire from the approval time.
 - `meetly_set_owner_gate` `{on}` → the saved setup: turns asking before
   outreach on or off. `record-setup.ts` can turn it on, never off.
 

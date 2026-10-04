@@ -4,7 +4,7 @@ import { startThread } from "../skills/meetly/scripts/start-thread.ts";
 import { beforeEach, afterEach } from "node:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { cli, seedRequest, tmpHome } from "./helpers.ts";
+import { cli, seedRequest, tmpHome, writeConfig } from "./helpers.ts";
 
 const identity = {
   line: { uid: "line_me" },
@@ -32,7 +32,7 @@ const args = { members: ["+15551234567"], body: "Hi Ana, this is Meetly, Jean's 
 // Every group is opened for one saved request, so each test starts with one for this person.
 let home = "";
 let prior: string | undefined;
-beforeEach(() => { prior = process.env.MEETLY_HOME; home = tmpHome(); process.env.MEETLY_HOME = home; seedRequest(home); });
+beforeEach(() => { prior = process.env.MEETLY_HOME; home = tmpHome(); process.env.MEETLY_HOME = home; seedRequest(home); writeConfig(home, { ownerGate: false }); });
 afterEach(() => { if (prior === undefined) delete process.env.MEETLY_HOME; else process.env.MEETLY_HOME = prior; });
 
 test("posts the same chat the plow_start_thread tool would", async () => {
@@ -148,9 +148,13 @@ test("opens a group only for the saved open request and its own person, never wh
   seedRequest(home, { origin: "inbound", ownerApprovalAt: "2026-09-28T12:00:00.000Z" });
   await assert.rejects(go(), /waiting for the owner's approval/);
   assert.equal(calls.length, 0);
-  // A request saved before approval markers existed (inbound, no marker) follows the normal path with the same requestId;
-  // newly saved inbound requests are gated by ledger.ts save, which writes the marker (covered in the ledger tests).
+  // A request with no marker (saved before markers existed) waits while the gate is on: only the owner's yes opens a group.
+  writeConfig(home);
   seedRequest(home, { origin: "inbound" });
+  await assert.rejects(go(), /waiting for the owner's approval/);
+  assert.equal(calls.length, 0);
+  // With the gate off (the owner's standing authorization) it goes out.
+  writeConfig(home, { ownerGate: false });
   assert.deepEqual(await go(), { chatUid: "chat_9", messageSent: true });
   seedRequest(home, { origin: "inbound", ownerApprovalAt: "2026-09-28T12:00:00.000Z" });
   await assert.rejects(go(), /waiting for the owner's approval/);
