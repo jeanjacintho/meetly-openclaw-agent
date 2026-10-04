@@ -1,0 +1,10 @@
+{
+ "_note": "Hand-written stand-in for the owner's Mac (Latch), which no image contains. Only its shape matters: the captured prompt gets a Latch block and these tools, so Mac steps can be replayed from fixtures. Schemas are trimmed from Latch's tools/list.",
+ "instructions": "These tools are Latch. They operate the user's own Mac. (Replay stand-in: the real instructions come from the owner's Mac at boot.)",
+ "tools": [
+  {"name": "plow_run_command", "description": "Run a command on the user's Mac in a sandbox. Provider commands such as plow-gog get credentials automatically.",
+   "inputSchema": {"type": "object", "properties": {"argv": {"type": "array", "items": {"type": "string"}}, "cwd": {"type": "string"}, "read_paths": {"type": "array", "items": {"type": "string"}}, "write_paths": {"type": "array", "items": {"type": "string"}}, "wait_ms": {"type": "number"}, "goal": {"type": "string"}}, "required": ["argv"]}},
+  {"name": "plow_list_skills", "description": "List the Mac's how-to skills.", "inputSchema": {"type": "object", "properties": {}}},
+  {"name": "plow_read_skill", "description": "Read one of the Mac's how-to skills.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}}
+ ]
+}

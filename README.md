@@ -295,6 +295,7 @@ Meetly reads your messages, so use it on an install only you talk to.
 - `checks/` — `manual-scenarios.md` (end-to-end checklist) and `spike.md`
   (findings from the base code and the owner's Mac).
 - `Dockerfile`, `compose.yml`, `dev/Caddyfile` — the image and local stack.
+- `evals/replay/` — model replays of an image's prompt (dev only, not in the image).
 
 ## Development
 
@@ -308,6 +309,45 @@ npm test            # node --test
 
 Node 24.16 or newer. The OpenClaw runtime (`2026.9.6`) comes from the base
 image, pinned by digest.
+
+### Replaying the prompt against a model
+
+`evals/replay/` checks how a model handles Meetly's decision points (owner
+requests, group offers, guest picks, silence, injection) for a built image,
+without Plow, a Mac or a calendar. It needs Docker and a model key; nothing
+else runs.
+
+```sh
+docker build -t meetly:dev .
+export OPENROUTER_API_KEY=...          # or --endpoint/--api-key-env for another OpenAI-compatible API
+node evals/replay/run.mjs --image meetly:dev --reps 3
+node evals/replay/run.mjs --image meetly:dev --reps 3 --model anthropic/claude-sonnet-5   # compare a model
+```
+
+The first run captures the image: `capture.mjs` boots it against a stand-in
+Plow API (`fake-plow.mjs`), sends one owner DM, one owner group message and one
+guest group message, and saves the model request each produced (the real
+system prompt, tools and message envelope) plus the image's skill files under
+`evals/replay/captures/<image>/`. `--recapture` refreshes it. The stand-in
+also stands in for the owner's Mac, which no image contains, with the small
+hand-written `latch-stub.json` (a placeholder for Latch's instructions and its
+command tools), and gives the agent a finished setup (`setup` in `cases.json`)
+so the owner's DM carries the gate's READY block.
+
+`run.mjs` then plays every case in `cases.json` with the captured request for
+its chat kind: the case's message swapped in, its `prior` turns before it,
+every tool call answered from the case's `results` or the shared `fixtures`.
+`--model` defaults to the image's own model; `--agent-name` (on capture) to
+Alder. Each case lists what a good turn does (`call`, `says`) or never does
+(`noCall`, `neverSays`, `silent`); a case whose `requires` names a tool the
+image lacks is skipped.
+
+The output is one line per run (`pass`, or `FAIL` with each missed
+expectation), then a pass count per case. Replies are stochastic: compare
+counts over several `--reps`, not single runs. `evals/replay/results/<label>.json`
+keeps each run's tool calls, what it said, and any call no fixture answered
+(`unanswered`), which is the first thing to read when a case fails for a
+missing fixture rather than a wrong decision.
 
 ### Bumping the base image
 

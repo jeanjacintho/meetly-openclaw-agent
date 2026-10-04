@@ -1,3 +1,5 @@
 node_modules/
 plow-credentials
 .maestri
+evals/replay/captures/
+evals/replay/results/
