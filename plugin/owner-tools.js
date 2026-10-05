@@ -1,0 +1,64 @@
+// The owner's decisions that let Meetly reach someone: approving a request and
+// switching approval off. They are plugin tools, not scripts, because a tool
+// is handed the turn by the runtime (session, channel, whether the sender is
+// the owner), and the model cannot write that. A script only sees what the
+// model passed it, so a poll turn reading a guest's text could claim to be the
+// owner; here it is refused.
+export const SCRIPTS = "/opt/plow/skills/meetly/scripts";
+
+// The turn's Plow conversation, as the base's plugin reads it from the runtime.
+const conversationUid = (context) => (context?.nativeChannelId ?? context?.deliveryContext?.to)?.replace(/^plow:/i, "");
+
+/** The owner's main Plow DM, as the runtime reports the turn: the same fields the base's ownerDmTurn checks. */
+export function isOwnerDm(context) {
+  return context?.sessionKey === "agent:main:main" && context.messageChannel === "plow"
+    && context.agentAccountId === "chat" && context.senderIsOwner === true
+    && Boolean(context.requesterSenderId) && Boolean(conversationUid(context));
+}
+
+// Then, like the base's ownerDmTurn, Plow itself confirms that conversation is the owner's DM (owner-chat.ts applies
+// the Plow channel's own rule). The base does not export that check, so Meetly makes the same one.
+async function ownerDmConfirmed(context, load) {
+  if (!isOwnerDm(context)) return false;
+  return (await load("owner-chat.ts")).ownerChat().then(({ chatUid }) => chatUid === conversationUid(context), () => false);
+}
+
+const object = (properties, required) => ({ type: "object", properties, required, additionalProperties: false });
+const NOT_OWNER = "Only the owner can do this, in their own DM with Meetly. Nothing was changed: tell the owner it waits for their answer there.";
+
+const definitions = [
+  {
+    name: "meetly_approve_request",
+    description: "Approve a request that waits for the owner (ledger.ts approvals lists them), so its group can be opened with start-thread.ts. Use it only in the owner's own DM: when the owner says yes to a pending request, or right after saving a request the owner just asked for. Pass the offeredAt of the times the owner saw. Returns approved: false when the request was already closed or approved, or its times changed since (ask the owner again with the new ones).",
+    parameters: object({
+      id: { type: "string", description: "The request id, r_…" },
+      offeredAt: { type: "string", description: "The request's offeredAt for the times the owner saw" },
+    }, ["id", "offeredAt"]),
+    run: async (load, args) => (await load("ledger.ts")).approve(args.id, args.offeredAt),
+  },
+  {
+    name: "meetly_set_owner_gate",
+    description: "Turn on or off whether Meetly asks the owner before reaching someone it found in their messages. Use it only in the owner's own DM, when the owner asks for that change.",
+    parameters: object({ on: { type: "boolean", description: "true: ask the owner first (the default); false: reach out without asking" } }, ["on"]),
+    run: async (load, args) => (await load("record-setup.ts")).record("ownerGate", args.on ? "on" : "off", { ownerTurn: true }),
+  },
+];
+
+const importScript = (name) => import(`${SCRIPTS}/${name}`);
+
+export function registerOwnerTools(api, load = importScript) {
+  for (const { name, description, parameters, run } of definitions) {
+    api.registerTool((context) => ({
+      name, label: name, description, parameters,
+      async execute(_id, args) {
+        let result;
+        try {
+          result = await ownerDmConfirmed(context, load) ? await run(load, args ?? {}) : { error: NOT_OWNER };
+        } catch (error) {
+          result = { error: error instanceof Error ? error.message : String(error) };
+        }
+        return { isError: "error" in result, content: [{ type: "text", text: JSON.stringify(result) }], details: result };
+      },
+    }), { name });
+  }
+}

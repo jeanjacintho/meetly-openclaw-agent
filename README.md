@@ -287,6 +287,14 @@ Meetly reads your messages, so use it on an install only you talk to.
   tells you instead.
 - If the model provider is unreachable, that five-minute check is skipped and
   the next one catches up from the same cursor.
+- The owner's approval is enforced on Meetly's own path: a request with no
+  group waits for it whoever the request says asked, and only the
+  `meetly_approve_request` tool, which the runtime limits to the owner's DM,
+  approves one. A turn that reads a guest's text still has the general tools
+  (`exec`, file writes, the Plow token in its environment), so a prompt
+  injection that fully controlled such a turn could bypass the scripts by
+  writing Meetly's state files or calling Plow directly. Closing that needs the
+  platform to withhold those tools from unattended turns.
 
 ## Layout
 
@@ -299,7 +307,9 @@ Meetly reads your messages, so use it on an install only you talk to.
   additions), the model (`llm.ts`), the setup gate install (`gate.ts`), the
   Mac relay timeout (`mcp.ts`) and the `plow-llm` command.
 - `plugin/` — the setup gate: an OpenClaw plugin that runs `setup-status.ts`
-  before each of the owner's DM turns and hands the model the answer.
+  before each of the owner's DM turns and hands the model the answer; and
+  the owner's tools (`owner-tools.js`): `meetly_approve_request` and
+  `meetly_set_owner_gate`, which only the owner's own DM turn can use.
 - `tests/` — `node --test` suites; `tests/fixtures/base-AGENTS.md` is the
   base prompt the tool and authority rules are checked against.
 - `index/logo.png` — the Agent Index logo (uploaded to the listing, not

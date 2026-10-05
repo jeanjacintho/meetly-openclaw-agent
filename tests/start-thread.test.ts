@@ -1,10 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { record } from "../skills/meetly/scripts/record-setup.ts";
 import { startThread } from "../skills/meetly/scripts/start-thread.ts";
 import { beforeEach, afterEach } from "node:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { cli, seedRequest, tmpHome } from "./helpers.ts";
+import { cli, seedRequest, tmpHome, writeConfig } from "./helpers.ts";
 
 const identity = {
   line: { uid: "line_me" },
@@ -32,7 +33,7 @@ const args = { members: ["+15551234567"], body: "Hi Ana, this is Meetly, Jean's 
 // Every group is opened for one saved request, so each test starts with one for this person.
 let home = "";
 let prior: string | undefined;
-beforeEach(() => { prior = process.env.MEETLY_HOME; home = tmpHome(); process.env.MEETLY_HOME = home; seedRequest(home); });
+beforeEach(() => { prior = process.env.MEETLY_HOME; home = tmpHome(); process.env.MEETLY_HOME = home; seedRequest(home); writeConfig(home, { ownerGate: false }); });
 afterEach(() => { if (prior === undefined) delete process.env.MEETLY_HOME; else process.env.MEETLY_HOME = prior; });
 
 test("posts the same chat the plow_start_thread tool would", async () => {
@@ -74,7 +75,8 @@ test("a request replaced between validation and the POST is not sent", async () 
 
 test("the same request and people give the same idempotency key even if wording changes", async () => {
   const keys: string[] = [];
-  const fetch = fakeFetch(() => new Response('{"uid":"c"}', { status: 200 }), []);
+  // Plow does not confirm the group (the retry case), so the request stays unlinked and may be sent again.
+  const fetch = fakeFetch(() => new Response("", { status: 502 }), []);
   const spy = (async (url: string | URL | Request, init?: RequestInit) => {
     if (init?.body) keys.push(JSON.parse(String(init.body)).idempotency_key);
     return fetch(url, init);
@@ -147,10 +149,14 @@ test("opens a group only for the saved open request and its own person, never wh
   seedRequest(home, { origin: "inbound", ownerApprovalAt: "2026-09-28T12:00:00.000Z" });
   await assert.rejects(go(), /waiting for the owner's approval/);
   assert.equal(calls.length, 0);
-  // A request saved before approval markers existed (inbound, no marker) follows the normal path with the same requestId;
-  // newly saved inbound requests are gated by ledger.ts save, which writes the marker (covered in the ledger tests).
+  // One saved while the gate was off goes out (the owner's standing authorization)...
   seedRequest(home, { origin: "inbound" });
   assert.deepEqual(await go(), { chatUid: "chat_9", messageSent: true });
+  // ...until the owner turns approval on: that marks it, so it waits for their yes like any other.
+  seedRequest(home, { origin: "inbound" });
+  record("ownerGate", "on");
+  await assert.rejects(go(), /waiting for the owner's approval/);
+  assert.equal(calls.length, 2, "only the first one was sent");
   seedRequest(home, { origin: "inbound", ownerApprovalAt: "2026-09-28T12:00:00.000Z" });
   await assert.rejects(go(), /waiting for the owner's approval/);
   seedRequest(home, { origin: "inbound", ownerApprovalAt: "2026-09-28T12:00:00.000Z", ownerApprovedAt: "2026-09-28T12:05:00.000Z" });

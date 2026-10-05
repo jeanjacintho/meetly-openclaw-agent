@@ -150,8 +150,11 @@ test("routine meeting notifications stay in the group and pre-thread gate approv
   assert.ok(group.includes("Ask the owner in this thread"));
   assert.ok(group.includes("A yes in the owner's DM does not approve the request"));
   assert.ok(group.includes("The group confirmation also notifies the owner"));
-  assert.ok(group.includes("when `origin` is `inbound`, `config.ownerGate` is true and the request has no `chatUid` yet"));
-  assert.ok(group.includes("first claim the approval with `ledger.ts approve --id <id>`"));
+  assert.ok(group.includes("`config.ownerGate` is true and the request has no `chatUid` yet"));
+  assert.ok(flat(group).includes("whatever its `origin`"));
+  assert.ok(flat(group).includes("their instruction is the approval. Call `meetly_approve_request` with the saved `id` and `offeredAt` right away"));
+  assert.ok(flat(group).includes("Otherwise claim the approval with the `meetly_approve_request` tool"));
+  assert.ok(flat(group).includes("the offer was replaced after the owner was asked: send the owner the new times and ask again; do not approve"));
   assert.ok(group.includes("passing that offer's hold ids and every id in its `travel[]` with `--allow-overlap` (and `--travel` for an in-person offer"));
   assert.ok(group.includes("Create the fresh holds first and save them"));
   assert.ok(group.includes("run `ledger.ts decline --id <id>`: in one write it closes the request and queues every hold"));
@@ -417,10 +420,11 @@ test("inbound offers require owner DM approval by default", () => {
   const poll = flat(readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8"));
   assert.ok(group.includes("ledger.ts approvals"));
   assert.ok(group.includes("do not open a group or send any proposed time"));
-  assert.ok(group.includes("`ledger.ts save` decides this itself: when `origin` is `inbound`"));
+  assert.ok(group.includes("`ledger.ts save` decides this itself: when `config.ownerGate` is true"));
+  assert.ok(setup.includes("`record-setup.ts` refuses to turn it off"));
   assert.ok(!group.includes("--gate"));
   assert.ok(flat(readFileSync(join(SKILLS, "meetly-poll", "SKILL.md"), "utf8")).includes("send that saved ask again"));
-  assert.ok(flat(prompt).includes("except when it has `ownerApprovalAt` and no `ownerApprovedAt`: never link that request"));
+  assert.ok(flat(prompt).includes("except when it waits for the owner (`ledger.ts approvals` lists it): never link that request"));
   assert.ok(setup.includes("This is on by default"));
   assert.ok(setup.includes("that is standing authorization"));
   assert.ok(flat(prompt).includes("inbound owner gate, enabled by default"));

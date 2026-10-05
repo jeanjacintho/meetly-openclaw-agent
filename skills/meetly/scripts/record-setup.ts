@@ -5,23 +5,37 @@ import { isMain, run } from "./cli.ts";
 import { isField, mergeDurations, nextField, parseField, QUESTIONS, validateConfig, type Config, type Field, type RequiredField } from "./config.ts";
 import { file } from "./paths.ts";
 import { readJson, removeFile, updateJson, withLock, writeJson } from "./store.ts";
+import { gateOpenRequests, type Ledger } from "./ledger.ts";
 import { registerFromConfig } from "./register-crons.ts";
 
 export type Recorded =
   | { saved: Field; config: Config }
   | { saved: Field; next: RequiredField | null; question: string | null };
 
-export function record(field: string, value: string): Recorded {
+// `ownerTurn` is true only when the plugin's meetly_set_owner_gate calls this from the owner's own DM turn, as the
+// runtime reports it. A script run never is: a turn driven by a guest's text must not switch the approval off.
+export function record(field: string, value: string, { ownerTurn = false } = {}): Recorded {
   if (!isField(field)) throw new Error(`unknown field: ${field}`);
   const patch = parseField(field, value);
+  if (patch.ownerGate === false && !ownerTurn) {
+    throw new Error("only the owner can turn approval off, with the meetly_set_owner_gate tool in their own DM; no script can");
+  }
   // One format's length is changed at a time; the others stay as they were.
   const merge = (current: Partial<Config>): Partial<Config> => patch.formatDurations === undefined
     ? { ...current, ...patch }
     : { ...current, formatDurations: mergeDurations(current.formatDurations, patch.formatDurations) };
   const configPath = file("config.json");
   if (readJson<Config | null>(configPath, null)?.setupDoneAt) {
-    const config = updateJson<Config | null>(configPath, null, (c) => validateConfig(merge(c!)));
-    return { saved: field, config: config! };
+    const write = () => updateJson<Config | null>(configPath, null, (c) => validateConfig(merge(c!)))!;
+    if (patch.ownerGate !== true) return { saved: field, config: write() };
+    // Turning approval on marks what is already open and ungrouped and writes the setting under one ledger lock.
+    // `ledger.ts save` reads the setting under the same lock, so no save can slip an unmarked request in between.
+    const ledgerPath = file("ledger.json");
+    const config = withLock(ledgerPath, () => {
+      writeJson(ledgerPath, gateOpenRequests(readJson<Ledger>(ledgerPath, { requests: [] }), Date.now()));
+      return write();
+    });
+    return { saved: field, config };
   }
   const draft = updateJson<Partial<Config>>(file("config.draft.json"), {}, (d) => merge(d));
   const next = nextField(draft) ?? null;

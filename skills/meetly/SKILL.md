@@ -16,12 +16,12 @@ exits non-zero: report that line; never guess a result. State lives in
 | `register-crons.ts` | `[--pause \| --resume]` | `{paused, actions}` |
 | `cursor.ts` | `get` \| `set <rowid>` \| `hold <rowid>` \| `release` \| `fail` \| `ok` | the cursor `{rowid, held?, …}`; `set` stops below `held` until the ledger has a request with that `sourceRowid`; `fail` → `{failingSince, warn}` |
 | `ledger.ts` | `find --handles-file F` (a JSON array with the one handle) \| `find --chat U [--handles-file F]` \| `find --event E --account A` | `{request}` or `{request:null}`; `--event` finds the request booked as that calendar event on that account |
-| | `add --json '<obj>'` \| `--json-file F` | `{request}`: an owner's own request only, refused if the person already has an open request; an inbound request goes through `save`, which applies the owner gate |
+| | `add --json '<obj>'` \| `--json-file F` | `{request}`: the existing-group flow's create-or-refuse; needs that group's `chatUid`, and is refused if the person already has an open request (a request with no group goes through `save`) |
 | | `save --json '<obj>'` \| `--json-file F` | `{request}` (creates, or replaces the current open offer for that handle while preserving its id and chat link) |
 | | `update --id X --json '<patch>'` \| `--json-file F` | `{request}`; patch keys: `status, chatUid, eventId, offered, holdCleanup, name, location, allowOverlap, constraints, topic, pendingOwner, format, locale, booked, meetUrl, roomUrl, reminder, nudgedAt, personNudgedAt, attendeeEmail` (`null` clears `pendingOwner`, `booked`, `meetUrl`, `roomUrl`, `reminder`, `personNudgedAt`) |
-| | `approve --id X` | `{approved, request}`: the owner's yes, claimed atomically: `approved` is true only if the request was still open and waiting (an expiry that closed it first wins); afterwards its holds expire from the approval time |
+| | `approve` | refused: the owner's yes is the `meetly_approve_request` tool (below), never a script |
 | | `decline --id X` | `{declined, request}`: the owner's no, in one write: closes the request (`dropped`) and queues all its holds for the cleanup poll, which deletes them; `declined` is false if it was not waiting |
-| | `expire [--hours N]` \| `pending` \| `approvals` \| `cleanup` | `{requests}`; `expire` closes the requests whose holds ran out, queues their holds for cleanup, and returns the closed requests as they were; `cleanup` first discards staged offers older than 15 minutes |
+| | `expire [--hours N]` \| `pending` \| `approvals` \| `cleanup` | `{requests}`; `approvals` lists what waits for the owner's yes (`ownerApprovalAt` set, no `ownerApprovedAt`; turning the gate on marks every open request with no group); `expire` closes the requests whose holds ran out, queues their holds for cleanup, and returns the closed requests as they were; `cleanup` first discards staged offers older than 15 minutes |
 | | `promote-offer --id X --revision R` \| `discard-offer --id X --revision R` | settles a staged re-offer (`save` on a request that already has a group stages it as `pendingOffer`): promote makes it current after a successful send, discard keeps the old one after a failed send; the losing offer's holds enter the cleanup queue; `{request, settled}`, with `settled` false when another save replaced that revision |
 | | `cleanup-remove --id X --json-file F` | removes one hold ref after its deletion succeeded |
 | | `set-travel --id X --json-file F` | `F` is `{"start":"<offer start>","travel":[{holdId,account},…]}` for an open request (sets that offer's buffers, or `pendingOwner.travel` when the start is the owner-approval time and no offer; a replaced pair is queued for cleanup) or `{"travel":[…]}` for a booked one (sets the booking's; `[]` clears them): the one targeted write for travel refs |
@@ -44,6 +44,19 @@ exits non-zero: report that line; never guess a result. State lives in
 | `start-thread.ts` | `--input-file F` (JSON `{"members":[…],"body":"…","requestId":"<saved request id>"}`) | `{chatUid, messageSent:true}` or `{chatUid:null, deliveryUnknown:true}`. After an unknown delivery, running it again with the same `requestId` and members (only when the owner asks; the opener wording may be regenerated) returns the group if Plow had opened it |
 | `contact.ts` | `--handles-file F` (a JSON array with the one phone or email) | `{found:true, handle, name, phones, emails, matches}`, `{found:false, handle}` or `{found:false, handle, reason:"mac-unavailable"}` |
 | `reachable-handle.ts` | `--handles-file F` (a JSON array of phones and emails) | `{handle, via:"iMessage"}`, `{handle:null, reason:"not-on-imessage", services}` or `{handle:null, reason:"mac-unavailable"}` |
+
+The owner's two decisions that let Meetly reach someone are plugin tools, not
+scripts, because the runtime tells a tool whose turn it is and the model
+cannot. Both work only in the owner's own DM and refuse anywhere else (the
+poll, a group, a guest):
+
+- `meetly_approve_request` `{id, offeredAt}` → `{approved, request}`: the
+  owner's yes to the times they saw (`offeredAt` is that offer's), claimed
+  atomically. `approved` is true only if the request was still open, waiting,
+  and still on that offer (an expiry or a replaced offer wins); afterwards its
+  holds expire from the approval time.
+- `meetly_set_owner_gate` `{on}` → the saved setup: turns asking before
+  outreach on or off. `record-setup.ts` can turn it on, never off.
 
 Notes:
 

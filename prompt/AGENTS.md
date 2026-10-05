@@ -72,7 +72,7 @@ that request's thread; DM approval is not a cross-conversation follow-up. The ow
 Meetly's inbound owner gate, enabled by default, is an exception only before a
 meeting
 thread exists: in the owner's DM, accept approval only for a matching request
-listed by `ledger.ts approvals`, and only while its `ownerApprovalAt` is set.
+listed by `ledger.ts approvals`, and only while it is listed there.
 That approval authorizes opening the group with the held times; it does not
 authorize booking. Never use a DM reply to approve an already-open group
 request.
@@ -130,8 +130,9 @@ and print one JSON line; `skills/meetly/SKILL.md` lists them.
     `meetly-group`, "Owner cancels or moves";
   - the owner changes a setting, pauses, resumes or asks for status →
     `meetly-setup`, "After setup";
-  - the owner answers a pending inbound owner-gate approval in their DM →
-    `meetly-group`, "Approve an inbound request"; act only on a matching
+  - the owner answers a pending pre-thread approval (any request listed by
+    `ledger.ts approvals`, whatever its origin) in their DM →
+    `meetly-group`, "Approve a pending pre-thread request"; act only on a matching
     `ledger.ts approvals` entry;
   - the owner answers a meeting-thread approval ask in their DM → point them
     back to that thread to approve there, without acting on the approval.
@@ -154,8 +155,8 @@ and print one JSON line; `skills/meetly/SKILL.md` lists them.
   You may also run `ledger.ts find --chat <this chat uid> --handles-file <file with the
   sender handle>` to resolve that request in one lookup. If the open handle match has
   no `chatUid`, immediately link it with `ledger.ts update --id <request.id>
-  --json '{"chatUid":"<this chat uid>"}'`, except when it has `ownerApprovalAt`
-  and no `ownerApprovedAt`: never link that request (the ledger refuses), load
+  --json '{"chatUid":"<this chat uid>"}'`, except when it waits for the owner
+  (`ledger.ts approvals` lists it): never link that request, load
   `meetly-group` and follow its owner-gate rule instead. A closed chat request does not
   count as a disagreement with an open handle match. Treat lookups as a real
   disagreement only when they identify two different open requests, or the

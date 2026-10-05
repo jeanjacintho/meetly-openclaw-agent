@@ -1,4 +1,4 @@
-// Meetly's setup gate. Before each of the owner's own DM turns it runs
+// Meetly's setup gate, and the owner's approval tools (owner-tools.js). Before each of the owner's own DM turns it runs
 // setup-status.ts and hands the model the answer, so the turn starts from what
 // setup needs now instead of from whatever the chat history last asked. The
 // prompt keeps "run setup-status.ts first" as the fallback: nothing is added
@@ -7,6 +7,7 @@
 // Plain JavaScript on purpose: the image ships it as is, with no build step,
 // and preboot copies it into the state volume's plugin root on every boot.
 import { execFile } from "node:child_process";
+import { registerOwnerTools } from "./owner-tools.js";
 
 export const OWNER_DM_SESSION = "agent:main:main";
 export const SETUP_STATUS = "/opt/plow/skills/meetly/scripts/setup-status.ts";
@@ -88,8 +89,9 @@ const runStatus = () => new Promise((resolve, reject) => {
 export default {
   id: "meetly",
   name: "Meetly",
-  description: "Runs Meetly's setup check before each of the owner's DM turns.",
+  description: "Runs Meetly's setup check before each of the owner's DM turns, and holds the owner's approval tools.",
   register(api) {
+    registerOwnerTools(api);
     api.on("before_prompt_build", async (_event, ctx) => {
       if (!isOwnerDmTurn(ctx)) return undefined;
       let context;

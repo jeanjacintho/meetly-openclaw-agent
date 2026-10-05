@@ -1,7 +1,30 @@
 {
   "id": "meetly",
   "name": "Meetly",
-  "description": "Runs Meetly's setup check before each of the owner's DM turns.",
-  "activation": { "onStartup": true },
-  "configSchema": { "type": "object", "additionalProperties": false }
+  "description": "Runs Meetly's setup check before each of the owner's DM turns, and holds the owner's approval tools.",
+  "contracts": {
+    "tools": [
+      "meetly_approve_request",
+      "meetly_set_owner_gate"
+    ]
+  },
+  "toolMetadata": {
+    "meetly_approve_request": {
+      "profiles": [
+        "messaging"
+      ]
+    },
+    "meetly_set_owner_gate": {
+      "profiles": [
+        "messaging"
+      ]
+    }
+  },
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false
+  }
 }
