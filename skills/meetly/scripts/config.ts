@@ -12,6 +12,19 @@ export type Calendar = { account: string; id: string };
 // means ask, as before.
 export const DEFAULT_FORMATS = ["meet", "in_person", "phone"] as const;
 export type DefaultFormat = (typeof DEFAULT_FORMATS)[number];
+export type FormatDurations = Partial<Record<DefaultFormat, number>>;
+
+/** How long a meeting lasts when the request names no length: the owner's length for its format, else durationMin. */
+export function durationFor(config: Pick<Config, "durationMin" | "formatDurations">, format?: string): number {
+  return (format !== undefined && config.formatDurations?.[format as DefaultFormat]) || config.durationMin;
+}
+
+/** One format's length into the saved ones: `undefined` removes it, and no lengths left means none saved. */
+export function mergeDurations(current: FormatDurations | undefined, patch: FormatDurations): FormatDurations | undefined {
+  const merged = { ...current, ...patch };
+  for (const f of DEFAULT_FORMATS) if (merged[f] === undefined) delete merged[f];
+  return Object.keys(merged).length ? merged : undefined;
+}
 
 export type Config = {
   ownerName: string;
@@ -34,12 +47,14 @@ export type Config = {
   // Minutes of notice a time needs before it is offered; unset means MIN_NOTICE_MIN.
   minNoticeMin?: number;
   defaultFormat?: DefaultFormat;
+  // Minutes a meeting of each format lasts when the request names no length; a format not listed uses durationMin.
+  formatDurations?: FormatDurations;
   setupDoneAt?: string;
   paused?: boolean;
 };
 
 // Every setting the owner can change.
-export const FIELDS = ["ownerName", "timezone", "days", "window", "durationMin", "horizonDays", "calendars", "ownerGate", "movable", "travel", "videoProvider", "minNotice", "defaultFormat"] as const;
+export const FIELDS = ["ownerName", "timezone", "days", "window", "durationMin", "horizonDays", "calendars", "ownerGate", "movable", "travel", "videoProvider", "minNotice", "defaultFormat", "formatDuration"] as const;
 export type Field = (typeof FIELDS)[number];
 
 // What setup cannot start without, in the order it asks: nobody but the owner,
@@ -217,6 +232,14 @@ export function parseField(field: string, value: string): Partial<Config> {
       if (!(DEFAULT_FORMATS as readonly string[]).includes(format)) throw new Error(`the meeting format must be meet, in_person, phone or ask, got "${value}"`);
       return { defaultFormat: format as DefaultFormat };
     }
+    case "formatDuration": {
+      // "in_person 60", "phone=15 min", or "meet default" to go back to durationMin.
+      const m = /^\s*(meet|in_person|phone)\s*[=:\s]\s*(default|\d+)\s*(?:min(?:ute)?s?)?\s*$/i.exec(value);
+      if (!m) throw new Error(`formatDuration is a format (meet, in_person or phone) and its minutes or default, like "in_person 60", got "${value}"`);
+      const format = m[1]!.toLowerCase() as DefaultFormat;
+      if (m[2]!.toLowerCase() === "default") return { formatDurations: { [format]: undefined } };
+      return { formatDurations: { [format]: integer(m[2]!, `the ${format} duration in minutes`, 15, 240) } };
+    }
     case "calendars": {
       let parsed: unknown;
       try {
@@ -279,6 +302,14 @@ export function validateConfig(partial: Partial<Config>): Config {
   if (p.zoomRoomUrl !== undefined) config.zoomRoomUrl = p.zoomRoomUrl;
   if (p.minNoticeMin !== undefined) config.minNoticeMin = p.minNoticeMin;
   if (p.defaultFormat !== undefined) config.defaultFormat = p.defaultFormat;
+  if (p.formatDurations !== undefined) {
+    for (const [format, min] of Object.entries(p.formatDurations)) {
+      if (!(DEFAULT_FORMATS as readonly string[]).includes(format)) throw new Error(`formatDurations has an unknown format: ${format}`);
+      if (!Number.isInteger(min) || min! < 15 || min! > 240) throw new Error(`the ${format} duration must be 15 to 240 minutes, got ${JSON.stringify(min)}`);
+      if (min! > windowMin) throw new Error(`a ${min}-minute ${format} meeting is longer than the ${p.windowStart}-${p.windowEnd} window`);
+    }
+    config.formatDurations = mergeDurations(undefined, p.formatDurations);
+  }
   if (p.setupDoneAt !== undefined) config.setupDoneAt = p.setupDoneAt;
   if (p.paused !== undefined) config.paused = p.paused;
   return normalizeConfig(config);

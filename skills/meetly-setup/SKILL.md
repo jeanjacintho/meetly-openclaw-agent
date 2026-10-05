@@ -99,11 +99,16 @@ to install anything else.
 - "Always online" or "I prefer in person" → `record-setup.ts --field defaultFormat --value meet|in_person|phone`;
   "ask me each time" → `ask`. Without one, Meetly asks how to meet when a
   request does not say.
+- "In-person meetings take an hour" or "calls are 15 minutes" → `record-setup.ts
+  --field formatDuration --value "<meet|in_person|phone> <minutes>"`, one
+  format at a time; `<format> default` goes back to the usual length. A
+  request that names its own length still uses that one.
 - "Pause Meetly" → `register-crons.ts --pause`. "Resume" → `register-crons.ts --resume`.
 - "Status" → summarize `setup-status.ts`: days, window, duration, horizon,
   the minimum notice (2 hours when `config.minNoticeMin` is unset),
   default meeting type (or "ask each time" when `config.defaultFormat` is
-  unset), travel buffer when set, calendars, and whether it is paused.
+  unset), the length of each format that has its own
+  (`config.formatDurations`), travel buffer when set, calendars, and whether it is paused.
   unset), video provider (Google Meet, or Zoom when
   `config.zoomRoomUrl` is set), whether inbound owner approval is on, the movable title phrases (`config.movable`, or
   "none"), calendars, and whether it is paused.
