@@ -12,9 +12,12 @@
 # contract the README follows.
 #
 # `agent-index-client` stays out: it reaches this repo only through the base.
-# `plow-pbc/plow` stays out although the scripts call its API: it is private
-# and this repo is public, so a citation into it would publish private paths.
+# `plow-pbc/plow` is the server for every `/v1/...` call this repo makes, so a
+# reviewer checks those calls against the real routes, not only against
+# another client. It is private and this repo is public: cite it by
+# `path:line`, don't quote its code.
 
 plow-pbc/plow-openclaw-agent
 plow-pbc/latch
 plow-pbc/plow-agents
+plow-pbc/plow
