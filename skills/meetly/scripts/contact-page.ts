@@ -1,8 +1,10 @@
 // One page per person Meetly has scheduled with: where they stand, the exact
 // holds on the calendar, what was proposed, the next step, and a dated log.
 // The page is derived from the ledger and the do-not-contact list, never
-// edited by hand, so it changes only when they do (after the calendar or the
-// group confirmed it). It is what to read before proposing to someone again:
+// edited by hand: its facts change only when they do (after the calendar or
+// the group confirmed it), and its status and next step also follow the
+// pipeline's stage as time passes (an offer unanswered for a day becomes
+// waiting_on_them). It is what to read before proposing to someone again:
 // how they met before, and what is still open.
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";

@@ -95,8 +95,9 @@ signed as Meetly.
   times proposed, the next step, every earlier meeting (topic, how, where, how
   long) and a dated log. Meetly reads it before proposing again, and answers
   "how is it going with Ana?" from it. The page is rewritten from Meetly's
-  records on every check, so it changes only after the calendar or the group
-  confirmed something.
+  records on every check: its facts change only after the calendar or the
+  group confirmed something, and its status follows the pipeline as time
+  passes (an offer unanswered for a day shows as waiting on them).
 - **Tells them when you cancel or move.** Ask Meetly to cancel or move a
   meeting it booked and it updates the calendar and says so in that person's
   group, in one line.
