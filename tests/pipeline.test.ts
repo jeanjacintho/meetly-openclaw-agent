@@ -32,7 +32,7 @@ function sample(): Ledger {
 }
 
 test("the pipeline says who is waiting on whom, how long, what is booked next and what just closed", () => {
-  const p = pipeline(sample(), T0);
+  const p = pipeline(sample(), T0, false);
   assert.deepEqual(p.waitingOnOwner.map((i) => [i.id, i.hoursWaiting, i.stage]), [["r_ana", 5, "waiting_on_us"]]);
   // No linked group is delivery-unknown: check manually and never retry.
   assert.deepEqual(p.deliveryUnknown.map((i) => [i.id, i.hoursWaiting, i.stage, i.delivery, i.nextStep]),
@@ -57,16 +57,16 @@ test("the pipeline says who is waiting on whom, how long, what is booked next an
 
 test("an update after a request closed does not make it look newly closed, and reopening clears the close", () => {
   const touched = updateRequest(sample(), "r_fabi", { holdCleanup: [{ holdId: "h1", account: "jean@example.com" }] }, T0);
-  assert.deepEqual(pipeline(touched, T0).closed.map((i) => i.id), ["r_edu"]);
+  assert.deepEqual(pipeline(touched, T0, false).closed.map((i) => i.id), ["r_edu"]);
   const reopened = updateRequest(sample(), "r_edu", { status: "offered" }, T0);
   assert.equal("closedAt" in reopened.requests.find((r) => r.id === "r_edu")!, false);
-  assert.deepEqual(pipeline(reopened, T0).closed, []);
+  assert.deepEqual(pipeline(reopened, T0, false).closed, []);
 });
 
 test("a booking recorded before the booked time existed still shows, last", () => {
   let l = addRequest({ requests: [] }, input("+15550000009", { name: "Gabi" }), T0, "r_gabi");
   l = updateRequest(l, "r_gabi", { status: "booked", eventId: "ev_1" }, T0);
-  assert.deepEqual(pipeline(l, T0).booked.map((i) => i.id), ["r_gabi"]);
+  assert.deepEqual(pipeline(l, T0, false).booked.map((i) => i.id), ["r_gabi"]);
 });
 
 test("history lists everything with a person, newest first, so the goal and the format are read before asking", () => {
@@ -164,31 +164,31 @@ test("a gated inbound request counts as waiting on the owner everywhere: stage, 
   const request = gated.requests[0]!;
   assert.equal(request.chatUid, undefined);
   // The pipeline lists it under the owner, with the hours since the approval ask.
-  const p = pipeline(gated, T0);
+  const p = pipeline(gated, T0, false);
   assert.deepEqual(p.waitingOnOwner.map((i) => [i.id, i.stage, i.hoursWaiting]), [["r_gate", "waiting_on_us", 5]]);
   // The monitor reminds the owner after four hours, with no chat uid (so the poll reminds them in their DM), and once.
-  const m = monitor(gated, T0);
+  const m = monitor(gated, T0, false);
   assert.deepEqual(m.ownerWaiting.map((i) => [i.id, i.hoursWaiting, i.chatUid]), [["r_gate", 5, undefined]]);
-  assert.deepEqual(monitor(gated, T0 - 2 * HOUR).ownerWaiting, []);
-  assert.deepEqual(monitor(updateRequest(gated, "r_gate", { nudgedAt: new Date(T0).toISOString() }, T0), T0 + HOUR).ownerWaiting, []);
+  assert.deepEqual(monitor(gated, T0 - 2 * HOUR, false).ownerWaiting, []);
+  assert.deepEqual(monitor(updateRequest(gated, "r_gate", { nudgedAt: new Date(T0).toISOString() }, T0), T0 + HOUR, false).ownerWaiting, []);
 });
 
 test("the monitor lists owner decisions, unknown delivery warnings and contact nudges once", () => {
   const l = sample();
   // Ana waits on the owner; Bia's group delivery is unknown (never retry).
-  const m = monitor(l, T0);
+  const m = monitor(l, T0, false);
   assert.equal(m.ownerWaiting[0]!.handle, "+15550000001");
   assert.deepEqual(m.ownerWaiting.map((i) => [i.id, i.hoursWaiting, i.chatUid, i.nextStep]), [["r_ana", 5, "c1", "owner decision needed"]]);
   assert.deepEqual(m.deliveryUnknown.map((i) => [i.id, i.hoursWaiting, i.delivery]), [["r_bia", 30, "unknown"]]);
   assert.deepEqual(m.waitingOnThem.map((i) => [i.id, i.hoursWaiting, i.chatUid]), [["r_gus", 31, "c9"]]);
   // Too early, or waiting on them, closed or booked: nothing.
-  assert.deepEqual(monitor(l, T0 - 2 * HOUR).ownerWaiting, []);
-  const none = monitor(l, T0);
+  assert.deepEqual(monitor(l, T0 - 2 * HOUR, false).ownerWaiting, []);
+  const none = monitor(l, T0, false);
   assert.equal(JSON.stringify(none).includes("r_caio") || JSON.stringify(none).includes("r_edu"), false);
   // A nudge is sent once per ask: after it, nothing is due until the owner is asked again.
   const nudged = updateRequest(updateRequest(updateRequest(l, "r_ana", { nudgedAt: new Date(T0).toISOString() }, T0), "r_bia", { nudgedAt: new Date(T0).toISOString() }, T0), "r_gus", { personNudgedAt: new Date(T0).toISOString() }, T0);
-  assert.deepEqual([monitor(nudged, T0 + 10 * HOUR).ownerWaiting, monitor(nudged, T0 + 10 * HOUR).deliveryUnknown, monitor(nudged, T0 + 10 * HOUR).waitingOnThem], [[], [], []]);
+  assert.deepEqual([monitor(nudged, T0 + 10 * HOUR, false).ownerWaiting, monitor(nudged, T0 + 10 * HOUR, false).deliveryUnknown, monitor(nudged, T0 + 10 * HOUR, false).waitingOnThem], [[], [], []]);
   const asked = updateRequest(nudged, "r_ana", { pendingOwner: { start: "2026-10-04T22:00:00Z", end: "2026-10-04T22:30:00Z", askedAt: new Date(T0 + 1 * HOUR).toISOString() } }, T0 + 1 * HOUR);
-  assert.deepEqual(monitor(asked, T0 + 6 * HOUR).ownerWaiting.map((i) => i.id), ["r_ana"]);
+  assert.deepEqual(monitor(asked, T0 + 6 * HOUR, false).ownerWaiting.map((i) => i.id), ["r_ana"]);
   assert.throws(() => updateRequest(l, "r_ana", { nudgedAt: "soon" }, T0), /nudgedAt/);
 });

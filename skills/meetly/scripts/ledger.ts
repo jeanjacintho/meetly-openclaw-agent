@@ -678,12 +678,14 @@ const NEXT_STEP: Record<Stage, string> = {
 
 // When the owner was asked to decide: a time outside their hours (`pendingOwner`), or a gated inbound request waiting for
 // approval. One definition for the stage, the pipeline's waiting time and the monitor's reminders.
-const ownerDecisionAt = (r: Request): string | undefined => r.pendingOwner?.askedAt ?? (awaitingOwnerApproval(r) ? r.ownerApprovalAt : undefined);
+// A request waiting for approval with no marker (waitsForOwner, gate on) has waited since its offer.
+const ownerDecisionAt = (r: Request, gateOn: boolean): string | undefined =>
+  r.pendingOwner?.askedAt ?? (waitsForOwner(r, gateOn) ? r.ownerApprovalAt ?? r.offeredAt : undefined);
 
-export function stageOf(r: Request, now: number): Stage {
+export function stageOf(r: Request, now: number, gateOn: boolean): Stage {
   if (r.status === "booked") return "confirmed";
   if (r.status !== "offered") return "passed";
-  if (ownerDecisionAt(r)) return "waiting_on_us";
+  if (ownerDecisionAt(r, gateOn)) return "waiting_on_us";
   if (!r.chatUid) return "delivery_unknown";
   return hoursSince(r.offeredAt, now) >= STALE_HOURS ? "waiting_on_them" : "sent";
 }
@@ -692,27 +694,27 @@ export function stageOf(r: Request, now: number): Stage {
 // delivered (waiting on Meetly), offers the other person has to answer (oldest
 // first), meetings still to come (soonest first; one with no recorded time
 // last), and what closed in the past week.
-const pipelineItem = (r: Request, now: number, extra: Partial<PipelineItem> = {}): PipelineItem => {
-  const stage = stageOf(r, now);
+const pipelineItem = (r: Request, now: number, gateOn: boolean, extra: Partial<PipelineItem> = {}): PipelineItem => {
+  const stage = stageOf(r, now, gateOn);
   const out: PipelineItem = { id: r.id, topic: r.topic, status: r.status, stage, delivery: r.chatUid ? "linked" : "unknown", nextStep: NEXT_STEP[stage], ...extra };
   if (r.name !== undefined) out.name = r.name;
   return out;
 };
 
-export function pipeline(ledger: Ledger, now: number, blocked: string[] = []): {
+export function pipeline(ledger: Ledger, now: number, gateOn: boolean, blocked: string[] = []): {
   waitingOnOwner: PipelineItem[]; deliveryUnknown: PipelineItem[]; waitingOnThem: PipelineItem[]; booked: PipelineItem[]; closed: PipelineItem[];
 } {
-  const item = (r: Request, extra: Partial<PipelineItem> = {}) => pipelineItem(r, now, extra);
-  const waiting = (r: Request) => ({ hoursWaiting: hoursSince(ownerDecisionAt(r) ?? r.offeredAt, now) });
+  const item = (r: Request, extra: Partial<PipelineItem> = {}) => pipelineItem(r, now, gateOn, extra);
+  const waiting = (r: Request) => ({ hoursWaiting: hoursSince(ownerDecisionAt(r, gateOn) ?? r.offeredAt, now) });
   const requests = ledger.requests.filter((r) => !blocked.some((b) => sameHandle(b, r.handle)));
   const open = requests.filter((r) => r.status === "offered");
   const upcoming = requests.filter((r) => r.status === "booked" && (!r.booked || Date.parse(r.booked.start) >= now));
   const startOf = (r: Request) => (r.booked ? Date.parse(r.booked.start) : Infinity);
   const byStage = (stage: (r: Request) => boolean) => open.filter(stage).map((r) => item(r, waiting(r)));
   return {
-    waitingOnOwner: byStage((r) => stageOf(r, now) === "waiting_on_us"),
-    deliveryUnknown: byStage((r) => stageOf(r, now) === "delivery_unknown").sort((a, b) => b.hoursWaiting! - a.hoursWaiting!),
-    waitingOnThem: byStage((r) => ["sent", "waiting_on_them"].includes(stageOf(r, now))).sort((a, b) => b.hoursWaiting! - a.hoursWaiting!),
+    waitingOnOwner: byStage((r) => stageOf(r, now, gateOn) === "waiting_on_us"),
+    deliveryUnknown: byStage((r) => stageOf(r, now, gateOn) === "delivery_unknown").sort((a, b) => b.hoursWaiting! - a.hoursWaiting!),
+    waitingOnThem: byStage((r) => ["sent", "waiting_on_them"].includes(stageOf(r, now, gateOn))).sort((a, b) => b.hoursWaiting! - a.hoursWaiting!),
     booked: upcoming.sort((a, b) => startOf(a) - startOf(b)).map((r) => item(r, r.booked ? { booked: { start: r.booked.start, end: r.booked.end } } : {})),
     closed: requests.filter((r) => r.status !== "offered" && r.status !== "booked" && now - Date.parse(closedWhen(r)) <= WEEK)
       .sort((a, b) => closedWhen(b).localeCompare(closedWhen(a))).slice(0, 10).map((r) => item(r, { closedAt: closedWhen(r) })),
@@ -725,23 +727,23 @@ export const PERSON_NUDGE_HOURS = 24;
 
 // What waits on the owner or on Meetly for too long, to be reminded once per
 // ask. The other person is nudged once per offer; replacing an offer resets it.
-export function monitor(ledger: Ledger, now: number): {
+export function monitor(ledger: Ledger, now: number, gateOn: boolean): {
   ownerWaiting: (PipelineItem & { chatUid?: string; handle: string })[]; deliveryUnknown: PipelineItem[]; waitingOnThem: (PipelineItem & { chatUid: string; handle: string })[];
 } {
-  const asked = ownerDecisionAt;
+  const asked = (r: Request) => ownerDecisionAt(r, gateOn);
   const due = (r: Request, since: string, hours: number) =>
     hoursSince(since, now) >= hours && (!r.nudgedAt || Date.parse(r.nudgedAt) < Date.parse(since));
   const personDue = (r: Request) => hoursSince(r.offeredAt, now) >= PERSON_NUDGE_HOURS &&
     (!r.personNudgedAt || Date.parse(r.personNudgedAt) < Date.parse(r.offeredAt));
-  const view = (r: Request, since: string): PipelineItem => pipelineItem(r, now, { hoursWaiting: hoursSince(since, now) });
+  const view = (r: Request, since: string): PipelineItem => pipelineItem(r, now, gateOn, { hoursWaiting: hoursSince(since, now) });
   const open = ledger.requests.filter((r) => r.status === "offered");
   return {
-    ownerWaiting: open.filter((r) => stageOf(r, now) === "waiting_on_us" && asked(r) && due(r, asked(r)!, OWNER_NUDGE_HOURS))
+    ownerWaiting: open.filter((r) => stageOf(r, now, gateOn) === "waiting_on_us" && asked(r) && due(r, asked(r)!, OWNER_NUDGE_HOURS))
       .map((r) => ({ ...view(r, asked(r)!), handle: r.handle, ...(r.chatUid !== undefined ? { chatUid: r.chatUid } : {}) }))
       .sort((a, b) => b.hoursWaiting! - a.hoursWaiting!),
-    deliveryUnknown: open.filter((r) => stageOf(r, now) === "delivery_unknown" && due(r, r.offeredAt, DELIVERY_UNKNOWN_NOTICE_HOURS))
+    deliveryUnknown: open.filter((r) => stageOf(r, now, gateOn) === "delivery_unknown" && due(r, r.offeredAt, DELIVERY_UNKNOWN_NOTICE_HOURS))
       .map((r) => view(r, r.offeredAt)).sort((a, b) => b.hoursWaiting! - a.hoursWaiting!),
-    waitingOnThem: open.filter((r) => stageOf(r, now) === "waiting_on_them" && r.chatUid && !r.pendingOffer && personDue(r))
+    waitingOnThem: open.filter((r) => stageOf(r, now, gateOn) === "waiting_on_them" && r.chatUid && !r.pendingOffer && personDue(r))
       .map((r) => ({ ...view(r, r.offeredAt), chatUid: r.chatUid!, handle: r.handle }))
       .sort((a, b) => b.hoursWaiting! - a.hoursWaiting!),
   };
@@ -915,7 +917,10 @@ if (isMain(import.meta.url)) {
         if (!Number.isFinite(hours) || hours < 0) throw new Error(`--hours must be a number >= 0, got ${values.hours}`);
         let claimed: Request[] = [];
         updateJson<Ledger>(path, EMPTY, (l) => { const out = expireRequests(l, hours, now); claimed = out.claimed; return out.ledger; });
-        return { requests: claimed };
+        // Whether each one was still waiting for the owner's yes when it closed (the same rule as approvals), so the
+        // owner hears that the approval expired, marker or not.
+        const gateOn = loadConfig().ownerGate === true;
+        return { requests: claimed.map((r) => ({ ...r, waitedForOwner: waitsForOwner(r, gateOn) })) };
       }
       case "log": {
         if (!values.id) throw new Error("usage: ledger.ts log --id X [--text-file F]");
@@ -928,9 +933,9 @@ if (isMain(import.meta.url)) {
         return { log: ledger.requests.find((r) => r.id === values.id)!.log };
       }
       case "monitor":
-        return monitor(readJson<Ledger>(path, EMPTY), now);
+        return monitor(readJson<Ledger>(path, EMPTY), now, loadConfig().ownerGate === true);
       case "pipeline":
-        return pipeline(readJson<Ledger>(path, EMPTY), now, readJson<{ handle: string }[]>(file("blocked.json"), []).map((b) => b.handle));
+        return pipeline(readJson<Ledger>(path, EMPTY), now, loadConfig().ownerGate === true, readJson<{ handle: string }[]>(file("blocked.json"), []).map((b) => b.handle));
       case "history": {
         if (handle === undefined) throw new Error("usage: ledger.ts history --handles-file F");
         return { requests: historyFor(readJson<Ledger>(path, EMPTY), handle) };
