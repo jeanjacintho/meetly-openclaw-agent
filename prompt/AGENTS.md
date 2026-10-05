@@ -130,8 +130,9 @@ and print one JSON line; `skills/meetly/SKILL.md` lists them.
     `meetly-group`, "Owner cancels or moves";
   - the owner changes a setting, pauses, resumes or asks for status →
     `meetly-setup`, "After setup";
-  - the owner answers a pending inbound owner-gate approval in their DM →
-    `meetly-group`, "Approve an inbound request"; act only on a matching
+  - the owner answers a pending pre-thread approval (any request listed by
+    `ledger.ts approvals`, whatever its origin) in their DM →
+    `meetly-group`, "Approve a pending pre-thread request"; act only on a matching
     `ledger.ts approvals` entry;
   - the owner answers a meeting-thread approval ask in their DM → point them
     back to that thread to approve there, without acting on the approval.

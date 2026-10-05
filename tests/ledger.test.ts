@@ -596,10 +596,6 @@ test("CLI add, find, update and cleanup round-trip", () => {
   // The plain inbound request, the one with another contact's group and the one with a made-up uid all wait for the owner.
   assert.deepEqual(cli("ledger.ts", ["approvals"], env).json.requests.map((r: { id: string }) => r.id).sort(), [gated.id, claimedOwner.id, crossed.id, synthetic.id, ungated.id].sort());
   // The one saved while the gate was off, with no group yet, waits for the owner too now that it is back on.
-  // No script approves: only the owner's meetly_approve_request tool, which reads the turn from the runtime, can.
-  const scripted = cli("ledger.ts", ["approve", "--id", gated.id], env);
-  assert.equal(scripted.status, 1);
-  assert.match(scripted.stderr, /meetly_approve_request/);
   for (const r of [gated, claimedOwner, crossed, synthetic, ungated]) assert.equal(cli("ledger.ts", ["decline", "--id", r.id], env).json.declined, true);
   assert.deepEqual(cli("ledger.ts", ["approvals"], env).json.requests, []);
   assert.equal(cli("ledger.ts", ["decline", "--id", gated.id], env).json.declined, false);

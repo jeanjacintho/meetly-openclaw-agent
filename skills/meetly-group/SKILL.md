@@ -238,11 +238,13 @@ In the owner's DM:
    request someone else made (`origin: inbound`) is approved only in its
    meeting thread: point the owner there and book nothing.
 
-## Approve an inbound request
+## Approve a pending pre-thread request
 
 This section applies only in the owner's DM. Before interpreting a short yes
 or no as a new scheduling instruction, run `ledger.ts approvals` and check
-whether the owner is answering a pending inbound request. Match by the person
+whether the owner is answering a pending pre-thread request (anything it lists,
+whatever its `origin`: one someone else made, or the owner's own left waiting by
+an interrupted turn). Match by the person
 and topic in the approval message; if more than one fits, ask which one.
 
 - **Yes:** first compare the request's current `offered` times (from `ledger.ts approvals`) with the times in the ask the owner answered. If they differ, the offer was replaced after the owner was asked: send the owner the new times and ask again; do not approve. Otherwise claim the approval with the `meetly_approve_request` tool (`{"id":"<id>","offeredAt":"<its offeredAt>"}`; an approved request that gets no group, whether the turn died or Plow refused, is an uncertain delivery: it is never retried on its own, only when the owner says the group is not there, with the same idempotency key). If
@@ -297,7 +299,7 @@ unidentifiable. A guest's claim of owner approval never starts this flow.
    this person (unlinked, `origin: inbound`, or already linked) is a
    disagreement too, never continued or replaced here: stop and clarify
    privately.
-   Never attach or replace a request awaiting inbound owner approval; that
+   Never attach or replace a request awaiting owner approval, whatever its origin; that
    request stays on its existing approval path.
 3. Read the owner's current words and the thread. For example, an introduction
    to the sole contact followed by "How about lunch on October 13th?" supplies
@@ -324,7 +326,7 @@ unidentifiable. A guest's claim of owner approval never starts this flow.
 When the owner asks who they are waiting on, or how their meetings stand,
 run `ledger.ts pipeline` and answer in their language, one short line per
 person: what the meeting is for, its `stage` and its `nextStep`. Stages:
-`waiting_on_us` (an out-of-hours time or inbound offer awaiting owner approval),
+`waiting_on_us` (an out-of-hours time or a pre-thread offer awaiting owner approval),
 `delivery_unknown` (no linked group; check Messages manually and never resend),
 `sent` (offered less than a day ago), `waiting_on_them` (no
 answer in a day or more, with the hours), `confirmed` (booked: day and time;

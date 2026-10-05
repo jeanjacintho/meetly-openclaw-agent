@@ -26,10 +26,16 @@ export function record(field: string, value: string, { ownerTurn = false } = {})
     : { ...current, formatDurations: mergeDurations(current.formatDurations, patch.formatDurations) };
   const configPath = file("config.json");
   if (readJson<Config | null>(configPath, null)?.setupDoneAt) {
-    // Turning approval on marks what is already open and ungrouped, in the ledger's own write, before the config says on.
-    if (patch.ownerGate === true) updateJson<Ledger>(file("ledger.json"), { requests: [] }, (l) => gateOpenRequests(l, Date.now()));
-    const config = updateJson<Config | null>(configPath, null, (c) => validateConfig(merge(c!)));
-    return { saved: field, config: config! };
+    const write = () => updateJson<Config | null>(configPath, null, (c) => validateConfig(merge(c!)))!;
+    if (patch.ownerGate !== true) return { saved: field, config: write() };
+    // Turning approval on marks what is already open and ungrouped and writes the setting under one ledger lock.
+    // `ledger.ts save` reads the setting under the same lock, so no save can slip an unmarked request in between.
+    const ledgerPath = file("ledger.json");
+    const config = withLock(ledgerPath, () => {
+      writeJson(ledgerPath, gateOpenRequests(readJson<Ledger>(ledgerPath, { requests: [] }), Date.now()));
+      return write();
+    });
+    return { saved: field, config };
   }
   const draft = updateJson<Partial<Config>>(file("config.draft.json"), {}, (d) => merge(d));
   const next = nextField(draft) ?? null;

@@ -858,9 +858,9 @@ if (isMain(import.meta.url)) {
         refuseApprovalKeys(input);
         const id = `r_${randomBytes(4).toString("hex")}`;
         const revision = randomBytes(4).toString("hex");
-        const gateOn = loadConfig().ownerGate === true;
+        // The setting is read under the ledger lock, the same lock record-setup.ts holds while it turns the gate on.
         const ledger = updateJson<Ledger>(path, EMPTY, (l) => {
-          gate(l, input, now, gateOn);
+          gate(l, input, now, loadConfig().ownerGate === true);
           return saveRequest(l, input, now, id, revision);
         });
         return { request: ledger.requests.find((r) => sameHandle(r.handle, input.handle) && r.status === "offered") };
@@ -942,8 +942,6 @@ if (isMain(import.meta.url)) {
       }
       case "pending":
         return { requests: pendingOwnerList(readJson<Ledger>(path, EMPTY)) };
-      case "approve":
-        throw new Error("the owner approves a request only with the meetly_approve_request tool, in their own DM turn; no script can");
       case "decline": {
         if (!values.id) throw new Error("usage: ledger.ts decline --id X");
         let declined = false;

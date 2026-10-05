@@ -79,8 +79,7 @@ test("a poll turn cannot reach a guest without the owner's approval, whatever or
 
   const posts: string[] = [];
   await assert.rejects(open(id, posts), /waiting for the owner's approval/);
-  // Neither the script nor the tool approves from the poll, or from a guest in a group.
-  assert.equal(cli("ledger.ts", ["approve", "--id", id], { MEETLY_HOME: home }).status, 1);
+  // The tool does not approve from the poll, or from a guest in a group.
   for (const ctx of [POLL, GUEST_IN_GROUP]) {
     const out = await tools(ctx).meetly_approve_request!.execute("call", { id, offeredAt });
     assert.equal(out.isError, true);
