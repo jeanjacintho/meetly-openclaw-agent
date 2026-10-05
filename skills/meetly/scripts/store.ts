@@ -18,18 +18,22 @@ export function readJson<T>(path: string, fallback: T): T {
   }
 }
 
-// Atomic: a temp file in the same directory, renamed over the target.
-export function writeJson(path: string, value: unknown): void {
+// Atomic and private: a temp file only this process uses, in the same directory (created 0700), renamed over the target.
+export function writeText(path: string, text: string): void {
   const dir = dirname(path);
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
   const tmp = join(dir, `.${basename(path)}.${process.pid}.${Date.now()}.tmp`);
   try {
-    writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+    writeFileSync(tmp, text, { mode: 0o600 });
     renameSync(tmp, path);
   } catch (err) {
     rmSync(tmp, { force: true });
     throw err;
   }
+}
+
+export function writeJson(path: string, value: unknown): void {
+  writeText(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 export type LockOptions = {

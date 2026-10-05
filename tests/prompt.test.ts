@@ -400,7 +400,8 @@ test("setup asks only what nobody can infer, and the rest starts at defaults", (
 test("Meetly researches the current thread, contact history and relevant messages before proposing", () => {
   const group = flat(readFileSync(join(SKILLS, "meetly-group", "SKILL.md"), "utf8"));
   assert.ok(group.includes("## Research before proposing"));
-  assert.ok(group.includes("ledger.ts history --handles-file <file with their handle>"));
+  assert.ok(group.includes("their page: `contact-page.ts --handles-file <file with their handle>`"));
+  assert.ok(group.includes("otherwise `--format <the request's format>`"));
   assert.ok(group.includes("search the owner's relevant email and Plow messages"));
   assert.ok(group.includes("ask the owner privately before contacting the other person"));
 });

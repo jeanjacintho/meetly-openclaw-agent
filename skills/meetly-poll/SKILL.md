@@ -95,13 +95,14 @@ still explain why no contact message was sent.
      holds ran out, queues their holds for the cleanup step
      below, and returns those requests as they were. For each one returned:
      If it has a `chatUid`, check the blocklist then tell the group the held
-     times were released; this also notifies the owner. If `waitedForOwner`
-     is true (it was still waiting for the owner's yes, with or without
-     `ownerApprovalAt`), tell the owner in their DM that approval expired and
-     the holds were released. If
+     times were released; this also notifies the owner. If `ownerApprovalAt`
+     was set, `ownerApprovedAt` is absent and there is no `chatUid`, tell the
+     owner in their DM that approval expired and the holds were released. If
      `ownerApprovedAt` is set but there is no `chatUid`, tell the owner the
      delivery is unknown, the holds expired and they must check Messages; do
      not resend. Never contact the other person before approval.
+   - Run `contact-page.ts --all`: it rewrites every person's page from the
+     ledger and the do-not-contact list, so each page stays current.
    - Run `ledger.ts monitor`: it lists what waits on the owner, Meetly or the
      other person too long. For each `waitingOnThem` item, read the latest
      messages in that meeting thread first. If the person has already

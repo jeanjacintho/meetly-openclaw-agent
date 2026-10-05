@@ -81,7 +81,10 @@ free there.
 2. Read the calendar.
 3. Run `slots.ts --in /var/lib/plow/meetly/tmp/busy.json --locale <their
    locale>`, with the request's constraints: `--days`, `--after`, `--before`,
-   `--from`/`--to`, `--duration`, `--allow-overlap`. For an in-person meeting,
+   `--from`/`--to`, `--allow-overlap`, and the length: `--duration` when the
+   request or the thread names one, otherwise `--format <the request's format>`
+   so the owner's length for that format applies (`config.formatDurations`,
+   else `config.durationMin`); save the slot's length as `durationMin`. For an in-person meeting,
    run `slots.ts` with `--travel` when `config.travelMin` is
    set. Slots stay inside the owner's days and window; constraints only
    narrow them.
@@ -247,7 +250,7 @@ and topic in the approval message; if more than one fits, ask which one.
   approved, or its times changed since: do nothing else, delete nothing, and tell the owner what the
   ledger now shows. Only a claimed request is acted on; `start-thread.ts`
   refuses one that is still waiting. Then re-read the calendar and run
-  `slots.ts --in … --at <start>` for every held time, passing that offer's hold
+  `slots.ts --in … --at <start> --duration <the request's durationMin>` for every held time, passing that offer's hold
   ids and every id in its `travel[]` with `--allow-overlap` (and `--travel` for
   an in-person offer when `config.travelMin` is set). If the times are still free, open the saved
   offer's group with its existing holds; do not run "Offer times" or
@@ -331,6 +334,8 @@ request has a linked group; `unknown` never means "never delivered" and never
 authorizes a retry. The next step is advice computed from the stage, never a
 claim about what happened. State only what the ledger says.
 Someone on the do-not-contact list has no stage: `blocklist.ts list`.
+When the owner asks about one person, read that person's page instead
+(`contact-page.ts --handles-file <file with their handle>`) and answer from it.
 
 ## What the log says
 
@@ -360,7 +365,9 @@ around a `do not contact` result.
 Before proposing times, establish the topic, purpose, attendees, location,
 duration and meeting format from the current conversation and the owner's
 request. Then check the contact card (`contacts`, `contact.ts`), this person's
-recent Plow message thread, and `ledger.ts history --handles-file <file with their handle>`.
+recent Plow message thread, and their page: `contact-page.ts --handles-file <file
+with their handle>` (where they stand, the holds and times still open, every
+earlier meeting with its topic, format, place and length, and the dated log).
 For an owner request, also search the owner's relevant email and Plow messages
 for the contact and topic, following the Mac's `google-workspace` and
 `plow-messages` skills for their exact commands. Keep searches narrow to this
@@ -592,7 +599,8 @@ the meeting thread to answer there, and make no calendar changes.
 - **Yes:**
   1. Re-check with the exact-time check ("Travel time") at
      `<pendingOwner.start>` for an in-person request when `config.travelMin`
-     is set; for any other request run `slots.ts --in` and `--at` without `--travel`.
+     is set; for any other request run `slots.ts --in` and `--at` without `--travel`. Either way pass
+     `--duration <the request's durationMin>`.
   2. If an in-person time needs travel buffers, create both travel holds
      before the meeting event. If either cannot be created, delete any buffer
      already made, keep failed deletes in `holdCleanup`, and do not book.

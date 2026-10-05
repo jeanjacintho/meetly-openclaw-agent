@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { record } from "../skills/meetly/scripts/record-setup.ts";
 import { startThread } from "../skills/meetly/scripts/start-thread.ts";
 import { beforeEach, afterEach } from "node:test";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -148,14 +149,14 @@ test("opens a group only for the saved open request and its own person, never wh
   seedRequest(home, { origin: "inbound", ownerApprovalAt: "2026-09-28T12:00:00.000Z" });
   await assert.rejects(go(), /waiting for the owner's approval/);
   assert.equal(calls.length, 0);
-  // A request with no marker (saved before markers existed) waits while the gate is on: only the owner's yes opens a group.
-  writeConfig(home);
+  // One saved while the gate was off goes out (the owner's standing authorization)...
   seedRequest(home, { origin: "inbound" });
-  await assert.rejects(go(), /waiting for the owner's approval/);
-  assert.equal(calls.length, 0);
-  // With the gate off (the owner's standing authorization) it goes out.
-  writeConfig(home, { ownerGate: false });
   assert.deepEqual(await go(), { chatUid: "chat_9", messageSent: true });
+  // ...until the owner turns approval on: that marks it, so it waits for their yes like any other.
+  seedRequest(home, { origin: "inbound" });
+  record("ownerGate", "on");
+  await assert.rejects(go(), /waiting for the owner's approval/);
+  assert.equal(calls.length, 2, "only the first one was sent");
   seedRequest(home, { origin: "inbound", ownerApprovalAt: "2026-09-28T12:00:00.000Z" });
   await assert.rejects(go(), /waiting for the owner's approval/);
   seedRequest(home, { origin: "inbound", ownerApprovalAt: "2026-09-28T12:00:00.000Z", ownerApprovedAt: "2026-09-28T12:05:00.000Z" });

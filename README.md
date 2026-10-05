@@ -90,6 +90,14 @@ signed as Meetly.
 - **Holds expire.** No answer in 48 hours: the holds are deleted. If you
   never approved, only you are told; once a group exists, it is told the times
   were released.
+- **Keeps a page for each person.** Everyone Meetly has scheduled with has a
+  page in its state folder: where they stand, the exact calendar holds, the
+  times proposed, the next step, every earlier meeting (topic, how, where, how
+  long) and a dated log. Meetly reads it before proposing again, and answers
+  "how is it going with Ana?" from it. The page is rewritten from Meetly's
+  records on every check: its facts change only after the calendar or the
+  group confirmed something, and its status follows the pipeline as time
+  passes (an offer unanswered for a day shows as waiting on them).
 - **Tells them when you cancel or move.** Ask Meetly to cancel or move a
   meeting it booked and it updates the calendar and says so in that person's
   group, in one line.
@@ -128,6 +136,10 @@ link and it uses that for every video meeting; it cannot create new Zoom links.
 One more setting has no default: your default meeting type (online, in person
 or phone). Say "always online" and Meetly stops asking how to meet; whatever a
 request says still wins.
+
+Each kind of meeting can have its own length: "in-person meetings take an
+hour", "calls are 15 minutes". A request that names its own length still uses
+that one; any other kind keeps the usual 30 minutes.
 
 Change any of it later in plain words ("make my window 10 to 17", "I don't
 take meetings on Fridays"), or say "pause Meetly" / "resume Meetly".

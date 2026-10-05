@@ -2,9 +2,10 @@
 // finishes setup with --done and registers the cron jobs.
 import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
-import { isField, nextField, parseField, QUESTIONS, validateConfig, type Config, type Field, type RequiredField } from "./config.ts";
+import { isField, mergeDurations, nextField, parseField, QUESTIONS, validateConfig, type Config, type Field, type RequiredField } from "./config.ts";
 import { file } from "./paths.ts";
 import { readJson, removeFile, updateJson, withLock, writeJson } from "./store.ts";
+import { gateOpenRequests, type Ledger } from "./ledger.ts";
 import { registerFromConfig } from "./register-crons.ts";
 
 export type Recorded =
@@ -19,12 +20,18 @@ export function record(field: string, value: string, { ownerTurn = false } = {})
   if (patch.ownerGate === false && !ownerTurn) {
     throw new Error("only the owner can turn approval off, with the meetly_set_owner_gate tool in their own DM; no script can");
   }
+  // One format's length is changed at a time; the others stay as they were.
+  const merge = (current: Partial<Config>): Partial<Config> => patch.formatDurations === undefined
+    ? { ...current, ...patch }
+    : { ...current, formatDurations: mergeDurations(current.formatDurations, patch.formatDurations) };
   const configPath = file("config.json");
   if (readJson<Config | null>(configPath, null)?.setupDoneAt) {
-    const config = updateJson<Config | null>(configPath, null, (c) => validateConfig({ ...c!, ...patch }));
+    // Turning approval on marks what is already open and ungrouped, in the ledger's own write, before the config says on.
+    if (patch.ownerGate === true) updateJson<Ledger>(file("ledger.json"), { requests: [] }, (l) => gateOpenRequests(l, Date.now()));
+    const config = updateJson<Config | null>(configPath, null, (c) => validateConfig(merge(c!)));
     return { saved: field, config: config! };
   }
-  const draft = updateJson<Partial<Config>>(file("config.draft.json"), {}, (d) => ({ ...d, ...patch }));
+  const draft = updateJson<Partial<Config>>(file("config.draft.json"), {}, (d) => merge(d));
   const next = nextField(draft) ?? null;
   return { saved: field, next, question: next ? QUESTIONS[next] : null };
 }

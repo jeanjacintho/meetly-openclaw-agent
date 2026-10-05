@@ -14,8 +14,7 @@ import { parseArgs } from "node:util";
 import { isMain, run } from "./cli.ts";
 import { isBlocked, loadBlocked } from "./blocklist.ts";
 import { fetchIdentity, findOwnerDm, plowApi, type ApiOptions } from "./owner-chat.ts";
-import { loadConfig } from "./config.ts";
-import { assertDeliverable, sameHandle, updateRequest, waitsForOwner, type Ledger } from "./ledger.ts";
+import { assertDeliverable, awaitingOwnerApproval, sameHandle, updateRequest, type Ledger } from "./ledger.ts";
 import { file } from "./paths.ts";
 import { isHandle } from "./reachable-handle.ts";
 import { readJson, withLock, writeJson } from "./store.ts";
@@ -40,9 +39,7 @@ export async function startThread(opts: ApiOptions & { members: string[]; body: 
   // without one (and so gated) can open a new group.
   const request = readJson<Ledger>(file("ledger.json"), { requests: [] }).requests.find((r) => r.id === opts.requestId);
   if (!request || request.status !== "offered") throw new Error(`request ${opts.requestId} is not an open request: save the offer first`);
-  const gateOn = loadConfig().ownerGate === true;
-  // With the gate on, only the owner's yes opens a group: a request with no marker (saved before markers existed) waits too.
-  if (waitsForOwner(request, gateOn)) {
+  if (awaitingOwnerApproval(request)) {
     throw new Error(`request ${request.id} is waiting for the owner's approval: nothing may be sent yet`);
   }
   if (request.chatUid !== undefined) throw new Error(`request ${request.id} already has a group (${request.chatUid}): post its times there`);
@@ -72,7 +69,7 @@ export async function startThread(opts: ApiOptions & { members: string[]; body: 
     // that is sent and linked.
     return withLock(file("ledger.json"), async (): Promise<Started> => {
       const ledger = readJson<Ledger>(file("ledger.json"), { requests: [] });
-      assertDeliverable(ledger, request.id, { handle: request.handle, offeredAt: request.offeredAt, ownerApprovedAt: request.ownerApprovedAt }, gateOn);
+      assertDeliverable(ledger, request.id, { handle: request.handle, offeredAt: request.offeredAt, ownerApprovedAt: request.ownerApprovedAt });
 
       let res: Response;
       try {

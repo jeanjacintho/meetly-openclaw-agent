@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import type { Config } from "../skills/meetly/scripts/config.ts";
 
 const SCRIPTS = resolve(import.meta.dirname, "..", "skills", "meetly", "scripts");
 
@@ -18,6 +19,13 @@ export function seedRequest(home: string, over: Record<string, unknown> = {}): v
   };
   writeFileSync(join(home, "ledger.json"), JSON.stringify({ requests: [request] }));
 }
+
+// A finished configuration, for the suites that build one in memory.
+export const testConfig = (over: Partial<Config> = {}): Config => ({
+  ownerName: "Jean", timezone: "America/Sao_Paulo", days: ["mon", "tue", "wed", "thu", "fri"], windowStart: "09:00", windowEnd: "18:00",
+  durationMin: 30, horizonDays: 7, calendars: [{ account: "jean@example.com", id: "primary" }], defaultAccount: "jean@example.com",
+  setupDoneAt: "2026-09-26T12:00:00.000Z", ...over,
+});
 
 // A finished setup in the data dir, for the scripts that read the configuration (the gate is on unless overridden).
 export function writeConfig(home: string, over: Record<string, unknown> = {}): void {
