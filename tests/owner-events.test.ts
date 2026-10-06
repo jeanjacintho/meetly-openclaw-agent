@@ -17,13 +17,13 @@ const gog = (id: string, summary: string, start: string, end: string, extra: Rec
 
 test("the model sees an event's title, id, account and times, and nothing else", () => {
   const events = [
-    { ...gog("e1", "Almoço com Amor", "2026-10-01T12:30:00-03:00", "2026-10-01T13:00:00-03:00"), account: "owner@example.com" },
+    { ...gog("e1", "Lunch with Amor", "2026-10-01T12:30:00-03:00", "2026-10-01T13:00:00-03:00"), account: "owner@example.com" },
     { ...gog("e2", "Holiday", "2026-10-01", "2026-10-02", { allDay: true }), account: "work@example.com" },
     { ...gog("e3", "Gone", "2026-10-01T09:00:00-03:00", "2026-10-01T10:00:00-03:00", { status: "cancelled" }), account: "owner@example.com" },
     { id: "e4", account: "owner@example.com", start: { dateTime: "2026-10-01T15:00:00-03:00" }, end: { dateTime: "2026-10-01T16:00:00-03:00" } },
   ];
   assert.deepEqual(ownerEvents(events), [
-    { id: "e1", account: "owner@example.com", calendarId: "owner@example.com", title: "Almoço com Amor", start: "2026-10-01T12:30:00-03:00", end: "2026-10-01T13:00:00-03:00" },
+    { id: "e1", account: "owner@example.com", calendarId: "owner@example.com", title: "Lunch with Amor", start: "2026-10-01T12:30:00-03:00", end: "2026-10-01T13:00:00-03:00" },
     { id: "e2", account: "work@example.com", calendarId: "owner@example.com", title: "Holiday", start: "2026-10-01", end: "2026-10-02" },
     { id: "e4", account: "owner@example.com", calendarId: "primary", title: "(no title)", start: "2026-10-01T15:00:00-03:00", end: "2026-10-01T16:00:00-03:00" },
   ]);
